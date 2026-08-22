@@ -668,15 +668,51 @@ function sizeSlider(side, label, lo, hi, step, r, on){
   v.max = Math.max(lo, Math.min(hi, v.max));
   if(v.max < v.min) v.max = v.min;
   const cls = on ? 'size-block on' : 'size-block';
-  return `<label class="${cls}">
+  const fmt = n => side==='word' ? n.toLocaleString() : String(n);
+  return `<div class="${cls}" data-side="${side}">
       <span class="size-lbl">${label}</span>
-      <span class="size-val"><b data-size-lbl="${side}-min">${side==='word'?v.min.toLocaleString():v.min}</b> ~ <b data-size-lbl="${side}-max">${side==='word'?v.max.toLocaleString():v.max}</b></span>
-      <span class="size-sliders">
-        <input type="range" data-size-slider="${side}-min" min="${lo}" max="${hi}" step="${step}" value="${v.min}">
-        <input type="range" data-size-slider="${side}-max" min="${lo}" max="${hi}" step="${step}" value="${v.max}">
-      </span>
+      <span class="size-val"><b data-dr-val="${side}">${fmt(v.min)} ~ ${fmt(v.max)}</b></span>
+      <div class="drs" data-drs="${side}" data-min="${lo}" data-max="${hi}" data-step="${step}"></div>
       <span class="size-scale">${lo.toLocaleString()} ~ ${hi.toLocaleString()}${side==='word'?' 字':' 章'}</span>
-    </label>`;
+    </div>`;
+}
+// 同轨双滑块：采用成熟的 noUiSlider（零依赖，双手柄 + 触屏 + 键盘 + ARIA，社区最通用）
+// 参考 https://github.com/leongersen/noUiSlider  · 用法见 https://refreshless.com/nouislider/
+// margin=step 保证两柄不交叉；update 实时刷新标签，change 松手才提交到 state
+function initDRS(){
+  $$('.drs').forEach(drs=>{
+    const side = drs.dataset.drs;
+    const lo = +drs.dataset.min, hi = +drs.dataset.max, step = +drs.dataset.step;
+    const stateR = side==='word' ? state.wordRange : state.chapterRange;
+    const dflt = side==='word' ? {min:3000,max:5000} : {min:80,max:100};
+    let v0 = (stateR && +stateR.min>0) ? +stateR.min : dflt.min;
+    let v1 = (stateR && +stateR.max>0) ? +stateR.max : dflt.max;
+    v0 = Math.max(lo, Math.min(hi, v0));
+    v1 = Math.max(lo, Math.min(hi, v1));
+    if(v1 < v0) v1 = v0;
+    if(drs.noUiSlider) drs.noUiSlider.destroy(); // render 会重建；先销毁旧实例，避免重复初始化
+    noUiSlider.create(drs, {
+      start: [v0, v1],
+      connect: true,
+      step: step,
+      margin: step,
+      range: { min: lo, max: hi }
+    });
+    const lbl = drs.parentElement.querySelector('[data-dr-val="'+side+'"]');
+    const fmt = n => side==='word' ? n.toLocaleString() : String(n);
+    // 拖动实时更新上面的数值标签
+    drs.noUiSlider.on('update', (vals)=>{
+      if(lbl){ const a=+vals[0], b=+vals[1]; lbl.textContent = fmt(a)+' ~ '+fmt(b); }
+    });
+    // 松手/键盘结束时提交到 state，并刷新派生提示
+    drs.noUiSlider.on('change', (vals)=>{
+      const R = { min: Math.round(+vals[0]), max: Math.round(+vals[1]) };
+      if(side==='word'){ state.wordRange=R; state.chapterRange=null; }
+      else { state.chapterRange=R; state.wordRange=null; }
+      const hint = $('#sizeHint'); if(hint) hint.textContent = sizeHintText();
+      persist(); render();
+    });
+  });
 }
 
 // 按所选体量推导「单章正文的 max_tokens 上限」，防止模型偶发超长输出推高成本
@@ -1566,32 +1602,7 @@ function bindView(){
     else state.recipeSet.quality.push(id);
     persist(); render();
   });
-  // 体量：字数/章节 二选一互斥（双滑条，max 不低于 min）
-  const SLIDER_BOUNDS = { word:{lo:1000, hi:12000}, chapter:{lo:1, hi:120} };
-  $$('[data-size-slider]').forEach(inp=> inp.oninput = ()=>{
-    const key = inp.dataset.sizeSlider;          // e.g. 'word-min'
-    const [side, kind] = key.split('-');
-    const b = SLIDER_BOUNDS[side]; if(!b) return;
-    let v = Math.max(b.lo, Math.min(b.hi, +inp.value));
-    const R = side==='word' ? state.wordRange : state.chapterRange;
-    const cur = (R && +R.min>0 && +R.max>0) ? {min:+R.min, max:+R.max} : {min:null, max:null};
-    // 更新一侧并保证 max>=min
-    if(kind==='min'){
-      cur.min = v;
-      if(cur.max!=null && cur.max < v) cur.max = v;
-      if(cur.max==null) cur.max = cur.min;
-    }else{
-      cur.max = v;
-      if(cur.min==null) cur.min = cur.max;
-      if(cur.min > v) cur.min = v;
-    }
-    cur.min = Math.max(b.lo, Math.min(b.hi, cur.min));
-    cur.max = Math.max(b.lo, Math.min(b.hi, cur.max));
-    // 互斥写入 state
-    if(side==='word'){ state.wordRange = {min:cur.min, max:cur.max}; state.chapterRange = null; }
-    else { state.chapterRange = {min:cur.min, max:cur.max}; state.wordRange = null; }
-    bindSizeHint(); persist(); render();
-  });
+  initDRS();
   const specCur = $('#specCurrentBtn'); if(specCur) specCur.onclick = openSpecPanel;
   const btnCO = $('#btnConfirmOutline'); if(btnCO) btnCO.onclick = ()=>{ state.outlineConfirmed=true; persist(); render(); };
   const btnRO = $('#btnReOutline'); if(btnRO) btnRO.onclick = ()=>{ state.outline=null; state.outlineConfirmed=false; state.chapters=[]; persist(); render(); };
@@ -2180,9 +2191,7 @@ function newProject(mode){
   return true;
 }
 function newLongProject(){
-  if(!confirm('创建一部「经典长篇小说」？\n\n支持三维写作范式（在「故事」页选择）：\n· 结构骨架：多线网状 / 单线因果 / 分层递归 / 英雄之旅 / 节拍表 / 七点结构\n· 节奏风格：黄金网文 / 压抑反转 / 慢生活 / 悬疑解谜 / 群像史诗 / 悲剧宿命 / 文艺向内\n· 质量机制：写手-编辑双审 / 自省重写 / 伏笔洞检测（可多选）\n\n体量可自定义每章字数或全书章数（二选一），全书目标约 30 万字。每次按 5 章一批生成；可用阅读浮层右上角「☰」目录快速跳转。\n此模式不生成视频提示词，只产出文字章节，可导出 TXT / EPUB / DOCX。')){
-    return false;
-  }
+  // 点击「新建长篇」不再弹确认页，直接新建并进入经典长篇小说页面
   return newProject('longnovel');
 }
 function deleteProject(id){
@@ -2305,11 +2314,8 @@ function init(){
   applyTheme(c.theme || 'dark');
   // 顶栏设置
   $('#btnSettings').onclick = openSettings;
-  // 历史作品按钮：展开/收起弹层；新建小说按钮
+  // 历史作品按钮：展开/收起弹层；新建小说 / 新建长篇按钮
   rebindHistPanel();
-  // 经典长篇小说入口（左上角历史右侧）：确认后新建长篇项目
-  const btnLongEl = $('#btnLong');
-  if(btnLongEl) btnLongEl.onclick = (e)=>{ e.stopPropagation(); newLongProject(); };
   // 创作规范按钮：展开/收起弹层（仅作用于写小说）
   const btnSpec = $('#btnSpec');
   if(btnSpec) btnSpec.onclick = (e)=>{ e.stopPropagation(); const p=$('#specPanel'); if(p.classList.contains('hidden')) openSpecPanel(); else closeSpecPanel(); };
