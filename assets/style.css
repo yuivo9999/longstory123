@@ -196,6 +196,43 @@ label.field>span{display:block;font-size:12px;color:var(--sub);margin-bottom:6px
 .recipe.active .r-tag{background:var(--accent);color:#fff}
 .recipe .r-desc{font-size:11px;color:var(--muted);line-height:1.4}
 
+/* 三维写作范式（结构/节奏/质量 + 体量） */
+.poly-card{padding:16px}
+.poly-combo{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:10px 0 14px;padding:10px 12px;border:1px dashed color-mix(in srgb,var(--accent) 55%, var(--line));border-radius:10px;background:color-mix(in srgb,var(--accent) 8%, transparent)}
+.pc-lbl{font-size:11px;letter-spacing:1px;color:var(--accent);font-weight:700;flex:0 0 auto}
+.pc-item{font-size:12px;background:var(--panel2);border:1px solid var(--line);border-radius:20px;padding:3px 10px;color:var(--txt)}
+.poly-dim{margin-bottom:16px}
+.poly-head{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+.poly-ic{font-size:16px}
+.poly-head b{font-size:14px;color:var(--txt)}
+.poly-rule{font-size:11px;color:var(--muted)}
+.poly-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
+.poly-grid .recipe{position:relative;min-height:66px;align-items:flex-start}
+.poly-grid .recipe .r-top{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%}
+.poly-grid .recipe .r-top b{font-size:13.5px}
+.poly-grid .r-tag{font-size:10px;padding:1px 8px;border-radius:20px;background:var(--panel2);color:var(--sub);white-space:nowrap}
+.poly-grid .r-tag.on{background:var(--accent);color:#fff}
+.poly-grid .r-src{font-size:10px;color:var(--muted);margin-bottom:2px}
+/* 介绍默认折叠，选中后展开 */
+.poly-grid .r-points{display:none;flex-direction:column;gap:6px;width:100%;margin-top:4px}
+.poly-grid .recipe.active .r-points{display:flex}
+.poly-grid .pt{display:flex;gap:8px;font-size:11px;line-height:1.5;align-items:flex-start}
+.poly-grid .pt b{flex:0 0 40px;color:var(--accent);font-weight:700;font-size:11px;padding-top:1px}
+.poly-grid .pt span{color:var(--sub);flex:1;word-break:break-word}
+.r-check{position:absolute;top:10px;right:10px;width:18px;height:18px;border-radius:50%;border:1.5px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:11px;color:#fff;background:transparent}
+.poly-grid .recipe.active .r-check{border-color:var(--accent);background:var(--accent)}
+/* 体量设定 */
+.poly-size{margin-top:6px;padding-top:14px;border-top:1px dashed var(--line)}
+.size-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px}
+.size-block{display:flex;flex-direction:column;gap:6px}
+.size-lbl{font-size:12px;color:var(--sub)}
+.size-inputs{display:flex;align-items:center;gap:8px}
+.size-inputs input{width:100%;min-width:0;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--txt);font-size:14px}
+.size-inputs input:focus{outline:none;border-color:var(--accent)}
+.size-inputs i{color:var(--muted);font-style:normal}
+.size-hint{font-size:11.5px;color:var(--accent);margin:8px 0 0}
+@media(max-width:560px){ .poly-grid{grid-template-columns:1fr} .size-grid{grid-template-columns:1fr} .poly-card{padding:12px} .poly-grid .recipe{min-height:0} }
+
 /* 长篇模式：结构设计卡片 */
 .structure-card{border-left:3px solid var(--accent2);background:color-mix(in srgb, var(--panel2) 55%, transparent)}
 .structure-card h3{margin:0 0 8px;font-size:14px;color:var(--accent2)}

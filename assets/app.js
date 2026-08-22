@@ -15,7 +15,10 @@ let lib = { curId: null, items: [] }; // {curId, items:[{id, idea, outline, ...,
 
 const state = {
   mode: 'shortfilm',    // 'shortfilm' 短片 / 'longnovel' 经典长篇小说
-  recipe: 'mesh',       // 长篇写作范式：mesh多线网状 / layered分层递归 / dual写手-编辑双审 / web黄金网文
+  recipe: 'mesh',       // (兼容旧字段) 旧式单一范式 id；新项目用 recipeSet
+  recipeSet: { structure:'mesh', rhythm:'web', quality:[] }, // 长篇三维写作范式：结构(单选)+节奏(单选)+质量(可多选)
+  wordRange: null,      // 用户填的单章字数区间 {min,max}；与 chapterRange 互斥
+  chapterRange: null,   // 用户填的全书章节区间 {min,max}；与 wordRange 互斥
   idea: '',
   coverPrompt: '',      // 整部小说封面提示词（场景页生成 / 长篇模式用）
   coverWithTitle: false,// 封面提示词是否包含「汉字书名」（false=纯画面无文字）
@@ -145,6 +148,9 @@ function projectSnapshot(){
   return {
     mode: state.mode || 'shortfilm',
     recipe: state.recipe || 'mesh',
+    recipeSet: state.recipeSet || { structure:'mesh', rhythm:'web', quality:[] },
+    wordRange: state.wordRange || null,
+    chapterRange: state.chapterRange || null,
     idea: state.idea,
     coverPrompt: state.coverPrompt,
     coverWithTitle: state.coverWithTitle,
@@ -166,6 +172,9 @@ function projectSnapshot(){
 function applyProject(p){
   state.mode = (p.mode === 'longnovel') ? 'longnovel' : 'shortfilm';
   state.recipe = p.recipe || 'mesh';
+  state.recipeSet = migrateRecipeSet(p.recipeSet, p.recipe);
+  state.wordRange = (p.wordRange && p.wordRange.min && p.wordRange.max) ? {min:+p.wordRange.min, max:+p.wordRange.max} : (p.chapterRange ? null : null);
+  state.chapterRange = (p.chapterRange && p.chapterRange.min && p.chapterRange.max) ? {min:+p.chapterRange.min, max:+p.chapterRange.max} : null;
   state.idea = p.idea || '';
   state.coverPrompt = p.coverPrompt || '';
   state.coverWithTitle = !!p.coverWithTitle;
@@ -183,9 +192,27 @@ function applyProject(p){
 function clearState(){
   state.mode = 'shortfilm';
   state.recipe = 'mesh';
+  state.recipeSet = { structure:'mesh', rhythm:'web', quality:[] };
+  state.wordRange = null; state.chapterRange = null;
   state.idea = ''; state.outline = null; state.coverPrompt = ''; state.coverWithTitle = false; state.outlineConfirmed = false;
   state.chapters = []; state.characters = []; state.scenes = []; state.storyboard = []; state.boardConcepts = []; state.titleHistory = []; state.raw = {};
   currentStep = 1;
+}
+// 兼容旧版单一范式 → 三维 recipeSet
+function migrateRecipeSet(set, legacyRecipe){
+  if(set && (set.structure || set.rhythm || (Array.isArray(set.quality) && set.quality.length) || (set.structure===null && set.rhythm===null))){
+    const out = {
+      structure: (typeof set.structure === 'string' && STRUCTURE_IDS.includes(set.structure)) ? set.structure : null,
+      rhythm: (typeof set.rhythm === 'string' && RHYTHM_IDS.includes(set.rhythm)) ? set.rhythm : null,
+      quality: Array.isArray(set.quality) ? set.quality.filter(q=> QUALITY_IDS.includes(q)) : []
+    };
+    // 修正结构维度内部互斥：若同时出现多个结构，只保留第一个
+    if(STRUCTURE_IDS.indexOf(out.structure) > -1) out.structure = out.structure;
+    return out;
+  }
+  // 旧 recipe 单一 id 迁移映射
+  const legacyMap = { mesh:{structure:'mesh',rhythm:null,quality:[]}, layered:{structure:'layered',rhythm:null,quality:[]}, dual:{structure:'mesh',rhythm:null,quality:['dual']}, web:{structure:null,rhythm:'web',quality:[]}, web100:{structure:null,rhythm:'web',quality:[]}, causal:{structure:'causal',rhythm:null,quality:[]} };
+  return legacyMap[legacyRecipe] || { structure:'mesh', rhythm:null, quality:[] };
 }
 function saveLib(){
   localStorage.setItem(KEY_LIB, JSON.stringify(lib));
@@ -356,10 +383,10 @@ const PROMPTS = {
   longOutlineSys: `你是一位能驾驭超长篇的著名小说架构师。根据用户的一句话或几句构想，设计一部经典的【长篇小说】，最终成品体量约 30 万字。
 你不能用三幕流水的短剧套路来搭长篇，而要用真正的长篇小说结构美学来设计骨架。请严格只输出如下 JSON（不要任何解释、不要 markdown 代码块）：
 {"title":"小说名","logline":"一句话梗概（含核心冲突与深层命题）","structure":{"mode":"结构模式","designReason":"为何选此结构、其精妙之处","mainLine":"主线：贯穿始终的核心冲突","subLines":["副线1：具体内容","副线2：具体内容"],"hiddenLine":"暗线：先埋设后揭晓的隐藏真相","pivotChapter":"多线汇合/大逆转所在章号(如 24)","threeFix":"三定：定时间轴 / 定汇合点 / 定主次(哪条线是主轴)"},"chapters":[{"title":"第1章标题","summary":"该章核心事件与转折，1-2句","line":"该章推进哪条线/埋哪个伏笔/节奏起伏"}]}
-选择结构模式时，默认优先采用【多线交织或网状交织】（次选单线因果、板块拼贴或闭环循环），并补齐 mainLine / subLines / hiddenLine 三条以上的叙事线索；多线必须做到"三定"：定时间轴、定汇合点（在哪一章几条线收束汇合）、定主次（以一条线为轴，其余服务它），否则会散架。暗线要从早期章节就埋设，直到结局呼应揭晓。章节总数 32-40 章（以便按 5 章一批逐步撰写，最终约 30 万字）。每章 title 有钩子感，summary 写清人物动机、情节推进与本批应埋伏笔；line 标注该章归属的线索与节奏（如"主线推进/暗线植入/支线完成/情绪张力升高"），使整体节奏有跌宕起伏的事件密度控制，而非平铺。`,
+选择结构模式时，默认优先采用【多线交织或网状交织】（次选单线因果、板块拼贴或闭环循环），并补齐 mainLine / subLines / hiddenLine 三条以上的叙事线索；多线必须做到"三定"：定时间轴、定汇合点（在哪一章几条线收束汇合）、定主次（以一条线为轴，其余服务它），否则会散架。暗线要从早期章节就埋设，直到结局呼应揭晓。每章 title 有钩子感，summary 写清人物动机、情节推进与本批应埋伏笔；line 标注该章归属的线索与节奏（如"主线推进/暗线植入/支线完成/情绪张力升高"），使整体节奏有跌宕起伏的事件密度控制，而非平铺。`,
 
   longChapterSys: `你是一位中文长篇小说的资深写手。根据「整体结构」「故事大纲」与「本章概要」写出本章完整正文，做到章章服务整体架构，绝不悬空发散。
-要求：单章篇幅 7000-9000 字；严格围绕本章概要推进，同时照顾它在全书结构中的位置——本线、伏笔、明暗线呼应；细腻的环境与心理描写、生动对话、符合人物弧光；节奏张弛有度（本章若是情绪高潮或转折则加压，若是过渡则蓄力）；章末留悬念或钩子，为后续章节/伏笔回落埋线；只输出正文，不要标题、不要"本章完/未完待续"之类片尾标注、不要任何解释。`,
+要求：严格围绕本章概要推进，同时照顾它在全书结构中的位置——本线、伏笔、明暗线呼应；细腻的环境与心理描写、生动对话、符合人物弧光；节奏张弛有度（本章若是情绪高潮或转折则加压，若是过渡则蓄力）；章末留悬念或钩子，为后续章节/伏笔回落埋线；只输出正文，不要标题、不要"本章完/未完待续"之类片尾标注、不要任何解释。`,
 
   editorSys: `你是一位挑剔而专业的长篇小说编辑。请对「给定的一章初稿」做三维审查，并输出 JSON 评分与本轮审稿意见。
 三个维度：角色一致性（人物性格/弧光是否符合设定）、剧情逻辑（因果是否合理、是否违背前文/时间线）、世界观一致（设定/能力/专名是否统一、是否出现硬伤）。
@@ -369,59 +396,239 @@ rules：role/plot/world 各按 0-100 打分；pass=true 当且仅当三维都 �
 };
 
 /* =========================================================
- * 长篇写作范式（借助开源方案提炼，可切换）
- * 每种范式 = 大纲提示词 + 章节提示词 + 是否注入结构上下文 + 是否走双审
+ * 长篇写作范式：结构 / 节奏 / 质量 三维，皆可独立或组合
  * ---------------------------------------------------------
- * mesh   多线网状交织   借鉴《红楼梦/水浒》网状多线 + 暗线早埋结局揭晓（默认）
- * layered分层递归展开   借鉴 Long-Novel-GPT / AI_Gen_Novel：卷→部→章→节逐级细分
- * dual   写手-编辑双审   借鉴 NovelForge：写手起草 + 编辑按角色/剧情/世界观三维打分修订
- * web    黄金网文节奏    借鉴网文爆款体系：开篇抛钩子、因果链清晰、爽点-压抑-爆发交替
+ * 结构(STRUCTURES, 单选互斥)   mesh多线网状 / causal单线因果 / layered分层递归
+ *                              hero英雄之旅 / savecat节拍表 / seven七点结构
+ * 节奏(RHYTHMS, 单选互斥)      web黄金网文 / repress压抑反转 / slice慢生活
+ *                              mystery悬疑解谜 / epic群像史诗 / fatal悲剧宿命 / inward文艺向内
+ * 质量(QUALITIES, 可多选可空)   dual写手-编辑双审 / selfref自省重写 / plothole伏笔洞检测
+ * 页面选择与介绍折叠遵循 v2 方案；默认节奏为 web（黄金网文），默认结构 mesh。
  * ========================================================= */
-const LONG_RECIPES = [
-  { id:'mesh', name:'多线网状交织', tag:'默认·大师结构', useStructure:true, useEditor:false,
+const SIZE_DEFAULT = { min:3000, max:5000 };
+
+const STRUCTURES = [
+  { id:'mesh', name:'多线网状交织', tag:'大师结构', short:'网状多线', src:'经典 · 网文 / 《红楼梦》体系',
+    useStructure:true, structure:true,
     outlineSys: PROMPTS.longOutlineSys,
     chapterSys: PROMPTS.longChapterSys,
-    desc:'借鉴《红楼梦》式网状多线：多条主线 + 副线 + 暗线同时推进并在汇合章收束，暗线早期埋设、结局揭晓。适合宏大世界观与群像坑。' },
-  { id:'layered', name:'分层递归展开', tag:'借鉴 Long-Novel-GPT', useStructure:false, useEditor:false,
-    outlineSys: `你是能驾驭超长篇的著名小说架构师。按【卷→部→章】分层递归地设计一部长篇小说（约 30 万字，32-40 章）。
+    desc:'借鉴《红楼梦》式网状多线：多条主线 + 副线 + 暗线同时推进并在汇合章收束，暗线早期埋设、结局揭晓。',
+    mech:'默认优先采用多线交织或网状结构，补齐 ≥3 条叙事线索并做“三定”（定时间轴/定汇合点/定主次）；暗线从早期埋设直到结局呼应。',
+    fit:'宏大世界观、群像、多势力角力的长篇；人物关系网复杂、多条伏笔同时推进的作品。',
+    effect:'信息密度高、可读性强，是大师级长篇常用骨架；代价是需要强的一致性自检，否则易散架、坑填不完。' },
+  { id:'causal', name:'单线因果式', tag:'经典打怪', short:'单线因果', src:'经典 · 取经路结构',
+    useStructure:false, structure:false,
+    outlineSys: `你是擅长编排经典长篇结构的资深小说架构师。根据用户构想设计一部长篇小说。
+请严格只输出如下 JSON（不要解释、不要 markdown 代码块）：
+{"title":"小说名","logline":"一句话梗概","chapters":[{"title":"章标题","summary":"本章核心事件与因果推进，1-2句","hook":"本章结尾因果钩子/悬念"}]}
+要求：遵循「单线因果式」经典结构（如《西游记》取经路）——一根主线贯穿始终，"因为所以"一环扣一环，打完一关进入下一关，前因后果清晰、易读性强；主线明确推进、尽量不铺开多线；章章之间有明确因果链，前一章结果成为后一章起因；整体呈引入→闯关/成长→高潮→收束的清晰线路；每章 summary 写清本章推进的关卡/事件与原因结果，hook 写清衔接下章的因果钩子。`,
+    chapterSys: `你是中文长篇小说的资深写手。根据「本章概要」与「章末钩子」写出本章完整正文，做到因果衔接、章章推进。
+要求：遵循"因为所以"的单线因果推进——承接上一章的结果，作为本章起因，本章结束又为下一章留下因果钩子；主线单一清晰、少插枝节；有细腻的环境与心理描写、生动对话、鲜明的人物弧光与成长；节奏张弛有度；章末务必切在钩子上；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。`,
+    desc:'经典「单线因果式」结构（如《西游记》取经路）：一根主线贯穿、"因为所以"一环扣一环、打完一关进下一关，主线清晰易读。',
+    mech:'所有章节沿一根主线串成因果链：上一章结果是本章起因、本章结果接下一章，打怪闯关式推进。',
+    fit:'常规冒险/成长爽文、连载稳定、怕写崩的稳健型作品；追求易读、主线清晰、读者不迷路。',
+    effect:'易读性强、追更顺滑、写作承载力稳定；代价是难容纳复杂副线，多线并存时会受限。' },
+  { id:'layered', name:'分层递归展开', tag:'Long-Novel-GPT', short:'分层递归', src:'开源 · Long-Novel-GPT',
+    useStructure:false, structure:false,
+    outlineSys: `你是能驾驭超长篇的著名小说架构师。按【卷→部→章】分层递归地设计一部长篇小说。
 请严格只输出如下 JSON（不要解释、不要 markdown 代码块）：
 {"title":"小说名","logline":"一句话梗概","volumes":[{"name":"第X卷卷名","theme":"本卷主题与情绪基调","chapters":[{"title":"章标题","summary":"本章核心事件与转折，1-2句","goal":"本章阶段性目标/推进什么"}]}]}
-要求：整体分 2-4 卷，各卷有清晰主题与情绪递进；每卷内章节数合理（总 32-40 章）；章章承担阶段性目标（引入/冲突/转折/高潮/收束），卷与书之间存在因果链；标题有钩子感。`,
+要求：整体分 2-4 卷，各卷有清晰主题与情绪递进；每卷内章节数合理；章章承担阶段性目标（引入/冲突/转折/高潮/收束），卷与书之间存在因果链；标题有钩子感。`,
     chapterSys: `你是中文长篇小说的资深写手。根据「本卷主题」「本章目标」与「本章概要」写出本章完整正文，做到章章承接上卷、为后续蓄力。
-要求：单章篇幅 7000-9000 字；围绕“本章目标”进（该引入就引入、该冲突就冲突、该转折就转折），承接上一卷已建立的人物与世界设定、不推倒重来；有细腻环境与心理描写、生动对话、人物弧光；章末留钩子或悬念；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。`,
-    desc:'借鉴 Long-Novel-GPT / AI_Gen_Novel 的“卷→部→章→节”分层递归：先生成全局卷章框架，再逐卷逐章填充目标。适合目标明确、结构清晰的类型文。' },
-  { id:'dual', name:'写手-编辑双审', tag:'借鉴 NovelForge', useStructure:true, useEditor:true,
-    outlineSys: PROMPTS.longOutlineSys,
-    chapterSys: PROMPTS.longChapterSys,
-    desc:'借鉴 NovelForge 的 Writer-Editor 多轮协作：写手起草初稿，再用“编辑”评审按角色一致性/剧情逻辑/世界观三维打分（0-100），低于阈值自动让写手修订。质量更稳、消耗约双倍调用。' },
-  { id:'web', name:'黄金网文节奏', tag:'借鉴网文爆款体系', useStructure:false, useEditor:false,
-    outlineSys: `你是深谙网文爆款逻辑的资深网文作者。根据用户构想设计一部长篇网文（约 30 万字，32-40 章）。
+要求：围绕“本章目标”推进（该引入就引入、该冲突就冲突、该转折就转折），承接上一卷已建立的人物与世界设定、不推倒重来；有细腻环境与心理描写、生动对话、人物弧光；章末留钩子或悬念；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。`,
+    desc:'借鉴 Long-Novel-GPT / AI_Gen_Novel 的“卷→部→章→节”分层递归：先生成全局卷章框架，再逐卷逐章填充目标。',
+    mech:'自上而下先生成全局卷章框架（卷→部→章），再逐卷逐章填充阶段性目标，层级清晰、容量可控。',
+    fit:'目标明确、分卷清晰、需要高可维护性的超长篇；世界观宏大、章节海量想保持不乱的类型文。',
+    effect:'结构层级严谨、每卷有独立主题与情绪递进，长期连载不易崩；代价是卷间衔接与全局呼应更费设计。' },
+  { id:'hero', name:'英雄之旅', tag:'Hero\'s Journey', short:'英雄之旅', src:'开源 · NovelForger',
+    useStructure:false, structure:true,
+    outlineSys: `你是深谙「英雄之旅」结构美学的著名小说架构师。根据用户构想设计一部长篇小说。
 请严格只输出如下 JSON（不要解释、不要 markdown 代码块）：
-{"title":"书名","logline":"一句话卖点（含核心爽点与悬念）","chapters":[{"title":"章标题","summary":"本章核心事件与爽点/转折，1-2句","hook":"本章结尾钩子/悬念"}]}
-要求：遵循强节奏网文写法——开篇尽快抛核心冲突与悬念；因果链清晰、角色抉择有代价、实力或关系阶梯递进、情绪节奏有张有弛（爽点-压抑-爆发交替）；每章 summary 写清本集的“爽点”与推进，hook 写清章末钩子；总 32-40 章。`,
-    chapterSys: `你是资深网文写手。根据「本章概要」与「章末钩子」写出本章正文，保证读者追更欲。
-要求：单章篇幅 7000-9000 字；开篇(前1-2段)尽快进入事件或情绪；以对话与行动推动剧情、少冗长环境描写；本章须兑现一个"爽点/进展"，并为下章留钩子（悬念/反转/危机）；因果清晰、有记忆点的人设；章末务必切在钩子上；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。`,
-    desc:'借鉴网文爆款节奏体系：开篇抛钩子、因果链清晰、阶梯递进、爽爆交替、章末强钩子。适合升级流、爽文、快节奏类型。' },
-  { id:'web100', name:'百章爽文', tag:'新·约30万字·100+章', useStructure:false, useEditor:false, batch:5,
-    outlineSys: `你是深谙网文爆款逻辑的资深网文作者。根据用户构想设计一部长篇爽文（约 30 万字，总计 100-110 章，每章约 3000 字）。
+{"title":"小说名","logline":"一句话梗概","structure":{"mode":"英雄之旅","designReason":"为何采用此倒逼成长框架","stageChapters":{"平凡世界":["章标题",...],"召唤":["章标题",...],"拒绝召唤":["章标题",...],"跨过门槛":["章标题",...],"试炼盟友敌人":["章标题",...],"深渊一搏":["章标题",...],"回报":["章标题",...],"归来":["章标题",...],"变更之王":["章标题",...]}},"chapters":[{"title":"章标题","summary":"本章核心事件与英雄阶段，1-2句","hook":"本章结尾钩子/悬念"}]}
+要求：遵循经典「英雄之旅」十二阶段（平凡世界→召唤→拒绝→导师→跨过门槛→试炼/盟友/敌人→深渊→一搏→回报→归来→变更），倒逼主角成长弧光；阶段不必逐一对应单独一章，可按体量合并或拆分，但整体要完整走完成长路径；每章 summary 写清该章的英雄阶段与推进，hook 写清章末钩子。`,
+    chapterSys: `你是中文长篇小说的资深写手。根据「本章概要」与「章末钩子」写出本章完整正文，做到章章推动英雄的成长弧光。
+要求：围绕本章所处的「英雄之旅」阶段推进角色弧光——该试炼就试炼、该受挫就受挫、该升华就升华；主角每次抉择都要有代价、有成长痕迹；细腻的环境与心理描写、生动对话；章末留钩子或悬念；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。`,
+    desc:'借鉴 Hero\'s Journey（《千面英雄》，NovelForger 支持）：12 阶段倒逼主角成长弧光，适合成长正气类长篇。',
+    mech:'把全书章节映射到英雄之旅十二阶段（平凡世界→召唤→跨过门槛→深渊→一搏→归来），让成长弧光结构可预期。',
+    fit:'主角成长型、冒险/奇幻类；希望有清晰#成长曲线#与情感爆发点的长篇。',
+    effect:'主角弧光完整、情感起伏有据可依、商业辨识度高；代价是套用若生硬会显得套路化。' },
+  { id:'savecat', name:'节拍表', tag:'Save the Cat', short:'节拍表', src:'业界 · Save the Cat',
+    useStructure:false, structure:true,
+    outlineSys: `你是深谙「节拍表」结构美学的著名小说架构师。根据用户构想设计一部长篇小说。
 请严格只输出如下 JSON（不要解释、不要 markdown 代码块）：
-{"title":"书名","logline":"一句话卖点（含核心金手指与爽点）","chapters":[{"title":"章标题","summary":"本章核心事件与爽点，1句","hook":"本章结尾钩子/悬念"}]}
-要求：总计 100-110 章；遵循黄金网文节奏——开篇(1-3章)尽快抛金手指、核心冲突与吸引力；因果链清晰、角色抉择有代价；实力/势力/关系阶梯递进；情绪节奏有张有弛（爽点-压抑-爆发交替）；划分若干阶段（开局→发展→高潮→收束），stage 字段可不填但章节顺序要符合成长曲线；每章 summary 写清本集"爽点"与推进，hook 写清章末钩子；总章数控制在本段要求的范围内。`,
-    chapterSys: `你是资深网文爽文写手。根据「本章概要」与「章末钩子」写出本章正文，保证读者追更欲。
-要求：本章篇幅 2700-3300 字左右（全书按约 3000 字/章、共 100+ 章推进至约 30 万字）；开篇(前1-2段)尽快进入事件或情绪；以对话与行动推动剧情、少冗长环境描写；本章须兑现一个"爽点/进展/反转"，并为下章留钩子（悬念/危机/新威胁）；因果清晰、有记忆点的人设、实力阶梯递进；章末务必切在钩子上；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。`,
-    desc:'约 30 万字长篇爽文：总计 100-110 章、每章约 3000 字，黄金网文爆款节奏。每次仍按 5 章一批生成，用右上角「☰ 目录」在 100+ 章间快速跳转。' },
-  { id:'causal', name:'单线因果式', tag:'经典·打怪推进', useStructure:false, useEditor:false, batch:5,
-    outlineSys: `你是擅长编排经典长篇结构的资深小说架构师。根据用户构想设计一部长篇小说（约 30 万字，每章约 3000-7000 字）。
+{"title":"小说名","logline":"一句话梗概","structure":{"mode":"Save the Cat 节拍表","designReason":"如何用 15 拍控制节奏","beats":{"开场画面":["章标题",...],"催化剂":["章标题",...],"争执":["章标题",...],"进入第二幕":["章标题",...],"B故事":["章标题",...],"中点":["章标题",...],"坏人逼近":["章标题",...],"一切尽失":["章标题",...],"黑暗时刻":["章标题",...],"进入第三幕":["章标题",...],"终局":["章标题",...],"最终画面":["章标题",...]}},"chapters":[{"title":"章标题","summary":"本章核心事件与节拍，1-2句","hook":"本章结尾钩子/悬念"}]}
+要求：遵循 Save the Cat 的 15 节拍（开场→催化剂→争执→B故事→中点→一切尽失→终局→最终画面等），把全书章节分配到各节拍上，节奏可预估；每章 summary 写清本章所属节拍与推进，hook 写清章末钩子。`,
+    chapterSys: `你是中文长篇小说的资深写手。根据「本章概要」与「章末钩子」写出本章完整正文，做到章章贴合 Save the Cat 节拍曲线。
+要求：围绕本章所处的「节拍」推进节奏（平原蓄力、催化剂提速、黑暗时刻骤降、终局引爆等），情绪张力随节拍起伏；细腻的心理与场景描写、生动对话、人物弧光；章末留钩子或悬念；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。`,
+    desc:'借鉴 Save the Cat 15 节拍法：三幕展开为 15 个可预估节拍点，适合商业向、节奏可控的长篇。',
+    mech:'用 15 个固定节拍（开场/催化剂/争执/中点/一切尽失/终局…）标注全书情绪曲线，节奏可计算、可预估。',
+    fit:'商业类型文、需要稳定节奏与“可预估追读”的连载作品；编剧思维、强钩子驱动的长篇。',
+    effect:'节奏可预估、爽点位置明确、改编友好；代价是拍点分配若机械会产生套路感。' },
+  { id:'seven', name:'七点结构', tag:'Seven-Point', short:'七点结构', src:'开源 · NovelForger',
+    useStructure:false, structure:true,
+    outlineSys: `你是深谙「七点结构」的著名小说架构师。根据用户构想设计一部长篇小说。
 请严格只输出如下 JSON（不要解释、不要 markdown 代码块）：
-{"title":"小说名","logline":"一句话梗概","chapters":[{"title":"章标题","summary":"本章核心事件与转折，1-2句","hook":"本章结尾钩子/悬念"}]}
-要求：遵循「单线因果式」经典结构（如《西游记》取经路）——一根主线贯穿始终，"因为所以"一环扣一环，打完一关进入下一关，前因后果清晰、易读性强；主线明确推进、尽量不铺开多线；章章之间有明确因果链，前一章结果成为后一章起因；总章数规划在 43-75 章之间（按约 30 万字、每章约 3000-7000 字）；整体呈引入→闯关/成长→高潮→收束的清晰线路；每章 summary 写清本章推进的关卡/事件与原因结果，hook 写清衔接下章的因果钩子。`,
-    chapterSys: `你是中文长篇小说的资深写手。根据「本章概要」与「章末钩子」写出本章完整正文，做到因果衔接、章章推进。
-要求：本章篇幅 3000-7000 字之间（全书约 30 万字）；遵循"因为所以"的单线因果推进——承接上一章的结果，作为本章起因，本章结束又为下一章留下因果钩子；主线单一清晰、少插枝节；有细腻的环境与心理描写、生动对话、鲜明的人物弧光与成长；节奏张弛有度；章末务必切在钩子上；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。`,
-    desc:'借鉴经典「单线因果式」结构（如《西游记》取经路）：一根主线贯穿、"因为所以"一环扣一环、打完一关进下一关，主线清晰易读。约 30 万字、每章 3000-7000 字。' }
+{"title":"小说名","logline":"一句话梗概","structure":{"mode":"七点结构","designReason":"七个锚点如何控制转折","points":{"Hook钩子":["章标题",...],"PlotTurn1一转折":["章标题",...],"Pinch1中点施压":["章标题",...],"Midpoint中点":["章标题",...],"Pinch2压力加码":["章标题",...],"PlotTurn2二转折":["章标题",...],"Resolution解局":["章标题",...]}},"chapters":[{"title":"章标题","summary":"本章核心事件与转折锚点，1-2句","hook":"本章结尾钩子/悬念"}]}
+要求：遵循七点结构（Hook→Plot Turn 1→Pinch 1→Midpoint→Pinch 2→Plot Turn 2→Resolution），用七个锚点控制全书转折节奏；每章 summary 写清该章所在锚点与推进，hook 写清章末钩子。`,
+    chapterSys: `你是中文长篇小说的资深写手。根据「本章概要」与「章末钩子」写出本章完整正文，做到章章朝七个锚点有序逼近。
+要求：围绕本章所在锚点推进（前段蓄力、Two Plot 转折、Pinch 施压、Midpoint 承转），每章都向“下一个转折点”收拢、不生枝节；细腻的心理与场景描写、生动对话、人物弧光；章末留钩子或悬念；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。`,
+    desc:'借鉴 Seven-Point Structure（NovelForger 支持）：Hook→转折→施压→中点→加码→再转折→解局，七个锚点控转折。',
+    mech:'以七个固定锚点（Hook/PlotTurn/Pinch/Midpoint/Pinch/PlotTurn/Resolution）规划全书转折，前紧后强。',
+    fit:'中短到中长篇、转折重戏剧性、希望#转折节奏#清晰的作品。',
+    effect:'转折节奏清晰、终点明确、不拖沓；代价是锚点之外的空间偏线性、群像叙事较难承载。' }
 ];
-function longRecipe(){ return LONG_RECIPES.find(r=> r.id === state.recipe) || LONG_RECIPES[0]; }
-function longOutlineSys(){ return longRecipe().outlineSys; }
-function longChapterSys(){ return longRecipe().chapterSys; }
+
+const RHYTHMS = [
+  { id:'web', name:'黄金网文', tag:'爽点密集', short:'黄金网文', src:'经典 · 网文爆款体系',
+    outlineNote:'节奏遵循黄金网文强节奏——开篇尽快抛核心冲突与悬念（金手指/秘密）；因果链清晰、角色抉择有代价、实力或关系阶梯递进；情绪节奏有张有弛（爽点-压抑-爆发交替）；每章 summary 写清本集“爽点”与推进，hook 写清章末强钩子。',
+    chapterNote:'严格遵循黄金网文强节奏——开篇(前1-2段)尽快进入事件或情绪；以对话与行动推动剧情、少冗长环境描写；本章须兑现一个"爽点/进展"，并为下章留强钩子（悬念/反转/危机）；因果清晰、有记忆点的人设；章末务必切在钩子上。',
+    desc:'当前商业网文最有效的节奏配方，核心是“爽点管理”：全程用小高潮喂给读者，持续满足与追更。',
+    mech:'开篇抛冲突悬念；因果清晰、抉择有代价、实力/关系阶梯递进；情绪爽点-压抑-爆发交替；章末必留强钩子。',
+    fit:'升级流、逆袭、热血爽文等重代入感连载；读者重爽感、重追更。',
+    effect:'留存与追更率高、最懂市场；代价是易套路化，需靠人物与爽点创新破局。' },
+  { id:'repress', name:'压抑反转流', tag:'现实虐文', short:'压抑反转', src:'现实 · 黑暗向节奏',
+    outlineNote:'节奏为压抑反转流——回报延迟、挫折长期，主角不会立刻打脸、苦难不马上消解；情绪是隐忍煎熬、积蓄良久才释放；困境层层叠加、主角反复受挫；每章 summary 写清本集被压抑的张力与潜在的伏笔，hook 写清迟来的反转或加剧的困境。',
+    chapterNote:'遵循压抑反转流——本段情绪以隐忍煎熬为主，不立刻给胜利与奖励；困境层层叠加、主角反复受挫；把发泄点压到很后，部分努力可以没有回报；章末压在反转来临前或苦难加剧处，勾着读者等释放。',
+    desc:'与爽文相反：回报延迟、挫折长期、反转来得晚，部分努力无回报；情绪隐忍煎熬、积蓄良久才释放。',
+    mech:'困境层层叠加、主角反复受挫、不会立刻打脸；冲突发生后不立刻给胜利，反转往往很晚、甚至部分努力无回报。',
+    fit:'社会向、悬疑、悲剧、历史写实网文；追求真实沉重的情感冲击而非即时爽感。',
+    effect:'压抑到极点的释放更有力量、人物弧光深；但需控节奏，避免“虐而无解”劝退读者。' },
+  { id:'slice', name:'慢生活流', tag:'种田日常', short:'慢生活', src:'现实 · 治愈向节奏',
+    outlineNote:'节奏为慢生活流——低外部冲突、少大起大落，冲突是细碎生活矛盾；剧情推进极慢，聚焦人物感受、生活细节、人际关系；爽点来自安宁烟火与人物陪伴，非升级逆袭；每章 summary 写清本集的日常事件与人物关系变化。',
+    chapterNote:'遵循慢生活流——聚焦日常生活与人物相处，不追求强冲突；剧情推进慢、冲突多为细碎小事；细腻刻画感官与情绪、烟火气与陪伴感；爽点来自安宁与温暖，而非打脸逆袭。',
+    desc:'种田/日常/治愈：低外部冲突、少大起大落，冲突是细碎生活矛盾；推进极慢，聚焦感受、细节、关系。',
+    mech:'以日常与生活矛盾代替强冲突，推进极慢；爽点来自安宁烟火与人物陪伴。',
+    fit:'种田、日常、治愈、慢热的温馨长篇；读者追求沉浸与陪伴而非刺激。',
+    effect:'氛团队入手温柔治愈、黏性高、抗弃文；代价是无强钩子、追读节奏需靠情感维系。' },
+  { id:'mystery', name:'悬疑解谜流', tag:'悬念悬置', short:'悬疑解谜', src:'正统 · 悬疑推理节奏',
+    outlineNote:'节奏为悬疑解谜流——冲突不快速解决，故意压住答案、延迟兑现；不断抛谜团线索、危机接踵但不揭真相；旧问题搁置、释放留到中后期；每章 summary 写清本集抛出的谜团/线索与悬置的张力，hook 埋最小的启示或新谜面。',
+    chapterNote:'遵循悬疑解谜流——答案要压住，冲突不要立刻收束；不断抛谜团与线索，危机接踵但不揭真相；旧问题先搁置；本章结尾留悬念，勾着读者解谜。',
+    desc:'悬念悬置：冲突不快速解决、故意压住答案、延迟兑现；不断抛谜团线索、危机接踵但不揭真相。',
+    mech:'正统悬疑节奏是“悬置＞即时解决”：放下钩子、转开视角、旧问题搁置、释放拖到中后期。',
+    fit:'悬疑、推理、解谜、谍战类长篇；读者重“猜中/揭晓”的智力快感。',
+    effect:'抓人、让人放不下、揭晓时爆点强；代价是伏笔回收要求高，烂尾风险大。' },
+  { id:'epic', name:'群像史诗节奏', tag:'宏大史诗', short:'群像史诗', src:'历史 · 宏大奇幻节奏',
+    outlineNote:'节奏为群像史诗——不以单一主角得失为节奏开关，视角在多人间切换；主角会失败、配角命运独立；大事件周期长、一卷几十章才完成一次大起落；每章 summary 写清多线中本章的视角人物与推进。',
+    chapterNote:'遵循群像史诗——视角在多人间切换，不以单一主角成败为节奏开关；主角也会失败、配角命运独立；大事件跨度长、不追求每章小爽点；多线并进、交织成时代洪流。',
+    desc:'历史/宏大奇幻：不以单一主角得失为节奏开关，视角在多人间切换、配角命运独立、大事件周期长。',
+    mech:'大事件以卷为单位起落，视角多线切换，主角可失败、配角命运独立，格局宏大。',
+    fit:'历史演义、宏大奇幻、权谋群像类长篇；读者重世界构建与时代感。',
+    effect:'格局与史诗感强、人物群像丰满、可承载大世界；代价是个体代入感弱、节奏偏慢。' },
+  { id:'fatal', name:'悲剧宿命流', tag:'命运悲剧', short:'悲剧宿命', src:'文学 · 悲剧节奏',
+    outlineNote:'节奏为悲剧宿命——努力≠胜利、结局被命运预先约束；抗争不一定换来圆满，一次次抗争爬升迎短暂光亮再跌落；情绪很少彻底宣泄、留有怅然；每章 summary 写清本集一次次挣扎与短暂的希望、以及不可抗的推力。',
+    chapterNote:'遵循悲剧宿命——抗争不一定换来圆满，努力可能徒劳；爬升后迎短暂光亮再跌落；情绪很少彻底宣泄、刻意留怅然与无力感，让悲剧宿命感贯穿。',
+    desc:'努力≠胜利、结局被命运预先约束：抗争不一定圆满，一次次爬升迎短暂光亮再跌落；情绪少有宣泄、留怅然。',
+    mech:'以“命运不可抗”为底色，抗争服务于悲剧张力而非胜利；情绪罕有彻底宣泄。',
+    fit:'悲剧、宿命、史诗型沉重作品；读者重情绪厚重感与命运叩问。',
+    effect:'情感厚重、后劲足、文学性强；代价是致郁、不适配追求爽感的读者。' },
+  { id:'inward', name:'文艺向内流', tag:'心理向内', short:'文艺向内', src:'文学 · 心理向节奏',
+    outlineNote:'节奏为文艺向内——节奏由内心驱动，外部事件只是载体；冲突多发生在心里，剧情推进慢、大事件少，重点是人物纠结、自我认知与情感变化；每章 summary 写清本集人物内心变化与情感转折。',
+    chapterNote:'遵循文艺向内——节奏由人物内心驱动，外部事件仅是载体；冲突多在心理层面；推进慢、大事件少；着力刻画纠结、自我认知与情感变化、文笔细腻。',
+    desc:'情绪/心理向：节奏由内心驱动，外部事件是载体；冲突多在心里，推进慢、大事件少，重纠结与自我认知。',
+    mech:'以内心冲突代替外部事件驱动叙事，细腻刻画人物情绪与认知变化。',
+    fit:'文艺、情感、成长类长篇；读者重文笔、情绪共鸣与人物内省。',
+    effect:'文笔与情绪质感强、人物立体、差异化明显；代价是节奏慢、爽点少，需要读者耐性。' }
+];
+
+const QUALITIES = [
+  { id:'dual', name:'写手-编辑双审', tag:'NovelForge', short:'双审', src:'开源 · NovelForge',
+    desc:'写手起草初稿后，编辑按角色一致性/剧情逻辑/世界观三维打分（0-100），低于阈值自动让写手按意见重写。',
+    mech:'一章初稿 → 编辑三维评分（role/plot/world，≥70 为 pass）→ 不达标则带上意见让写手重写，最多 2 轮。',
+    fit:'追求叙事质量下限、想减少硬伤与逻辑崩坏的作品。',
+    effect:'直接锁单章质量下限，逻辑更稳；代价是每章约多 1-2 次调用、更耗时。' },
+  { id:'selfref', name:'自省重写', tag:'Reflexion', short:'自省重写', src:'开源 · NovelForge Self-Reflection',
+    desc:'每章生成后让模型自评短板并自我修正，实现最简单（纯提示词追加）。',
+    mech:'章节初稿生成后，自问“本章最大短板”（情绪/逻辑/文笔/人物），据此重写 1 次完善，成本较低。',
+    fit:'想低成本增强单章完成度的作品。',
+    effect:'简单高效、单章完成度上升；代价是自评可能不敏锐，提升幅度不如双审稳定。' },
+  { id:'plothole', name:'伏笔洞检测', tag:'逻辑核查', short:'伏笔检测', src:'论文 · FLAWEDFICTIONS',
+    desc:'针对连续性错误（时间线/性格/伏笔回收）做专项核查与修正，与结构/节奏无关、任意组合可叠加。',
+    mech:'章节写出后专项检查时间线、性格一致、伏笔回收、专名统一四处；发现逻辑漏洞即按“一致性自检”重写修正。',
+    fit:'多线、长连载、伏笔密的作品；强烈建议与多线网状结构同用时开启。',
+    effect:'大幅减少吃书/穿帮/伏笔丢弃，中长期一致性更稳；代价是额外一次核查调用。' }
+];
+
+const STRUCTURE_IDS = STRUCTURES.map(s=> s.id);
+const RHYTHM_IDS = RHYTHMS.map(r=> r.id);
+const QUALITY_IDS = QUALITIES.map(q=> q.id);
+
+// 当前所选
+function selStructure(){ return state.recipeSet && STRUCTURES.find(s=> s.id === state.recipeSet.structure) || null; }
+function selRhythm(){ return state.recipeSet && RHYTHMS.find(r=> r.id === state.recipeSet.rhythm) || null; }
+function selQualities(){ return (state.recipeSet && Array.isArray(state.recipeSet.quality)) ? state.recipeSet.quality.filter(id=> QUALITY_IDS.includes(id)).map(id=> QUALITIES.find(q=> q.id===id)).filter(Boolean) : []; }
+function hasQuality(id){ return Array.isArray(state.recipeSet && state.recipeSet.quality) && state.recipeSet.quality.includes(id); }
+
+// 默认体量：用户填了哪一侧就用哪一侧；都没填回退默认字数区间 3000-5000
+// 归一化：把可能残缺的区间补全（min/max 任一缺省则用对侧/默认补足），保证派生计算不出现 NaN
+function normalRange(r, fallback){
+  const min = (typeof r==='object' && +r.min>0) ? +r.min : fallback.min;
+  const max = (typeof r==='object' && +r.max>0) ? +r.max : Math.max(min, fallback.max);
+  return { min, max: Math.max(min, max) };
+}
+function selSize(){
+  if(state.chapterRange && (state.chapterRange.min>0 || state.chapterRange.max>0)){
+    return { kind:'chapter', range: normalRange(state.chapterRange, {min:80,max:100}) };
+  }
+  if(state.wordRange && (state.wordRange.min>0 || state.wordRange.max>0)){
+    return { kind:'word', range: normalRange(state.wordRange, SIZE_DEFAULT) };
+  }
+  return { kind:'word', range: SIZE_DEFAULT };
+}
+const fmtRange = r => `${r.min}-${r.max}`;
+// 由区间中值 30 万映射到对侧建议值
+function estCounterpart(sz){
+  const mid = (sz.range.min + sz.range.max) / 2;
+  if(!mid) return null;
+  return sz.kind==='word' ? Math.round(300000/mid) : Math.round(300000/mid);
+}
+// 体量一句提示（页面 + 可复用）
+function sizeHintText(){
+  const sz = selSize();
+  const cnt = estCounterpart(sz);
+  if(sz.kind==='word') return `按每章 ${fmtRange(sz.range)} 字，全书约需 ${cnt} 章。`;
+  return `全书约 ${fmtRange(sz.range)} 章，每章据此约 ${cnt} 字。`;
+}
+
+// 体量提示（拼入大纲提示词）
+function outlineSizeNote(){
+  const sz = selSize();
+  const cnt = estCounterpart(sz);
+  if(sz.kind === 'word') return `全书目标约 30 万字；单章篇幅落在 ${fmtRange(sz.range)} 字，据此全书约 ${cnt} 章。`;
+  return `全书目标约 30 万字 / ${fmtRange(sz.range)} 章，据此每章约 ${cnt} 字。`;
+}
+function buildOutlineSys(){
+  const st = selStructure(), rh = selRhythm();
+  const parts = [];
+  parts.push(st ? st.outlineSys : PROMPTS.longOutlineSys);
+  if(rh && rh.outlineNote) parts.push('\n【节奏风格 · '+rh.name+'】\n'+rh.outlineNote);
+  parts.push('\n【篇幅体量】\n'+outlineSizeNote());
+  return parts.join('\n\n');
+}
+// 体量提示（拼入章节正文提示词，控制单章容量）
+function sizeChapterInjection(){
+  const sz = selSize();
+  const cnt = estCounterpart(sz);
+  if(sz.kind === 'word') return `本章正文应落在 ${fmtRange(sz.range)} 字区间（全书约 ${cnt} 章、总目标约 30 万字），据此把握本章的容量与叙事节奏。`;
+  return `全书约 ${fmtRange(sz.range)} 章（每章据此约 ${cnt} 字），总目标约 30 万字，据此把握单章容量与节奏。`;
+}
+// 更新体量派生提示（页面内）
+function bindSizeHint(){
+  const el = $('#sizeHint'); if(!el) return;
+  el.textContent = sizeHintText();
+}
+// 拼装：章节提示词 =（结构章节 × 节奏 × 体量）
+function buildChapterSys(){
+  const st = selStructure(), rh = selRhythm();
+  const parts = [];
+  parts.push(st ? st.chapterSys : PROMPTS.longChapterSys);
+  if(rh && rh.chapterNote) parts.push('\n【节奏风格 · '+rh.name+'】\n'+rh.chapterNote);
+  parts.push('\n【篇幅体量】\n'+sizeChapterInjection());
+  return parts.join('\n\n');
+}
+// 兼容旧调用入口
+function longRecipe(){ return selStructure() || STRUCTURES[0]; }
+function longOutlineSys(){ return buildOutlineSys(); }
+function longChapterSys(){ return buildChapterSys(); }
 
 function fullStoryText(){
   return state.chapters.map(c => `【${c.title}】\n${c.content}`).join('\n\n');
@@ -563,7 +770,7 @@ const CYBER_HOME_GRID = `
 function viewStory(){
   if(!state.outline){
     const homeSub = isLong()
-      ? '用几句话描述你的长篇构想（世界观、主角、核心冲突都行）。AI 会扩写成 32-40 章大纲，之后按「5 章一批」逐步写到约 30 万字。'
+      ? '用几句话描述你的长篇构想（世界观、主角、核心冲突都行）。AI 会先扩写成与所选体量匹配的全书大纲，之后按「5 章一批」逐步写到约 30 万字。'
       : '用几句话描述你的点子（世界观、主角、核心冲突都行）。AI 会扩写成完整故事大纲与章节。';
     return CYBER_HOME_GRID + `
     <div class="card">
@@ -720,7 +927,9 @@ function renderLongProgress(){
   const done = state.chapters.filter(c=> c.content && c.content.trim()).length;
   const total = state.chapters.length;
   let chars = 0; state.chapters.forEach(c=> chars += countWords(c.content).total);
-  el.innerHTML = `<span class="pill">写作进度：${done}/${total} 章</span> <span class="pill">已写约 ${chars.toLocaleString('en-US')} 字（目标 30 万字）</span>`;
+  const sz = selSize();
+  const sizeName = sz.kind==='word' ? `每章约 ${fmtRange(sz.range)} 字` : `全书约 ${fmtRange(sz.range)} 章`;
+  el.innerHTML = `<span class="pill">写作进度：${done}/${total} 章</span> <span class="pill">已写约 ${chars.toLocaleString('en-US')} 字（目标 30 万字 · ${sizeName}）</span>`;
 }
 
 /* ---------- P2 角色 ---------- */
@@ -1204,12 +1413,48 @@ function bindView(){
     idea.oninput = ()=> state.idea = idea.value;
     $('#btnGenOutline').onclick = genOutline;
   }
-  // 长篇：写作范式切换
-  $$('[data-recipe]').forEach(b=> b.onclick = ()=>{
-    const r = b.dataset.recipe;
-    if(r === state.recipe || !LONG_RECIPES.some(x=> x.id===r)) return;
-    state.recipe = r; persist(); render();
-    toast('已切换写作范式：'+longRecipe().name);
+  // 长篇：三维写作范式选择（结构单选 / 节奏单选 / 质量多选 / 体量二选一）
+  $$('[data-structure]').forEach(b=> b.onclick = ()=>{
+    const id = b.dataset.structure;
+    state.recipeSet = state.recipeSet || {structure:null,rhythm:null,quality:[]};
+    if(state.recipeSet.structure === id){ /* 已选中，可取消 */ state.recipeSet.structure = null; }
+    else { state.recipeSet.structure = id; }
+    persist(); render();
+  });
+  $$('[data-rhythm]').forEach(b=> b.onclick = ()=>{
+    const id = b.dataset.rhythm;
+    state.recipeSet = state.recipeSet || {structure:null,rhythm:null,quality:[]};
+    if(state.recipeSet.rhythm === id){ state.recipeSet.rhythm = null; }
+    else { state.recipeSet.rhythm = id; }
+    persist(); render();
+  });
+  $$('[data-quality]').forEach(b=> b.onclick = ()=>{
+    const id = b.dataset.quality;
+    state.recipeSet = state.recipeSet || {structure:null,rhythm:null,quality:[]};
+    if(!Array.isArray(state.recipeSet.quality)) state.recipeSet.quality = [];
+    if(state.recipeSet.quality.includes(id)) state.recipeSet.quality = state.recipeSet.quality.filter(q=> q!==id);
+    else state.recipeSet.quality.push(id);
+    persist(); render();
+  });
+  // 体量：字数/章节 二选一互斥
+  const clearSize = side => {
+    if(side==='word'){ if(state.wordRange){ state.wordRange=null; return true; } }
+    else if(side==='chapter'){ if(state.chapterRange){ state.chapterRange=null; return true; } }
+    return false;
+  };
+  $$('[data-size-word]').forEach(inp=> inp.oninput = ()=>{
+    const k = inp.dataset.sizeWord;
+    state.wordRange = state.wordRange || {};
+    state.wordRange[k] = inp.value ? +inp.value : 0;
+    state.chapterRange = null; // 填了字数即清空章节（互斥）
+    bindSizeHint(); persist(); render();
+  });
+  $$('[data-size-chapter]').forEach(inp=> inp.oninput = ()=>{
+    const k = inp.dataset.sizeChapter;
+    state.chapterRange = state.chapterRange || {};
+    state.chapterRange[k] = inp.value ? +inp.value : 0;
+    state.wordRange = null; // 填了章节即清空字数（互斥）
+    bindSizeHint(); persist(); render();
   });
   const specCur = $('#specCurrentBtn'); if(specCur) specCur.onclick = openSpecPanel;
   const btnCO = $('#btnConfirmOutline'); if(btnCO) btnCO.onclick = ()=>{ state.outlineConfirmed=true; persist(); render(); };
@@ -1311,6 +1556,10 @@ async function genOutline(){
   const st = $('#outlineStatus'); st.className='status'; st.textContent='';
   state.idea = $('#ideaInput').value.trim();
   if(!state.idea){ toast('先写几句构想'); busy(btn,false); return; }
+  if(isLong() && !selStructure() && !selRhythm() && selQualities().length===0){
+    toast('请至少选择一种写作方式（结构 / 节奏 / 质量 任选其一）');
+    busy(btn,false); return;
+  }
   try{
     const sys = isLong() ? longOutlineSys() : PROMPTS.outlineSys + specSysAddition();
     const txt = await callDeepSeek(sys, '故事构想：'+state.idea);
@@ -1333,82 +1582,172 @@ async function genOutline(){
   }finally{ busy(btn,false); }
 }
 
-// 长篇：把整体结构/卷信息拼进章节生成的上下文（按范式注入）
+// 长篇：把整体结构/卷信息拼进章节生成的上下文（按所选结构注入）
 function longChapterContext(i){
   const o = state.outline;
   if(!isLong() || !o) return '';
   let ctx = '';
-  // 分层递归范式：注入所属卷主题
-  if(longRecipe().id === 'layered'){
+  const st = selStructure();
+  // 分层递归结构：注入所属卷主题
+  if(st && st.id === 'layered'){
     const c = o.chapters[i];
     if(c && c.volume){
       ctx += `\n\n【本卷定位】\n所属卷：${c.volume}\n本卷主题与情绪基调：${c.volumeTheme||''}\n本章目标：${c.goal||o.chapters[i].summary||''}`;
     }
   }
-  // 多线网状 / 写手-编辑双审范式：注入结构设计
-  if(longRecipe().useStructure && o.structure){
+  // 带结构设计的结构（mesh 网状等）：注入 structure 对象
+  if((st && st.structure) && o.structure){
     const s = o.structure;
-    ctx += `\n\n【整体结构】
-结构模式：${s.mode||''}
-设计用意：${s.designReason||''}
-主线：${s.mainLine||''}
-副线：${(s.subLines||[]).join('；')||''}
-暗线：${s.hiddenLine||''}
-汇合/大逆转章节：${s.pivotChapter||''}
-三定（时间轴/汇合点/主次）：${s.threeFix||''}
-本章位于全书的线条与节奏：${o.chapters[i]&&o.chapters[i].line||''}`;
+    const flat = [];
+    if(s.mode) flat.push('结构模式：'+s.mode);
+    if(s.designReason) flat.push('设计用意：'+s.designReason);
+    if(s.mainLine) flat.push('主线：'+s.mainLine);
+    if(s.subLines && s.subLines.length) flat.push('副线：'+(s.subLines||[]).join('；'));
+    if(s.hiddenLine) flat.push('暗线：'+s.hiddenLine);
+    if(s.pivotChapter) flat.push('汇合/大逆转章节：'+s.pivotChapter);
+    if(s.threeFix) flat.push('三定（时间轴/汇合点/主次）：'+s.threeFix);
+    const curTitle = (o.chapters[i] && o.chapters[i].title) || '';
+    if(s.stageChapters) flat.push('本章所属英雄阶段：'+stageOfChapter(i, s.stageChapters, curTitle)+'\n全阶段映射：'+arcMapText(s.stageChapters));
+    if(s.beats) flat.push('本章所属节拍：'+stageOfChapter(i, s.beats, curTitle)+'\n全节拍映射：'+arcMapText(s.beats));
+    if(s.points) flat.push('本章所属七点锚点：'+stageOfChapter(i, s.points, curTitle)+'\n全锚点映射：'+arcMapText(s.points));
+    ctx += '\n\n【整体结构】\n' + flat.join('\n');
   }
   return ctx;
 }
-// 长篇：写作范式选择器（借鉴开源方案的可切换写法菜单）
+// 定位“本章属于哪个阶段/节拍/锚点”——通过章节下标或标题在该阶段的标题列表内查找
+function stageOfChapter(i, map, curTitle){
+  if(!map || typeof map !== 'object') return '';
+  const idx = i + 1;
+  const t = String(curTitle||'');
+  for(const key in map){
+    const arr = Array.isArray(map[key]) ? map[key] : [];
+    // 标题命中（去空格后含当前章节标题）或以“第N章”形式命中下标
+    const hit = arr.some(x=> String(x).replace(/\s/g,'') && t && String(x).replace(/\s/g,'').includes(t.replace(/\s/g,''))) ||
+      arr.some(x=> /第?(\d+)(章|话)?/.test(String(x)) && +String(x).match(/第?(\d+)/)[1] === idx);
+    if(hit) return key;
+  }
+  return '（未匹配，按大纲推进即可）';
+}
+// 把阶段→章标题映射压成一段提示文本
+function arcMapText(map){
+  if(!map || typeof map !== 'object') return '';
+  return Object.keys(map).map(k=> `${k}: ${(Array.isArray(map[k])?map[k]:[map[k]]).join('、')}`).join('  ');
+}
+// 长篇：写作范式选择器（三维卡片：结构/节奏/质量 + 体量二选一；介绍折叠、选中展开）
 function recipePicker(){
-  const cur = state.recipe;
-  return `<div class="card recipe-card">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-      <h3 style="margin:0;font-size:14px">📚 选择写作范式</h3>
-      <span class="pill tag-ok">${longRecipe().tag}</span>
+  const rs = state.recipeSet || {structure:null,rhythm:null,quality:[]};
+  const selSt = selStructure(), selRh = selRhythm();
+  const selQArr = selQualities();
+  // 组合摘要
+  const labelSt = selSt ? selSt.name : '未选';
+  const labelRh = selRh ? selRh.name : '未选';
+  const labelQ = selQArr.length ? selQArr.map(q=>q.name).join('+') : '未选';
+  // 体量小结
+  const sz = selSize();
+  const szLabel = sz.kind==='word' ? `单章 ${fmtRange(sz.range)} 字` : `全书 ${fmtRange(sz.range)} 章`;
+  // 卡片渲染（dim 为维度名，selKeys 判断选中，toggle 是点击后是否多选）
+  const card = (it, field, isSel, extra) => `
+    <button type="button" class="recipe ${isSel?'active':''}" data-${field}="${esc(it.id)}">
+      <div class="r-top"><b>${it.name}</b><span class="r-tag ${isSel?'on':''}">${it.tag}</span></div>
+      <div class="r-src">${it.src}</div>
+      <div class="r-points">
+        ${['desc','mech','fit','effect'].map((k,i)=>`<div class="pt"><b>${['概览','运作','适合','效果'][i]}</b><span>${esc(it[k]||'')}</span></div>`).join('')}
+      </div>
+      <span class="r-check">${isSel?'✓':''}</span>
+    </button>`;
+  const dim = (title, icon, rule, cardsHtml) => `
+    <div class="poly-dim">
+      <div class="poly-head"><span class="poly-ic">${icon}</span><b>${title}</b><span class="poly-rule">${rule}</span></div>
+      <div class="poly-grid">${cardsHtml}</div>
+    </div>`;
+  return `<div class="card recipe-card poly-card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px">
+      <h3 style="margin:0;font-size:15px">📚 写作范式（结构 · 节奏 · 质量）</h3>
+      <span class="pill tag-ok">${selRh ? '节奏：'+selRh.name : '默认节奏：黄金网文'}</span>
     </div>
-    <div class="recipe-grid">
-      ${LONG_RECIPES.map(r=>`
-        <button type="button" class="recipe ${r.id===cur?'active':''}" data-recipe="${r.id}">
-          <b>${r.name}</b>
-          <span class="r-tag">${r.tag}</span>
-          <span class="r-desc">${esc(r.desc)}</span>
-        </button>`).join('')}
+    <div class="poly-combo">
+      <span class="pc-lbl">当前组合</span>
+      <span class="pc-item">结构：${labelSt}</span>
+      <span class="pc-item">节奏：${labelRh}</span>
+      <span class="pc-item">质量：${labelQ}</span>
+      <span class="pc-item">体量：${szLabel}</span>
     </div>
-    <p class="muted" style="margin:6px 0 0">切换后仅影响后续生成方式，可在生成大纲前随时更换。</p>
+    ${dim('结构骨架','🏗️','单选 · 可选其一', STRUCTURES.map(it=>card(it,'structure', it.id===rs.structure)).join(''))}
+    ${dim('节奏风格','⚡','单选 · 可选其一（默认黄金网文）', RHYTHMS.map(it=>card(it,'rhythm', it.id===rs.rhythm)).join(''))}
+    ${dim('质量机制','🛡️','可多选 · 可不选', QUALITIES.map(it=>card(it,'quality', hasQuality(it.id))).join(''))}
+    <div class="poly-size">
+      <div class="poly-head"><span class="poly-ic">📏</span><b>体量设定</b><span class="poly-rule">字数 / 章节 二选一 · 全书目标约 30 万字</span></div>
+      <div class="size-grid">
+        <label class="size-block">
+          <span class="size-lbl">每章字数（字）</span>
+          <span class="size-inputs"><input type="number" min="1" data-size-word="min" value="${state.wordRange?state.wordRange.min||'':''}" placeholder="min"><i>~</i><input type="number" min="1" data-size-word="max" value="${state.wordRange?state.wordRange.max||'':''}" placeholder="max"></span>
+        </label>
+        <label class="size-block">
+          <span class="size-lbl">全书章节（章）</span>
+          <span class="size-inputs"><input type="number" min="1" data-size-chapter="min" value="${state.chapterRange?state.chapterRange.min||'':''}" placeholder="min"><i>~</i><input type="number" min="1" data-size-chapter="max" value="${state.chapterRange?state.chapterRange.max||'':''}" placeholder="max"></span>
+        </label>
+      </div>
+      <p class="size-hint" id="sizeHint">${selSize().kind==='word' ? `按每章 ${fmtRange(selSize().range)} 字，全书约需 ${Math.round(300000/((selSize().range.min+selSize().range.max)/2))} 章。` : `全书约 ${fmtRange(selSize().range)} 章，每章据此约 ${Math.round(300000/((selSize().range.min+selSize().range.max)/2))} 字。`}</p>
+    </div>
+    <p class="muted" style="margin:8px 0 0">至少选择结构、节奏、质量其中一项即可生文；介绍默认折叠，选中后自动展开。</p>
   </div>`;
 }
 function structureCard(o){
   const s = o && o.structure;
-  if(!isLong() || !s || !longRecipe().useStructure) return '';
+  const st = selStructure();
+  if(!isLong() || !s || !(st && st.structure)) return '';
+  const rows = [`<b>结构模式</b><span>${esc(s.mode||'')}</span>`];
+  const push = (k,t,fmt)=>{ const v=s[k]; if(v==null) return; if(Array.isArray(v)){ rows.push(`<b>${t}</b><span>${esc(v.join(' · '))}</span>`); } else rows.push(`<b>${t}</b><span>${esc(fmt?fmt(v):v)}</span>`); };
+  push('designReason','设计用意');
+  push('mainLine','主线');
+  push('subLines','副线');
+  push('hiddenLine','暗线');
+  push('pivotChapter','汇合/大逆转', v=>`第 ${v} 章附近`);
+  push('threeFix','三定');
+  // 阶段映射（英雄/节拍/七点）
+  ['stageChapters','beats','points'].forEach(k=>{ if(s[k]){ rows.push(`<b>${k==='stageChapters'?'英雄阶段':k==='beats'?'节拍':k==='points'?'七点锚点':k}</b><span>${esc(arcMapText(s[k])||'')}</span>`); } });
   return `<div class="card structure-card">
     <h3>🏗️ 长篇结构设计</h3>
-    <div class="sc-row"><b>结构模式</b><span>${esc(s.mode||'')}</span></div>
-    ${s.designReason?`<div class="sc-row"><b>设计用意</b><span>${esc(s.designReason)}</span></div>`:''}
-    ${s.mainLine?`<div class="sc-row"><b>主线</b><span>${esc(s.mainLine)}</span></div>`:''}
-    ${(s.subLines||[]).length?`<div class="sc-row"><b>副线</b><span>${esc((s.subLines||[]).join(' · '))}</span></div>`:''}
-    ${s.hiddenLine?`<div class="sc-row"><b>暗线</b><span>${esc(s.hiddenLine)}</span></div>`:''}
-    ${s.pivotChapter?`<div class="sc-row"><b>汇合/大逆转</b><span>第 ${esc(s.pivotChapter)} 章附近</span></div>`:''}
-    ${s.threeFix?`<div class="sc-row"><b>三定</b><span>${esc(s.threeFix)}</span></div>`:''}
+    ${rows.map(r=>`<div class="sc-row">${r}</div>`).join('')}
   </div>`;
 }
-// 写一条章节正文（含 dual 范式的编辑双审；maxRound 为最多重写轮次）
+// 写一条章节正文（依所勾选质量机制 post-processing：dual 双审 / selfref 自省 / plothole 伏笔洞检测）
 async function writeOneChapterContent(i, user){
   let txt = await callDeepSeek(longChapterSys(), user);
-  if(!isLong() || !longRecipe().useEditor){
-    return txt.trim();
-  }
+  if(!isLong()) return txt.trim();
   // 双审：编辑评审打分，不满 70 由写手按意见重写（最多 2 轮）
-  for(let r=0; r<2; r++){
-    const draft = txt;
-    let j;
-    try{ j = parseJson(await callDeepSeek(PROMPTS.editorSys, '【本章初稿】\n'+draft.slice(0,3000))); }catch(e){ j={}; }
-    const pass = j.pass===true || ((j.role||0)>=70 && (j.plot||0)>=70 && (j.world||0)>=70);
-    if(pass) break;
-    const advice = j.advice || (j.issues||[]).join('；');
-    if(!advice) break;
-    txt = await callDeepSeek(longChapterSys(), `${user}\n\n【编辑审稿意见】该章未达标（角色${j.role??'-'}/剧情${j.plot??'-'}/世界观${j.world??'-'}）。请按以下意见重写本章：\n${advice}\n\n务必保留原有人物设定与已铺伏笔，仅修正指出的问题。只输出正文。`);
+  if(hasQuality('dual')){
+    for(let r=0; r<2; r++){
+      const draft = txt;
+      let j;
+      try{ j = parseJson(await callDeepSeek(PROMPTS.editorSys, '【本章初稿】\n'+draft.slice(0,3000))); }catch(e){ j={}; }
+      const pass = j.pass===true || ((j.role||0)>=70 && (j.plot||0)>=70 && (j.world||0)>=70);
+      if(pass) break;
+      const advice = j.advice || (j.issues||[]).join('；');
+      if(!advice) break;
+      txt = await callDeepSeek(longChapterSys(), `${user}\n\n【编辑审稿意见】该章未达标（角色${j.role??'-'}/剧情${j.plot??'-'}/世界观${j.world??'-'}）。请按以下意见重写本章：\n${advice}\n\n务必保留原有人物设定与已铺伏笔，仅修正指出的问题。只输出正文。`);
+    }
+  }
+  // 自省重写：自评本轮最大短板并重写一次
+  if(hasQuality('selfref')){
+    const selfSys = `你是本章的自我编辑。请通读【本章初稿】，找出本章最明显的短板（只选一个：情绪感染力 / 剧情逻辑 / 文笔细节 / 人物刻画），指出应如何改进。请严格只输出 JSON（不要解释、不要 markdown 代码块）：{"weak":"短板名","why":"具体到句段的不足","how":"改进方向，简明可执行"}`;
+    let s;
+    try{ s = parseJson(await callDeepSeek(selfSys, '【本章初稿】\n'+txt.slice(0,3000))); }catch(e){ s={}; }
+    if(s && s.weak){
+      txt = await callDeepSeek(longChapterSys(), `${user}\n\n【自省重写】本章主要短板：${s.weak}。改进方向：${s.how||s.why||''}。请基于本章既有内容，只针对该短板上做一次内化的完善重写，保持人物与伏笔不变，只输出改进后的正文。`);
+    }
+  }
+  // 伏笔洞检测：专项核查连续性错误并按一致性命中重写
+  if(hasQuality('plothole')){
+    const holeSys = `你是长篇小说的连续性校对编辑。请专项核查【本章初稿】的四类逻辑漏洞：①时间线是否自洽；②人物性格/外貌/称呼是否与前文统一；③已铺设的伏笔是否被丢弃或矛盾；④地名/专名是否统一。若发现问题，请严格只输出如下 JSON（不要解释、不要 markdown 代码块）：{"issues":[{"type":"时间线|性格|伏笔|专名","desc":"具体问题","fix":"修正说明"}],"pass":true}`;
+    let h;
+    try{ h = parseJson(await callDeepSeek(holeSys, '【本章初稿】\n'+txt.slice(0,3000))); }catch(e){ h={}; }
+    const issues = (h && Array.isArray(h.issues) && h.issues.length) ? h.issues : [];
+    const pass = !issues.length || h.pass===true;
+    if(!pass){
+      const adv = issues.map(x=>`[${x.type}] ${x.desc} → ${x.fix}`).join('\n');
+      txt = await callDeepSeek(longChapterSys(), `${user}\n\n【连续性修正】本章存在以下一致性/伏笔问题，请修正并重写相关段落，保持人物与主线设定不变、只输出修正后的完整正文：\n${adv}`);
+    }
   }
   return txt.trim();
 }
@@ -1645,7 +1984,7 @@ function newProject(mode){
   return true;
 }
 function newLongProject(){
-  if(!confirm('创建一部「经典长篇小说」？\n\n支持多种写作范式（在「故事」页选择）：\n· 大师结构 / 分层递归 / 双审 / 网文节奏：约 32-40 章，每章约 7000-9000 字\n· 百章爽文：约 100-110 章，每章约 3000 字，全书约 30 万字\n\n每次按 5 章一批生成；百章模式可用阅读浮层右上角「☰」目录在 100+ 章间快速跳转。\n此模式不生成视频提示词，只产出文字章节，可导出 TXT / EPUB / DOCX。')){
+  if(!confirm('创建一部「经典长篇小说」？\n\n支持三维写作范式（在「故事」页选择）：\n· 结构骨架：多线网状 / 单线因果 / 分层递归 / 英雄之旅 / 节拍表 / 七点结构\n· 节奏风格：黄金网文 / 压抑反转 / 慢生活 / 悬疑解谜 / 群像史诗 / 悲剧宿命 / 文艺向内\n· 质量机制：写手-编辑双审 / 自省重写 / 伏笔洞检测（可多选）\n\n体量可自定义每章字数或全书章数（二选一），全书目标约 30 万字。每次按 5 章一批生成；可用阅读浮层右上角「☰」目录快速跳转。\n此模式不生成视频提示词，只产出文字章节，可导出 TXT / EPUB / DOCX。')){
     return false;
   }
   return newProject('longnovel');
