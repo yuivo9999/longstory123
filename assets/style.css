@@ -230,8 +230,15 @@ label.field>span{display:block;font-size:12px;color:var(--sub);margin-bottom:6px
 .size-grid{display:flex;flex-direction:column;gap:12px;margin-top:8px}
 .size-block{display:flex;flex-direction:column;gap:6px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--panel2);transition:border-color .15s, box-shadow .15s}
 .size-block.on{border-color:var(--accent);box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 40%, transparent)}
-.size-lbl{font-size:12px;color:var(--sub)}
-.size-block.on .size-lbl{color:var(--accent);font-weight:700}
+/* 未勾选侧整块灰化 */
+.size-block:not(.on){opacity:.55;border-color:var(--line)}
+.size-block:not(.on) .drs{opacity:.5;filter:grayscale(1)}
+/* 顶部 ☑ 勾选按钮（radio 二选一） */
+.size-pick{display:flex;align-items:center;gap:8px;width:100%;background:transparent;border:none;padding:0;margin:0;font-family:inherit;text-align:left;cursor:pointer}
+.size-radio{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border:2px solid var(--muted);border-radius:50%;font-size:14px;font-weight:800;color:#fff;background:transparent;transition:background .15s,border-color .15s}
+.size-block.on .size-radio{background:var(--accent);border-color:var(--accent)}
+.size-lbl{font-size:13px;color:var(--sub);font-weight:600}
+.size-block.on .size-lbl{color:var(--accent)}
 .size-val{font-size:18px;font-weight:700;color:var(--txt);font-variant-numeric:tabular-nums}
 .size-block:not(.on) .size-val{color:var(--muted)}
 .size-sliders{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:center}
@@ -249,6 +256,9 @@ label.field>span{display:block;font-size:12px;color:var(--sub);margin-bottom:6px
 .drs .noUi-handle:before,.drs .noUi-handle:after{display:none}
 .drs .noUi-touch-area{cursor:grab}
 .drs .noUi-touch-area:active{cursor:grabbing}
+/* 未勾选侧：仅灰色占位轨道（无滑块，等待勾选） */
+.drs.ds-off{height:30px;display:flex;align-items:center}
+.drs.ds-off::after{content:"";position:absolute;left:2px;right:2px;top:50%;height:6px;transform:translateY(-50%);background:var(--panel);border:1px solid var(--line);border-radius:999px}
 .size-scale{font-size:10px;color:var(--muted);text-align:center}
 .size-hint{font-size:11.5px;color:var(--accent);margin:8px 0 0}
 @media(max-width:560px){ .poly-grid{grid-template-columns:1fr} .size-block{padding:10px} .poly-card{padding:12px} .poly-grid .recipe{min-height:0} }

@@ -653,14 +653,17 @@ function estCounterpart(sz){
 }
 // 体量一句提示（页面 + 可复用）
 function sizeHintText(){
+  const hasW = state.wordRange && (state.wordRange.min>0 || state.wordRange.max>0);
+  const hasC = state.chapterRange && (state.chapterRange.min>0 || state.chapterRange.max>0);
+  if(!hasW && !hasC) return '请先 ☑ 勾选「每章字数」或「全书章节」其中一项，再滑动滑条调整区间。';
   const sz = selSize();
   const cnt = estCounterpart(sz);
   if(sz.kind==='word') return `按每章 ${fmtRange(sz.range)} 字，全书约需 ${cnt} 章。`;
   return `全书约 ${fmtRange(sz.range)} 章，每章据此约 ${cnt} 字。`;
 }
-// 生成「体量」单侧的双滑条块：min/max 两条 range + 当前值标签。
-// side ∈ {word,chapter}；r 为已有区间（可为 null 用默认）；on 表示是否为生效侧（未生效侧灰色淡化）。
-// 默认（未选/未生效）回显值：字数 3000-5000，章节 80-100，便于用户直观看到滑块位置。
+// 生成「体量」单侧块：顶部为二选一勾选框（radio），下方为该侧双滑条。
+// side ∈ {word,chapter}；r 为已有区间（可为 null 用默认）；on 表示该侧是否已勾选生效。
+// 只有勾选（on）的一侧滑条才可操作；未勾选侧整块灰色、滑条禁用占位。
 function sizeSlider(side, label, lo, hi, step, r, on){
   const dflt = side==='word' ? {min:3000,max:5000} : {min:80,max:100};
   const v = (r && +r.min>0 && +r.max>0) ? {min:+r.min, max:+r.max} : dflt;
@@ -670,9 +673,12 @@ function sizeSlider(side, label, lo, hi, step, r, on){
   const cls = on ? 'size-block on' : 'size-block';
   const fmt = n => side==='word' ? n.toLocaleString() : String(n);
   return `<div class="${cls}" data-side="${side}">
-      <span class="size-lbl">${label}</span>
+      <button type="button" class="size-pick" data-pick="${side}" aria-pressed="${on}">
+        <span class="size-radio">${on?'✓':''}</span>
+        <span class="size-lbl">${label}</span>
+      </button>
       <span class="size-val"><b data-dr-val="${side}">${fmt(v.min)} ~ ${fmt(v.max)}</b></span>
-      <div class="drs" data-drs="${side}" data-min="${lo}" data-max="${hi}" data-step="${step}"></div>
+      <div class="drs ${on?'':'ds-off'}" data-drs="${side}" data-min="${lo}" data-max="${hi}" data-step="${step}"></div>
       <span class="size-scale">${lo.toLocaleString()} ~ ${hi.toLocaleString()}${side==='word'?' 字':' 章'}</span>
     </div>`;
 }
@@ -690,7 +696,9 @@ function initDRS(){
     v0 = Math.max(lo, Math.min(hi, v0));
     v1 = Math.max(lo, Math.min(hi, v1));
     if(v1 < v0) v1 = v0;
-    if(drs.noUiSlider) drs.noUiSlider.destroy(); // render 会重建；先销毁旧实例，避免重复初始化
+    if(drs.noUiSlider){ drs.noUiSlider.destroy(); drs.noUiSlider = null; } // render 会重建；先销毁旧实例
+    // 未勾选侧：不创建滑块，仅保留灰色禁用占位（.ds-off）
+    if(drs.classList.contains('ds-off')) return;
     noUiSlider.create(drs, {
       start: [v0, v1],
       connect: true,
@@ -713,6 +721,18 @@ function initDRS(){
       persist(); render();
     });
   });
+}
+// 勾选「体量」某侧（radio 二选一）：选中该侧并把另一侧置空；该侧无已设区间则给默认区间作为滑条起点。
+function pickSize(side){
+  if(side==='word'){
+    if(!(state.wordRange && +state.wordRange.min>0)) state.wordRange = { min:3000, max:5000 };
+    state.chapterRange = null;
+  }else{
+    if(!(state.chapterRange && +state.chapterRange.min>0)) state.chapterRange = { min:80, max:100 };
+    state.wordRange = null;
+  }
+  const hint = $('#sizeHint'); if(hint) hint.textContent = sizeHintText();
+  persist(); render();
 }
 
 // 按所选体量推导「单章正文的 max_tokens 上限」，防止模型偶发超长输出推高成本
@@ -1602,6 +1622,8 @@ function bindView(){
     else state.recipeSet.quality.push(id);
     persist(); render();
   });
+  // 体量二选一：点击 ☑ 勾选该侧（radio，二选一）
+  $$('.size-pick').forEach(b=> b.onclick = ()=>{ pickSize(b.dataset.pick); });
   initDRS();
   const specCur = $('#specCurrentBtn'); if(specCur) specCur.onclick = openSpecPanel;
   const btnCO = $('#btnConfirmOutline'); if(btnCO) btnCO.onclick = ()=>{ state.outlineConfirmed=true; persist(); render(); };
@@ -1789,7 +1811,7 @@ function recipePicker(){
   const labelSt = selSt ? selSt.name : '未选';
   const labelRh = selRh ? selRh.name : '未选';
   const labelQ = selQArr.length ? selQArr.map(q=>q.name).join('+') : '未选';
-  // 体量小结
+  // 体量小结：未勾选任何一侧时用默认文字提示
   const sz = selSize();
   const szLabel = sz.kind==='word' ? `单章 ${fmtRange(sz.range)} 字` : `全书 ${fmtRange(sz.range)} 章`;
   // 卡片渲染（dim 为维度名，selKeys 判断选中，toggle 是点击后是否多选）
@@ -1823,18 +1845,18 @@ function recipePicker(){
     ${dim('节奏风格','⚡','单选 · 可选其一（默认黄金网文）', RHYTHMS.map(it=>card(it,'rhythm', it.id===rs.rhythm)).join(''))}
     ${dim('质量机制','🛡️','可多选 · 可不选', QUALITIES.map(it=>card(it,'quality', hasQuality(it.id))).join(''))}
     <div class="poly-size">
-      <div class="poly-head"><span class="poly-ic">📏</span><b>体量设定</b><span class="poly-rule">字数 / 章节 二选一 · 全书目标约 30 万字</span></div>
+      <div class="poly-head"><span class="poly-ic">📏</span><b>体量设定</b><span class="poly-rule">先勾选一项 · 再滑动调区间 · 二选一</span></div>
       <div class="size-grid">
         ${sizeSlider('word', '每章字数（字）', 1000, 12000, 100,
           state.wordRange ? state.wordRange : null,
-          selSize().kind==='word')}
+          !!(state.wordRange && +state.wordRange.min>0))}
         ${sizeSlider('chapter', '全书章节（章）', 1, 120, 1,
           state.chapterRange ? state.chapterRange : null,
-          selSize().kind==='chapter')}
+          !!(state.chapterRange && +state.chapterRange.min>0))}
       </div>
       <p class="size-hint" id="sizeHint">${sizeHintText()}</p>
     </div>
-    <p class="muted" style="margin:8px 0 0">至少选择结构、节奏、质量其中一项即可生文；介绍默认折叠，选中后自动展开。</p>
+    <p class="muted" style="margin:8px 0 0">至少选择结构、节奏、质量其中一项即可生文；体量需先用 ☑ 勾选一项才能调整滑条。介绍默认折叠，选中后自动展开。</p>
   </div>`;
 }
 function structureCard(o){
