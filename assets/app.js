@@ -441,6 +441,42 @@ rules：role/plot/world 各按 0-100 打分；pass=true 当且仅当三维都 �
  * ========================================================= */
 const SIZE_DEFAULT = { min:3000, max:5000 };
 
+/* ---------- 预置示例点子库（固定 12 条，每次随机出现一条） ---------- */
+const IDEA_SAMPLES = [
+  { text:"现代都市，一个能听见别人心声的外卖员，意外卷进一起豪门遗产骗局……", tag:"都市 · 奇幻" },
+  { text:"仙侠世界，一个专测天劫的渡劫顾问帮人渡劫赚钱，自己却因从不受劫而引来天雷记恨……", tag:"仙侠 · 轻喜" },
+  { text:"悬疑刑侦，能看见死者最后三秒记忆的法医，追查连环悬案时发现所有死者都指向她的童年伙伴……", tag:"悬疑 · 刑侦" },
+  { text:"末世生存，粮仓守护者发现地下城其实是为富人修建的末日方舟，而自己只是唯一的过期补给员……", tag:"末世 · 生存" },
+  { text:"历史穿越，现代历史系学生穿成冷宫弃妃，靠课本知识预判宫廷权谋，却一步步改写了史书记载……", tag:"历史 · 穿越" },
+  { text:"科幻太空，资源枯竭的殖民舰上，负责修理冷藏舱的技工发现一批被故意下架的冬眠者名单……", tag:"科幻 · 太空" },
+  { text:"玄幻宗门，筑基失败、修为倒退的宗门杂役，反而成了唯一能看透渡心魔考核本质的人……", tag:"玄幻 · 宗门" },
+  { text:"都市职场，跨国公司的普通 HR 发现公司招人的真正目的，竟与一场惊天商业骗局有关……", tag:"都市 · 职场" },
+  { text:"宫斗权谋，被当作嫡女替代品培养的庶女，在嫡姐病逝后顶替入宫，卷入一场夺嫡阴谋……", tag:"宫斗 · 权谋" },
+  { text:"奇幻日常，开在传说妖孽必经之路上的小茶馆主人，每夜接待不同来客，用一盏茶化解恩怨……", tag:"奇幻 · 日常" },
+  { text:"赛博朋克，沉迷修复旧物的小镇修理工，在一台老录像机里发现的不是过去，而是尚未发生的未来……", tag:"赛博 · 设定" },
+  { text:"医学悬疑，屡遭误诊斥责的乡村赤脚大夫，用祖传中医救下重患，却被卷入一场针对他的医疗阴谋……", tag:"医学 · 悬疑" }
+];
+let _lastIdeaIdx = -1;
+let _curIdeaPh = '';
+function currentIdeaPhrase(){
+  if(!_curIdeaPh) _curIdeaPh = pickRandomIdea();
+  return _curIdeaPh;
+}
+function rerollIdeaPhrase(){
+  // 若用户已输入内容，则把新例子填入输入框；否则仅更新占位
+  _curIdeaPh = pickRandomIdea();
+  const ta = $('#ideaInput');
+  if(ta && !ta.value.trim()) ta.setAttribute('placeholder', _curIdeaPh);
+  else if(ta) ta.value = _curIdeaPh;
+}
+function pickRandomIdea(){
+  if(!IDEA_SAMPLES.length) return '';
+  let i = Math.floor(Math.random()*IDEA_SAMPLES.length);
+  if(i === _lastIdeaIdx && IDEA_SAMPLES.length > 1) i = (i+1)%IDEA_SAMPLES.length; // 避免与上一轮重复
+  _lastIdeaIdx = i;
+  return IDEA_SAMPLES[i].text;
+}
+
 const STRUCTURES = [
   { id:'mesh', name:'多线网状交织', tag:'大师结构', short:'网状多线', src:'经典 · 网文 / 《红楼梦》体系',
     useStructure:true, structure:true,
@@ -622,6 +658,26 @@ function sizeHintText(){
   if(sz.kind==='word') return `按每章 ${fmtRange(sz.range)} 字，全书约需 ${cnt} 章。`;
   return `全书约 ${fmtRange(sz.range)} 章，每章据此约 ${cnt} 字。`;
 }
+// 生成「体量」单侧的双滑条块：min/max 两条 range + 当前值标签。
+// side ∈ {word,chapter}；r 为已有区间（可为 null 用默认）；on 表示是否为生效侧（未生效侧灰色淡化）。
+// 默认（未选/未生效）回显值：字数 3000-5000，章节 80-100，便于用户直观看到滑块位置。
+function sizeSlider(side, label, lo, hi, step, r, on){
+  const dflt = side==='word' ? {min:3000,max:5000} : {min:80,max:100};
+  const v = (r && +r.min>0 && +r.max>0) ? {min:+r.min, max:+r.max} : dflt;
+  v.min = Math.max(lo, Math.min(hi, v.min));
+  v.max = Math.max(lo, Math.min(hi, v.max));
+  if(v.max < v.min) v.max = v.min;
+  const cls = on ? 'size-block on' : 'size-block';
+  return `<label class="${cls}">
+      <span class="size-lbl">${label}</span>
+      <span class="size-val"><b data-size-lbl="${side}-min">${side==='word'?v.min.toLocaleString():v.min}</b> ~ <b data-size-lbl="${side}-max">${side==='word'?v.max.toLocaleString():v.max}</b></span>
+      <span class="size-sliders">
+        <input type="range" data-size-slider="${side}-min" min="${lo}" max="${hi}" step="${step}" value="${v.min}">
+        <input type="range" data-size-slider="${side}-max" min="${lo}" max="${hi}" step="${step}" value="${v.max}">
+      </span>
+      <span class="size-scale">${lo.toLocaleString()} ~ ${hi.toLocaleString()}${side==='word'?' 字':' 章'}</span>
+    </label>`;
+}
 
 // 按所选体量推导「单章正文的 max_tokens 上限」，防止模型偶发超长输出推高成本
 // 中文字符与 token 大体按 1:1 估算，加 1.6 倍缓冲并夹在安全区间内
@@ -678,6 +734,13 @@ function sizeChapterInjection(){
 function bindSizeHint(){
   const el = $('#sizeHint'); if(!el) return;
   el.textContent = sizeHintText();
+  // 同步刷新两个滑条侧的值标签（render 会重画滑条位置，这里先改文字，避免拿旧值）
+  $$('[data-size-lbl]').forEach(b=>{
+    const key = b.dataset.sizeLbl;          // e.g. 'word-min'
+    const [side, kind] = key.split('-');
+    const r = side==='word' ? state.wordRange : state.chapterRange;
+    if(r && +r[kind]>0){ b.textContent = side==='word' ? (+r[kind]).toLocaleString() : r[kind]; }
+  });
 }
 // 拼装：章节提示词 =（结构章节 × 节奏 × 体量）
 function buildChapterSys(){
@@ -841,7 +904,10 @@ function viewStory(){
       <p class="sub">${homeSub}</p>
       ${ isLong() ? recipePicker() : '' }
       ${ isLong() ? '' : `<div class="spec-current" id="specCurrentBtn" title="点击修改创作规范">当前创作规范：<b>${esc(getSpec().name)}</b> · 点击右上角 ⚖️ 修改</div>` }
-      <textarea id="ideaInput" placeholder="例：现代都市，一个能听见别人心声的外卖员，意外卷进一起豪门遗产骗局……">${esc(state.idea)}</textarea>
+      <div class="idea-row">
+        <textarea id="ideaInput" placeholder="${esc(currentIdeaPhrase())}">${esc(state.idea)}</textarea>
+        <button id="btnRerollIdea" class="btn ghost idea-reroll" title="换个示例">🎲</button>
+      </div>
       <div class="btn-row">
         <button id="btnGenOutline" class="btn primary block">${isLong()?'📚 生成长篇大纲':'✨ 生成故事大纲'}</button>
       </div>
@@ -1474,6 +1540,7 @@ function bindView(){
   // P1
   const idea = $('#ideaInput'); if(idea){
     idea.oninput = ()=> state.idea = idea.value;
+    const rr = $('#btnRerollIdea'); if(rr) rr.onclick = (e)=>{ e.stopPropagation(); rerollIdeaPhrase(); };
     $('#btnGenOutline').onclick = genOutline;
   }
   // 长篇：三维写作范式选择（结构单选 / 节奏单选 / 质量多选 / 体量二选一）
@@ -1499,24 +1566,30 @@ function bindView(){
     else state.recipeSet.quality.push(id);
     persist(); render();
   });
-  // 体量：字数/章节 二选一互斥
-  const clearSize = side => {
-    if(side==='word'){ if(state.wordRange){ state.wordRange=null; return true; } }
-    else if(side==='chapter'){ if(state.chapterRange){ state.chapterRange=null; return true; } }
-    return false;
-  };
-  $$('[data-size-word]').forEach(inp=> inp.oninput = ()=>{
-    const k = inp.dataset.sizeWord;
-    state.wordRange = state.wordRange || {};
-    state.wordRange[k] = inp.value ? +inp.value : 0;
-    state.chapterRange = null; // 填了字数即清空章节（互斥）
-    bindSizeHint(); persist(); render();
-  });
-  $$('[data-size-chapter]').forEach(inp=> inp.oninput = ()=>{
-    const k = inp.dataset.sizeChapter;
-    state.chapterRange = state.chapterRange || {};
-    state.chapterRange[k] = inp.value ? +inp.value : 0;
-    state.wordRange = null; // 填了章节即清空字数（互斥）
+  // 体量：字数/章节 二选一互斥（双滑条，max 不低于 min）
+  const SLIDER_BOUNDS = { word:{lo:1000, hi:12000}, chapter:{lo:1, hi:120} };
+  $$('[data-size-slider]').forEach(inp=> inp.oninput = ()=>{
+    const key = inp.dataset.sizeSlider;          // e.g. 'word-min'
+    const [side, kind] = key.split('-');
+    const b = SLIDER_BOUNDS[side]; if(!b) return;
+    let v = Math.max(b.lo, Math.min(b.hi, +inp.value));
+    const R = side==='word' ? state.wordRange : state.chapterRange;
+    const cur = (R && +R.min>0 && +R.max>0) ? {min:+R.min, max:+R.max} : {min:null, max:null};
+    // 更新一侧并保证 max>=min
+    if(kind==='min'){
+      cur.min = v;
+      if(cur.max!=null && cur.max < v) cur.max = v;
+      if(cur.max==null) cur.max = cur.min;
+    }else{
+      cur.max = v;
+      if(cur.min==null) cur.min = cur.max;
+      if(cur.min > v) cur.min = v;
+    }
+    cur.min = Math.max(b.lo, Math.min(b.hi, cur.min));
+    cur.max = Math.max(b.lo, Math.min(b.hi, cur.max));
+    // 互斥写入 state
+    if(side==='word'){ state.wordRange = {min:cur.min, max:cur.max}; state.chapterRange = null; }
+    else { state.chapterRange = {min:cur.min, max:cur.max}; state.wordRange = null; }
     bindSizeHint(); persist(); render();
   });
   const specCur = $('#specCurrentBtn'); if(specCur) specCur.onclick = openSpecPanel;
@@ -1741,16 +1814,14 @@ function recipePicker(){
     <div class="poly-size">
       <div class="poly-head"><span class="poly-ic">📏</span><b>体量设定</b><span class="poly-rule">字数 / 章节 二选一 · 全书目标约 30 万字</span></div>
       <div class="size-grid">
-        <label class="size-block">
-          <span class="size-lbl">每章字数（字）</span>
-          <span class="size-inputs"><input type="number" min="1" data-size-word="min" value="${state.wordRange?state.wordRange.min||'':''}" placeholder="min"><i>~</i><input type="number" min="1" data-size-word="max" value="${state.wordRange?state.wordRange.max||'':''}" placeholder="max"></span>
-        </label>
-        <label class="size-block">
-          <span class="size-lbl">全书章节（章）</span>
-          <span class="size-inputs"><input type="number" min="1" data-size-chapter="min" value="${state.chapterRange?state.chapterRange.min||'':''}" placeholder="min"><i>~</i><input type="number" min="1" data-size-chapter="max" value="${state.chapterRange?state.chapterRange.max||'':''}" placeholder="max"></span>
-        </label>
+        ${sizeSlider('word', '每章字数（字）', 1000, 12000, 100,
+          state.wordRange ? state.wordRange : null,
+          selSize().kind==='word')}
+        ${sizeSlider('chapter', '全书章节（章）', 1, 120, 1,
+          state.chapterRange ? state.chapterRange : null,
+          selSize().kind==='chapter')}
       </div>
-      <p class="size-hint" id="sizeHint">${selSize().kind==='word' ? `按每章 ${fmtRange(selSize().range)} 字，全书约需 ${Math.round(300000/((selSize().range.min+selSize().range.max)/2))} 章。` : `全书约 ${fmtRange(selSize().range)} 章，每章据此约 ${Math.round(300000/((selSize().range.min+selSize().range.max)/2))} 字。`}</p>
+      <p class="size-hint" id="sizeHint">${sizeHintText()}</p>
     </div>
     <p class="muted" style="margin:8px 0 0">至少选择结构、节奏、质量其中一项即可生文；介绍默认折叠，选中后自动展开。</p>
   </div>`;
@@ -2146,6 +2217,9 @@ function rebindHistPanel(){
   };
   const nb = $('#btnNewProject');
   if(nb) nb.onclick = (e)=>{ e.stopPropagation(); newProject(); };
+  // 历史弹层头部「＋ 新建长篇」：确认后新建经典长篇小说项目
+  const nlo = $('#histNewLong');
+  if(nlo) nlo.onclick = (e)=>{ e.stopPropagation(); newLongProject(); };
 }
 
 /* =========================================================

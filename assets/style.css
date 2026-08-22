@@ -38,6 +38,10 @@ body{
 
 textarea,input,select{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:10px;padding:10px;font-size:14px;font-family:inherit;resize:vertical}
 textarea{min-height:90px;line-height:1.6}
+.idea-row{position:relative;margin-bottom:12px}
+.idea-row textarea{padding-right:46px}
+.idea-reroll{position:absolute;top:10px;right:10px;width:34px;height:34px;padding:0;border-radius:10px;background:var(--panel2);border:1px solid var(--line);font-size:16px}
+.idea-reroll:active{transform:scale(.95)}
 select{appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%239aa3b2' d='M6 8L1 3h10z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:34px}
 textarea:focus,input:focus,select:focus{outline:none;border-color:var(--accent2)}
 label.field{display:block;margin-bottom:12px}
@@ -223,13 +227,17 @@ label.field>span{display:block;font-size:12px;color:var(--sub);margin-bottom:6px
 .poly-grid .recipe.active .r-check{border-color:var(--accent);background:var(--accent)}
 /* 体量设定 */
 .poly-size{margin-top:6px;padding-top:14px;border-top:1px dashed var(--line)}
-.size-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px}
-.size-block{display:flex;flex-direction:column;gap:6px}
+.size-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:8px}
+.size-block{display:flex;flex-direction:column;gap:6px;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--panel2);transition:border-color .15s, box-shadow .15s}
+.size-block.on{border-color:var(--accent);box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 40%, transparent)}
 .size-lbl{font-size:12px;color:var(--sub)}
-.size-inputs{display:flex;align-items:center;gap:8px}
-.size-inputs input{width:100%;min-width:0;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--txt);font-size:14px}
-.size-inputs input:focus{outline:none;border-color:var(--accent)}
-.size-inputs i{color:var(--muted);font-style:normal}
+.size-block.on .size-lbl{color:var(--accent);font-weight:700}
+.size-val{font-size:18px;font-weight:700;color:var(--txt);font-variant-numeric:tabular-nums}
+.size-block:not(.on) .size-val{color:var(--muted)}
+.size-sliders{display:flex;flex-direction:column;gap:2px}
+.size-sliders input{width:100%;accent-color:var(--accent);height:20px;cursor:pointer}
+.size-sliders input::-webkit-slider-thumb{cursor:grab}
+.size-scale{font-size:10px;color:var(--muted);text-align:center}
 .size-hint{font-size:11.5px;color:var(--accent);margin:8px 0 0}
 @media(max-width:560px){ .poly-grid{grid-template-columns:1fr} .size-grid{grid-template-columns:1fr} .poly-card{padding:12px} .poly-grid .recipe{min-height:0} }
 
@@ -285,6 +293,7 @@ label.field>span{display:block;font-size:12px;color:var(--sub);margin-bottom:6px
 .spec-panel.hidden{display:none}
 .spec-head{display:flex; align-items:baseline; justify-content:space-between; gap:8px; padding:2px 4px 8px; border-bottom:1px solid var(--line); margin-bottom:6px}
 .spec-head .spec-note{font-size:11px; color:var(--sub)}
+.spec-head .spec-actions{display:flex; gap:6px; flex-wrap:wrap}
 .spec-row{
   display:block; width:100%; text-align:left; cursor:pointer;
   background:transparent; border:1px solid transparent; border-radius:10px;
