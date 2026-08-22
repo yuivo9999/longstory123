@@ -111,16 +111,30 @@ label.field>span{display:block;font-size:12px;color:var(--sub);margin-bottom:6px
 .tab.active{color:var(--accent)}
 .tab.active span{transform:scale(1.1)}
 
-/* 弹窗 */
-.modal{position:fixed;inset:0;z-index:50;display:flex;align-items:flex-end;justify-content:center}
+/* 弹窗：自适应高度，保证头部（含 ✕）始终可见，内容在 body 内滚动 */
+.modal{position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;padding:16px}
 .modal.hidden{display:none}
 .modal-mask{position:absolute;inset:0;background:rgba(0,0,0,.6)}
-.modal-panel{position:relative;width:100%;max-width:560px;background:var(--panel);border-radius:18px 18px 0 0;border:1px solid var(--line);padding:18px;animation:slideUp .2s ease}
-@keyframes slideUp{from{transform:translateY(40px);opacity:.6}to{transform:none;opacity:1}}
-.modal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.modal-panel{
+  position:relative; width:100%; max-width:560px;
+  max-height:min(92dvh, 92vh); display:flex; flex-direction:column;
+  background:var(--panel); border-radius:18px; border:1px solid var(--line);
+  padding:18px; overflow:hidden; animation:slideUp .2s ease;
+}
+@keyframes slideUp{from{transform:translateY(18px);opacity:.6}to{transform:none;opacity:1}}
+.modal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex:0 0 auto}
 .modal-head h3{margin:0;font-size:17px}
+.modal-body{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
 .modal-actions{display:flex;gap:10px;margin-top:6px}
 .modal-actions .btn{flex:1}
+/* 矮屏手机（≤480px 高或 ≤640px 宽）：贴底抽屉式，确保不超出可视区 */
+@media (max-height:560px), (max-width:420px){
+  .modal{align-items:flex-end;padding:0}
+  .modal-panel{max-height:min(96dvh, 96vh);border-radius:18px 18px 0 0;padding:16px}
+}
+@media (min-width:900px){
+  .modal{align-items:center}
+}
 
 /* 主题切换（在设置弹窗里） */
 .theme-box{border-top:1px dashed var(--line);margin-top:14px;padding-top:12px}
