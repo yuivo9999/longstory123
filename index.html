@@ -6,7 +6,8 @@
 <meta name="theme-color" content="#0f1115">
 <title>影视前期提示词生成器</title>
 <link rel="stylesheet" href="assets/style.css">
-<link rel="stylesheet" href="assets/vendor/tom-select/tom-select.css">
+<link rel="stylesheet" href="assets/vendor/nouislider/nouislider.min.css">
+  <link rel="stylesheet" href="assets/vendor/tom-select/tom-select.css">
 <link rel="stylesheet" href="assets/theme-mecha.css">
   <link rel="stylesheet" href="assets/theme-blackboard.css">
   <link rel="stylesheet" href="assets/theme-cyber.css">
@@ -21,10 +22,9 @@
     <button id="btnSettings" class="icon-btn" title="设置">⚙️</button>
   </div>
 
-  <!-- 左上角工具组（固定）：历史作品 + 经典长篇小说入口 -->
+  <!-- 左上角工具组（固定）：历史作品入口（新建小说 / 新建长篇在历史弹层内） -->
   <div id="topLeft">
     <button id="btnHist" class="icon-btn" title="历史作品">📚<span class="tb-lab">历史</span></button>
-    <button id="btnLong" class="icon-btn" title="新建经典长篇小说">📖<span class="tb-lab">长篇</span></button>
   </div>
 
   <!-- 历史作品弹层（点击 📚 展开；复用 spec-panel 样式保证跨主题一致） -->
@@ -159,7 +159,8 @@
   </div>
 </div>
 
-<script src="assets/vendor/tom-select/tom-select.complete.min.js"></script>
+<script src="assets/vendor/nouislider/nouislider.min.js"></script>
+  <script src="assets/vendor/tom-select/tom-select.complete.min.js"></script>
 <script src="assets/vendor/jszip.min.js"></script>
 <script src="assets/app.js"></script>
 </body>
