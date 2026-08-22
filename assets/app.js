@@ -281,18 +281,23 @@ function persist(){
   robustSaveLib();
 }
 
-/* ---------- DeepSeek 调用（浏览器直连，已验证支持 CORS） ---------- */
-async function callDeepSeek(system, user, {temperature=null, signal}={}){
+/* ---------- DeepSeek 调用（浏览器直连，已验证支持 CORS，支持流式） ---------- */
+// onStream(deltaText)：提供时开启流式（stream:true），每收到一段增量就回调用；不传则一次性返回全文。
+async function callDeepSeek(system, user, {temperature=null, signal=null, maxTokens=null, onStream=null}={}){
   const cfg = getCfg();
   if(!cfg.apiKey) throw new Error('请先到 ⚙️ 填写 DeepSeek API Key');
   const base = (cfg.baseUrl || 'https://api.deepseek.com').replace(/\/+$/, '');
   const url = base + '/chat/completions';
+  const streaming = typeof onStream === 'function';
   const body = {
     model: cfg.model || 'deepseek-v4-pro',
     messages: [{role:'system', content: system}, {role:'user', content: user}],
     temperature: (temperature==null ? (cfg.temperature ?? 0.7) : temperature),
-    stream: false
+    stream: streaming
   };
+  // 缓存友好：请求的前缀（system + user 恒定首部）在全书各章保持不变，
+  // DeepSeek 自动命中上下文缓存，命中价远低于未命中价；可变信息一律放 user 最末。
+  if(maxTokens && maxTokens>0) body.max_tokens = maxTokens;
   let res;
   try{
     res = await fetch(url, {
@@ -309,8 +314,37 @@ async function callDeepSeek(system, user, {temperature=null, signal}={}){
     try{ const j = await res.json(); if(j.error && j.error.message) msg = j.error.message; }catch(e){}
     throw new Error(msg);
   }
-  const data = await res.json();
-  return (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
+  if(!streaming){
+    const data = await res.json();
+    return (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
+  }
+  // 流式：解析 SSE（data: {...}），把 delta content 逐段回传给 onStream，最后返回完整拼接文本
+  const reader = res.body && res.body.getReader ? res.body.getReader() : null;
+  if(!reader) throw new Error('当前浏览器不支持流式响应');
+  const decoder = new TextDecoder();
+  let buf = '', full = '';
+  const feed = (chunk)=>{
+    buf += chunk;
+    let nl;
+    while((nl = buf.indexOf('\n')) >= 0){
+      const line = buf.slice(0, nl).trim();
+      buf = buf.slice(nl + 1);
+      if(!line || !line.startsWith('data:')) continue;
+      const payload = line.slice(5).trim();
+      if(payload === '[DONE]') continue;
+      let j;
+      try{ j = JSON.parse(payload); }catch(e){ continue; }
+      const delta = (j.choices && j.choices[0] && j.choices[0].delta && j.choices[0].delta.content) || '';
+      if(delta){ full += delta; onStream(delta); }
+    }
+  };
+  while(true){
+    const {done, value} = await reader.read();
+    if(done) break;
+    feed(decoder.decode(value, {stream:true}));
+  }
+  feed(decoder.decode());
+  return full;
 }
 
 /* 容错 JSON 解析：去代码围栏、抽取首尾 {} 或 [] */
@@ -587,6 +621,35 @@ function sizeHintText(){
   const cnt = estCounterpart(sz);
   if(sz.kind==='word') return `按每章 ${fmtRange(sz.range)} 字，全书约需 ${cnt} 章。`;
   return `全书约 ${fmtRange(sz.range)} 章，每章据此约 ${cnt} 字。`;
+}
+
+// 按所选体量推导「单章正文的 max_tokens 上限」，防止模型偶发超长输出推高成本
+// 中文字符与 token 大体按 1:1 估算，加 1.6 倍缓冲并夹在安全区间内
+function chapterMaxTokens(){
+  const sz = selSize();
+  let base;
+  if(sz.kind==='word') base = sz.range.max;
+  else base = Math.round(300000 / ((sz.range.min + sz.range.max) / 2));
+  return Math.min(20000, Math.max(600, Math.ceil(base * 1.6)));
+}
+// 把「锚点 → 改写段落」应用回初稿（段落级重写合并）。锚点找不到则跳过该条，保守不破坏正文。
+function applyPatches(draft, patches){
+  if(!Array.isArray(patches) || !patches.length) return draft;
+  let out = draft;
+  for(const p of patches){
+    const a = String(p.anchor || '').trim();
+    const r = String(p.rewritten || '').trim();
+    if(!a || !r) continue;
+    const idx = out.indexOf(a);
+    if(idx < 0) continue;
+    const segStart = out.lastIndexOf('\n\n', idx) + 2;         // 该段起点
+    let segEnd = out.indexOf('\n\n', idx + a.length);          // 该段终点
+    if(segEnd < 0) segEnd = out.length;
+    const leading = out.slice(0, segStart);
+    const trailing = out.slice(segEnd);
+    out = leading + r + (trailing.startsWith('\n') || /[\n。！？）」』]\s*$/.test(r) ? trailing : '\n' + trailing);
+  }
+  return out;
 }
 
 // 体量提示（拼入大纲提示词）
@@ -1712,52 +1775,116 @@ function structureCard(o){
   </div>`;
 }
 // 写一条章节正文（依所勾选质量机制 post-processing：dual 双审 / selfref 自省 / plothole 伏笔洞检测）
-async function writeOneChapterContent(i, user){
-  let txt = await callDeepSeek(longChapterSys(), user);
+// 省 token 策略：正文与初审均带上 max_tokens 上限；各机制一律「段落级重写」而非整章重写，
+// 并共享一个整体重写预算，避免三种机制叠加把输出放大数倍。
+async function writeOneChapterContent(i, user, onStream){
+  const mt = chapterMaxTokens();
+  let txt = await callDeepSeek(longChapterSys(), user, {maxTokens: mt, onStream});
   if(!isLong()) return txt.trim();
-  // 双审：编辑评审打分，不满 70 由写手按意见重写（最多 2 轮）
+  // 共享重写预算：最多 3 次段落级修正，三种机制共同消耗，防止 ×4 输出放大
+  let budget = 3;
+  // 双审：编辑评审打分，不满 70 由写手按意见做段落级重写（不整章重发）
   if(hasQuality('dual')){
-    for(let r=0; r<2; r++){
+    for(let r=0; r<2 && budget>0; r++){
       const draft = txt;
       let j;
       try{ j = parseJson(await callDeepSeek(PROMPTS.editorSys, '【本章初稿】\n'+draft.slice(0,3000))); }catch(e){ j={}; }
       const pass = j.pass===true || ((j.role||0)>=70 && (j.plot||0)>=70 && (j.world||0)>=70);
       if(pass) break;
-      const advice = j.advice || (j.issues||[]).join('；');
+      let advice = j.advice || (Array.isArray(j.issues) ? j.issues.map(x=>x.fix||x.rewritten||'').filter(Boolean).join('；') : '');
+      const patches = Array.isArray(j.issues) ? j.issues.filter(x=>x.anchor && x.rewritten) : [];
+      if(patches.length){
+        budget--;
+        txt = applyPatches(txt, patches);
+        continue;
+      }
       if(!advice) break;
-      txt = await callDeepSeek(longChapterSys(), `${user}\n\n【编辑审稿意见】该章未达标（角色${j.role??'-'}/剧情${j.plot??'-'}/世界观${j.world??'-'}）。请按以下意见重写本章：\n${advice}\n\n务必保留原有人物设定与已铺伏笔，仅修正指出的问题。只输出正文。`);
+      // 无结构化锚点时，仍只引导（段落级修正），不整章重写
+      budget--;
+      txt = await callDeepSeek(longChapterSys(),
+        `${user}\n\n【编辑审稿意见】该章未达标（角色${j.role??'-'}/剧情${j.plot??'-'}/世界观${j.world??'-'}）。请在保持原文整体不变的前提下，只改写被指出的问题段落，其余段落文字原样保留，不要整章重写。问题：\n${advice}\n\n只输出需改写的段落文本。`, {maxTokens: mt});
     }
   }
-  // 自省重写：自评本轮最大短板并重写一次
+  // 自省重写：自评本轮最大短板，仅针对该短板及其所在段做段落级修正
   if(hasQuality('selfref')){
-    const selfSys = `你是本章的自我编辑。请通读【本章初稿】，找出本章最明显的短板（只选一个：情绪感染力 / 剧情逻辑 / 文笔细节 / 人物刻画），指出应如何改进。请严格只输出 JSON（不要解释、不要 markdown 代码块）：{"weak":"短板名","why":"具体到句段的不足","how":"改进方向，简明可执行"}`;
+    const selfSys = `你是本章的自我编辑。请通读【本章初稿】，找出本章最明显的短板（只选一个：情绪感染力 / 剧情逻辑 / 文笔细节 / 人物刻画），指出该短板具体落在哪一个段落。请严格只输出 JSON（不要解释、不要 markdown 代码块）：{"weak":"短板名","why":"具体到句段的不足","how":"改进方向，简明可执行","anchor":"短板对应段落中的一句原文（用于定位该段）","rewritten":"按改进方向改写后的该段完整文字"}`;
     let s;
     try{ s = parseJson(await callDeepSeek(selfSys, '【本章初稿】\n'+txt.slice(0,3000))); }catch(e){ s={}; }
-    if(s && s.weak){
-      txt = await callDeepSeek(longChapterSys(), `${user}\n\n【自省重写】本章主要短板：${s.weak}。改进方向：${s.how||s.why||''}。请基于本章既有内容，只针对该短板上做一次内化的完善重写，保持人物与伏笔不变，只输出改进后的正文。`);
+    if(s && s.weak && budget>0){
+      if(s.anchor && s.rewritten){
+        budget--;
+        txt = applyPatches(txt, [s]);
+      } else if(s.how && budget>0){
+        budget--;
+        txt = await callDeepSeek(longChapterSys(),
+          `${user}\n\n【自省重写】本章主要短板：${s.weak}。改进方向：${s.how||s.why||''}。请保持原文整体不变，只针对该短板的段落做内化完善，其余段落原样保留，不要整章重写。只输出需改写的段落文本。`, {maxTokens: mt});
+      }
     }
   }
-  // 伏笔洞检测：专项核查连续性错误并按一致性命中重写
+  // 伏笔洞检测：专项核查连续性错误，问题段落级修正（无问题零额外输出）
   if(hasQuality('plothole')){
-    const holeSys = `你是长篇小说的连续性校对编辑。请专项核查【本章初稿】的四类逻辑漏洞：①时间线是否自洽；②人物性格/外貌/称呼是否与前文统一；③已铺设的伏笔是否被丢弃或矛盾；④地名/专名是否统一。若发现问题，请严格只输出如下 JSON（不要解释、不要 markdown 代码块）：{"issues":[{"type":"时间线|性格|伏笔|专名","desc":"具体问题","fix":"修正说明"}],"pass":true}`;
+    const holeSys = `你是长篇小说的连续性校对编辑。请专项核查【本章初稿】的四类逻辑漏洞：①时间线是否自洽；②人物性格/外貌/称呼是否与前文统一；③已铺设的伏笔是否被丢弃或矛盾；④地名/专名是否统一。若发现问题，请严格只输出如下 JSON（不要解释、不要 markdown 代码块）：{"issues":[{"type":"时间线|性格|伏笔|专名","desc":"具体问题","fix":"修正说明","anchor":"该问题所在段落中的一句原文","rewritten":"按 fix 改写后的该段完整文字"}],"pass":true}`;
     let h;
     try{ h = parseJson(await callDeepSeek(holeSys, '【本章初稿】\n'+txt.slice(0,3000))); }catch(e){ h={}; }
     const issues = (h && Array.isArray(h.issues) && h.issues.length) ? h.issues : [];
     const pass = !issues.length || h.pass===true;
-    if(!pass){
-      const adv = issues.map(x=>`[${x.type}] ${x.desc} → ${x.fix}`).join('\n');
-      txt = await callDeepSeek(longChapterSys(), `${user}\n\n【连续性修正】本章存在以下一致性/伏笔问题，请修正并重写相关段落，保持人物与主线设定不变、只输出修正后的完整正文：\n${adv}`);
+    const anchored = issues.filter(x=>x.anchor && x.rewritten);
+    if(!pass && budget>0){
+      if(anchored.length){
+        budget--;
+        txt = applyPatches(txt, anchored);
+      } else if(issues.length && budget>0){
+        budget--;
+        const adv = issues.map(x=>`[${x.type}] ${x.desc} → ${x.fix}`).join('\n');
+        txt = await callDeepSeek(longChapterSys(),
+          `${user}\n\n【连续性修正】本章存在以下一致性/伏笔问题，请保持原文整体不变，只改写被指出的问题段落，其余段落原样保留，不要整章重写。问题：\n${adv}\n\n只输出需改写的段落文本。`, {maxTokens: mt});
+      }
     }
   }
   return txt.trim();
 }
-async function genOneChapter(i, btn){
-  busy(btn,true,'生成中…');
+// 组装单章生成的 user 提示词。恒定前缀块（标题/梗概/全部章节标题）保持在前、全章不变，
+// 以最大化 DeepSeek 上下文缓存命中；可变信息（本章概要/结构/上一章结尾）放最末。
+function buildChapterUser(i){
   const o = state.outline;
   const prev = i>0 ? state.chapters[i-1].content : '';
-  const user = `故事标题：${o.title}\n一句话梗概：${o.logline}\n全部章节：${o.chapters.map(c=>c.title).join(' / ')}\n\n本章标题：${state.chapters[i].title}\n本章概要：${o.chapters[i].summary}${longChapterContext(i)}${prev?('\n上一章结尾：'+prev.slice(-200)+'…'):'\n（这是第一章）'}`;
+  // 标题列表收窄：不再全量带上 100+ 章，仅保留与本章相关的一段，省去大量冗余输入。
+  // 分卷结构（layered）取本卷全部标题；其余结构取以本章为中心的窗口标题。
+  let titles;
+  const vol = o.chapters[i] && o.chapters[i].volume;
+  if(vol){
+    titles = o.chapters.map(c=>c.title).filter((_,k)=> o.chapters[k] && o.chapters[k].volume === vol).join(' / ');
+  }else{
+    const R = 10;
+    const from = Math.max(0, i - R), to = Math.min(o.chapters.length - 1, i + R);
+    const parts = [];
+    if(from > 0) parts.push(`…（前 ${from} 章略）`);
+    for(let k=from;k<=to;k++) parts.push(o.chapters[k].title);
+    if(to < o.chapters.length - 1) parts.push(`…（后 ${o.chapters.length-1-to} 章略）`);
+    titles = parts.join(' / ');
+  }
+  const head = `故事标题：${o.title}\n一句话梗概：${o.logline}\n章节：${titles}`;
+  const tail = `本章标题：${state.chapters[i].title}\n本章概要：${o.chapters[i].summary}${longChapterContext(i)}${prev?('\n上一章结尾：'+prev.slice(-200)+'…'):'\n（这是第一章）'}`;
+  return `${head}\n\n${tail}`;
+}
+async function genOneChapter(i, btn){
+  busy(btn,true,'生成中…');
+  const user = buildChapterUser(i);
+  // 流式：实时把增量写进 state.chapters[i].content，并刷新正在编辑的 textarea（不整页 render，避免打断光标/进度）
+  state.chapters[i].content = '';
+  const ta = document.querySelector(`textarea[data-ch="${i}"]`);
+  let last = 0;
+  const patchUI = ()=>{
+    if(ta && !ta.matches(':focus')) ta.value = state.chapters[i].content;
+  };
   try{
-    const txt = await writeOneChapterContent(i, user);
+    const txt = await writeOneChapterContent(i, user, (delta)=>{
+      state.chapters[i].content += delta;       // 始终计入 state，保证完整
+      if(++last % 2 === 0) return;              // 节流 DOM 写入：每两段刷新一次
+      patchUI();
+      const wc = $('[data-wc-ch="'+i+'"]'); if(wc) wc.innerHTML = wcBadge(state.chapters[i].content, `data-wc-ch="${i}"`);
+    });
+    // 流式回调可能因节流漏了尾段，这里用完整返回值兜底
     state.chapters[i].content = txt;
     state.chapters[i].confirmed = false;
     persist(); render();
@@ -1796,9 +1923,7 @@ async function genAllChapters(){
 
 // 无 UI 阻塞版（供循环调用）
 async function genOneChapterNoUI(i){
-  const o = state.outline;
-  const prev = i>0 ? state.chapters[i-1].content : '';
-  const user = `故事标题：${o.title}\n一句话梗概：${o.logline}\n全部章节：${o.chapters.map(c=>c.title).join(' / ')}\n\n本章标题：${state.chapters[i].title}\n本章概要：${o.chapters[i].summary}${longChapterContext(i)}${prev?('\n上一章结尾：'+prev.slice(-200)+'…'):'\n（这是第一章）'}`;
+  const user = buildChapterUser(i);
   try{
     const txt = isLong()
       ? await writeOneChapterContent(i, user)
