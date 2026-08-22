@@ -281,6 +281,9 @@ body.reader-lock{overflow:hidden}
   background:var(--panel2); flex:0 0 auto;
 }
 .reader-title{font-size:16px; font-weight:800; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.reader-actions{flex:0 0 auto; display:flex; align-items:center; gap:8px}
+.reader-toc-btn{font-weight:700}
+.reader-toc-btn.on{background:var(--accent); color:#fff; border-color:var(--accent)}
 .reader-close{flex:0 0 auto}
 .reader-body{
   flex:1; overflow-y:auto; padding:22px 24px 40px;
@@ -288,6 +291,30 @@ body.reader-lock{overflow:hidden}
 }
 .reader-body p{margin:0 0 1.1em; text-align:justify}
 .reader-body p:first-child::first-letter{font-size:1.5em; font-weight:700; color:var(--accent)}
+/* 章节目录抽屉（100+ 章快速跳转） */
+.reader-toc{
+  position:absolute; top:0; right:0; bottom:0; width:min(300px, 78%);
+  display:flex; flex-direction:column;
+  background:var(--panel); border-left:1px solid var(--line);
+  box-shadow:-8px 0 30px rgba(0,0,0,.35); z-index:5; animation:tocIn .2s ease;
+}
+.reader-toc.hidden{display:none}
+@keyframes tocIn{from{transform:translateX(40px);opacity:.4}to{transform:none;opacity:1}}
+.toc-head{
+  display:flex; align-items:center; justify-content:space-between;
+  padding:12px 14px; border-bottom:1px solid var(--line); font-weight:700; flex:0 0 auto;
+}
+.toc-list{flex:1; overflow-y:auto; padding:8px}
+.toc-item{
+  display:flex; align-items:center; gap:10px; width:100%;
+  text-align:left; padding:8px 10px; margin-bottom:2px;
+  border:none; border-radius:8px; background:transparent; color:var(--sub); cursor:pointer; font-size:13px;
+}
+.toc-item:hover{background:color-mix(in srgb, var(--accent) 12%, transparent); color:var(--txt)}
+.toc-item.active{background:var(--accent); color:#fff; font-weight:700}
+.toc-item.done .toc-t{color:var(--txt)}
+.toc-idx{flex:0 0 auto; min-width:24px; text-align:center; color:var(--muted); font-size:11px}
+.toc-item.active .toc-idx{color:rgba(255,255,255,.8)}
 
 /* ---------- 角色筛选工具条 ---------- */
 .char-toolbar{display:flex;flex-direction:column;gap:8px;margin-top:10px}
@@ -332,3 +359,30 @@ body.reader-lock{overflow:hidden}
 }
 .char-toolbar .ts-wrapper .dropdown-input-wrap{padding:4px}
 .char-toolbar .ts-wrapper .dropdown-input{background:var(--panel2); border:1px solid var(--line); color:var(--txt); border-radius:8px; font-size:13px}
+
+/* ---------- 标题管理器：当前名 + 曾用名小三角 ---------- */
+.card-head-row{display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:6px}
+.title-manager{position:relative; display:inline-flex; align-items:center; gap:6px}
+.tm-cur{
+  font-size:16px; font-weight:800; color:var(--accent); cursor:pointer;
+  border-bottom:1px dashed color-mix(in srgb, var(--accent) 55%, transparent);
+  padding:0 2px; max-width:min(60vw, 420px); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.tm-cur:hover{filter:brightness(1.15)}
+.tm-tri{
+  font-size:15px; line-height:1; color:var(--sub); font-weight:700; transition:transform .18s ease;
+}
+.tm-tri.on{color:var(--accent); transform:rotate(180deg)}
+.tm-hist{
+  position:absolute; top:calc(100% + 6px); right:0; z-index:70;
+  min-width:220px; max-width:320px; max-height:280px; overflow-y:auto;
+  background:var(--panel); border:1px solid var(--line); border-radius:12px;
+  box-shadow:0 12px 40px rgba(0,0,0,.45); padding:8px; animation:tocIn .16s ease;
+}
+.tm-hist.hidden{display:none}
+.hist-title{font-size:12px; font-weight:700; color:var(--sub); padding:4px 6px 6px; letter-spacing:.5px}
+.hist-row{display:flex; align-items:center; justify-content:space-between; gap:10px; padding:5px 6px; border-radius:8px; font-size:13px}
+.hist-row:hover{background:color-mix(in srgb, var(--accent) 10%, transparent)}
+.hist-name{color:var(--txt); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.hist-date{flex:0 0 auto; color:var(--muted); font-size:11px; font-variant-numeric:tabular-nums}
+.hist-empty{font-size:12px; color:var(--muted); padding:6px}

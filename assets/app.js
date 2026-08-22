@@ -26,6 +26,7 @@ const state = {
   scenes: [],           // [{name, 作用, description, prompt}]
   storyboard: [],       // [{镜号,章节,时长,景别,角度,运镜,主体,构图,光线,画面描述,对白,转场,出图提示词,连续性,剪辑动机}]
   boardConcepts: [],    // 每章一条 {视觉概念, 母题}（分镜生成时随章节返回）
+  titleHistory: [],     // 曾用书名记录 [{name, date}]（改名时追加，最新在前）
   raw: {}               // 容错：各阶段原始返回
 };
 let currentStep = 1;
@@ -155,6 +156,7 @@ function projectSnapshot(){
     storyboard: state.storyboard,
     boardConcepts: state.boardConcepts,
     raw: state.raw,
+    titleHistory: state.titleHistory,
     step: currentStep,
     title: (state.outline && state.outline.title) || (state.idea ? state.idea.trim().slice(0,20) : '未命名作品'),
     logline: (state.outline && state.outline.logline) || ''
@@ -174,6 +176,7 @@ function applyProject(p){
   state.scenes = p.scenes || [];
   state.storyboard = p.storyboard || [];
   state.boardConcepts = p.boardConcepts || [];
+  state.titleHistory = Array.isArray(p.titleHistory) ? p.titleHistory : [];
   state.raw = p.raw || {};
   currentStep = (p.step && p.step >= 1 && p.step <= 5) ? p.step : 1;
 }
@@ -181,7 +184,7 @@ function clearState(){
   state.mode = 'shortfilm';
   state.recipe = 'mesh';
   state.idea = ''; state.outline = null; state.coverPrompt = ''; state.coverWithTitle = false; state.outlineConfirmed = false;
-  state.chapters = []; state.characters = []; state.scenes = []; state.storyboard = []; state.boardConcepts = []; state.raw = {};
+  state.chapters = []; state.characters = []; state.scenes = []; state.storyboard = []; state.boardConcepts = []; state.titleHistory = []; state.raw = {};
   currentStep = 1;
 }
 function saveLib(){
@@ -398,7 +401,23 @@ const LONG_RECIPES = [
 要求：遵循强节奏网文写法——开篇尽快抛核心冲突与悬念；因果链清晰、角色抉择有代价、实力或关系阶梯递进、情绪节奏有张有弛（爽点-压抑-爆发交替）；每章 summary 写清本集的“爽点”与推进，hook 写清章末钩子；总 32-40 章。`,
     chapterSys: `你是资深网文写手。根据「本章概要」与「章末钩子」写出本章正文，保证读者追更欲。
 要求：单章篇幅 7000-9000 字；开篇(前1-2段)尽快进入事件或情绪；以对话与行动推动剧情、少冗长环境描写；本章须兑现一个"爽点/进展"，并为下章留钩子（悬念/反转/危机）；因果清晰、有记忆点的人设；章末务必切在钩子上；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。`,
-    desc:'借鉴网文爆款节奏体系：开篇抛钩子、因果链清晰、阶梯递进、爽爆交替、章末强钩子。适合升级流、爽文、快节奏类型。' }
+    desc:'借鉴网文爆款节奏体系：开篇抛钩子、因果链清晰、阶梯递进、爽爆交替、章末强钩子。适合升级流、爽文、快节奏类型。' },
+  { id:'web100', name:'百章爽文', tag:'新·约30万字·100+章', useStructure:false, useEditor:false, batch:5,
+    outlineSys: `你是深谙网文爆款逻辑的资深网文作者。根据用户构想设计一部长篇爽文（约 30 万字，总计 100-110 章，每章约 3000 字）。
+请严格只输出如下 JSON（不要解释、不要 markdown 代码块）：
+{"title":"书名","logline":"一句话卖点（含核心金手指与爽点）","chapters":[{"title":"章标题","summary":"本章核心事件与爽点，1句","hook":"本章结尾钩子/悬念"}]}
+要求：总计 100-110 章；遵循黄金网文节奏——开篇(1-3章)尽快抛金手指、核心冲突与吸引力；因果链清晰、角色抉择有代价；实力/势力/关系阶梯递进；情绪节奏有张有弛（爽点-压抑-爆发交替）；划分若干阶段（开局→发展→高潮→收束），stage 字段可不填但章节顺序要符合成长曲线；每章 summary 写清本集"爽点"与推进，hook 写清章末钩子；总章数控制在本段要求的范围内。`,
+    chapterSys: `你是资深网文爽文写手。根据「本章概要」与「章末钩子」写出本章正文，保证读者追更欲。
+要求：本章篇幅 2700-3300 字左右（全书按约 3000 字/章、共 100+ 章推进至约 30 万字）；开篇(前1-2段)尽快进入事件或情绪；以对话与行动推动剧情、少冗长环境描写；本章须兑现一个"爽点/进展/反转"，并为下章留钩子（悬念/危机/新威胁）；因果清晰、有记忆点的人设、实力阶梯递进；章末务必切在钩子上；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。`,
+    desc:'约 30 万字长篇爽文：总计 100-110 章、每章约 3000 字，黄金网文爆款节奏。每次仍按 5 章一批生成，用右上角「☰ 目录」在 100+ 章间快速跳转。' },
+  { id:'causal', name:'单线因果式', tag:'经典·打怪推进', useStructure:false, useEditor:false, batch:5,
+    outlineSys: `你是擅长编排经典长篇结构的资深小说架构师。根据用户构想设计一部长篇小说（约 30 万字，每章约 3000-7000 字）。
+请严格只输出如下 JSON（不要解释、不要 markdown 代码块）：
+{"title":"小说名","logline":"一句话梗概","chapters":[{"title":"章标题","summary":"本章核心事件与转折，1-2句","hook":"本章结尾钩子/悬念"}]}
+要求：遵循「单线因果式」经典结构（如《西游记》取经路）——一根主线贯穿始终，"因为所以"一环扣一环，打完一关进入下一关，前因后果清晰、易读性强；主线明确推进、尽量不铺开多线；章章之间有明确因果链，前一章结果成为后一章起因；总章数规划在 43-75 章之间（按约 30 万字、每章约 3000-7000 字）；整体呈引入→闯关/成长→高潮→收束的清晰线路；每章 summary 写清本章推进的关卡/事件与原因结果，hook 写清衔接下章的因果钩子。`,
+    chapterSys: `你是中文长篇小说的资深写手。根据「本章概要」与「章末钩子」写出本章完整正文，做到因果衔接、章章推进。
+要求：本章篇幅 3000-7000 字之间（全书约 30 万字）；遵循"因为所以"的单线因果推进——承接上一章的结果，作为本章起因，本章结束又为下一章留下因果钩子；主线单一清晰、少插枝节；有细腻的环境与心理描写、生动对话、鲜明的人物弧光与成长；节奏张弛有度；章末务必切在钩子上；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。`,
+    desc:'借鉴经典「单线因果式」结构（如《西游记》取经路）：一根主线贯穿、"因为所以"一环扣一环、打完一关进下一关，主线清晰易读。约 30 万字、每章 3000-7000 字。' }
 ];
 function longRecipe(){ return LONG_RECIPES.find(r=> r.id === state.recipe) || LONG_RECIPES[0]; }
 function longOutlineSys(){ return longRecipe().outlineSys; }
@@ -486,6 +505,53 @@ function render(){
 }
 
 /* ---------- P1 故事 ---------- */
+
+// 当前书名
+function currentTitle(){
+  const o = state.outline;
+  if(o && o.title) return o.title;
+  return state.idea ? state.idea.trim().slice(0,20) : '未命名作品';
+}
+// 曾用名记录：每次改名时把旧名压入历史（最新在前）
+function pushTitleHistory(oldName){
+  if(!oldName) return;
+  const d = new Date();
+  const date = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')
+    + ' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+  state.titleHistory.unshift({ name: oldName, date });
+  if(state.titleHistory.length > 50) state.titleHistory = state.titleHistory.slice(0,50);
+}
+// 修改书名：确认后改 outline.title/state 标题，并把旧名压入曾用名
+function renameTitle(newName){
+  newName = String(newName||'').trim();
+  if(!newName){ toast('书名不能为空'); return; }
+  const oldName = currentTitle();
+  if(oldName === newName){ toast('书名未变化'); return; }
+  pushTitleHistory(oldName);
+  if(state.outline) state.outline.title = newName;
+  persist(); render();
+  toast(`已改名为「${newName}」，原「${oldName}」已记入曾用名`);
+}
+// 标题栏：当前名 + 改名按钮 +「曾用名」小三角（点击展开）
+function titleManagerHtml(){
+  let histRows;
+  if(state.titleHistory && state.titleHistory.length){
+    histRows = state.titleHistory.map(h=>
+      `<div class="hist-row"><span class="hist-name">${esc(h.name)}</span><span class="hist-date">${esc(h.date)}</span></div>`
+    ).join('');
+  }else{
+    histRows = `<div class="hist-empty">暂无曾用名</div>`;
+  }
+  return `
+    <div class="title-manager">
+      <span class="tm-cur" id="tmCur" title="点击改名">${esc(currentTitle())}</span>
+      <button type="button" class="icon-btn tm-tri" id="btnTmTri" title="曾用名" data-tm-tri>▾</button>
+      <div class="tm-hist hidden" id="tmHist">
+        <div class="hist-title">曾用名</div>
+        ${histRows}
+      </div>
+    </div>`;
+}
 const CYBER_HOME_GRID = `
   <div class="cyber-home-grid">
     <button class="cyber-card-btn purple" data-step="1"><span class="ico">📖</span><span class="lab">故事</span><span class="sub">输入构想并生成章节</span></button>
@@ -516,7 +582,10 @@ function viewStory(){
   const o = state.outline;
   let html = `
     <div class="card">
-      <h3>📋 故事大纲：${esc(o.title||'')}</h3>
+      <div class="card-head-row">
+        <h3 style="margin:0">📋 故事大纲</h3>
+        ${titleManagerHtml()}
+      </div>
       <p class="sub">${esc(o.logline||'')}</p>
       <div style="margin:10px 0">${ (o.chapters||[]).map((c,i)=>`<span class="pill">${i+1}. ${esc(c.title)}</span>`).join('') }</div>
       ${ structureCard(o) }
@@ -566,6 +635,17 @@ function renderChapters(){
 }
 
 /* ---------- 沉浸式章节阅读 ---------- */
+let readerCur = -1;
+function renderToc(current){
+  const list = $('#tocList'); if(!list) return;
+  const total = state.chapters.length;
+  const cn = $('#tocCount'); if(cn) cn.textContent = total;
+  list.innerHTML = state.chapters.map((c,i)=>{
+    const active = i === current ? ' active' : '';
+    const done = c.content && c.content.trim() ? ' done' : '';
+    return `<button type="button" class="toc-item${active}${done}" data-toc="${i}"><span class="toc-idx">${i+1}</span><span class="toc-t">${esc(c.title||('第'+(i+1)+'章'))}</span></button>`;
+  }).join('');
+}
 function openReader(i){
   const c = state.chapters[i]; if(!c) return;
   const ov = $('#readerOverlay'); if(!ov) return;
@@ -573,12 +653,17 @@ function openReader(i){
   const paras = String(c.content||'').split(/\n+/).map(p=>p.trim()).filter(Boolean);
   $('#readerBody').innerHTML = paras.length ? paras.map(p=>`<p>${esc(p)}</p>`).join('')
     : `<p class="muted">（本章暂无正文）</p>`;
+  // 构建目录并定位当前章
+  renderToc(i);
+  readerCur = i;
   ov.classList.remove('hidden');
   document.body.classList.add('reader-lock'); // 锁定背景滚动
 }
 function closeReader(){
   const ov = $('#readerOverlay'); if(!ov) return;
   ov.classList.add('hidden');
+  // 关闭阅读时同时收起目录
+  const toc = $('#readerToc'); if(toc) toc.classList.add('hidden');
   document.body.classList.remove('reader-lock');
 }
 function bindReader(){
@@ -588,6 +673,19 @@ function bindReader(){
     if(e.target.closest('.reader-panel') && !e.target.closest('.reader-close')) return;
     closeReader();
   });
+  // 右上角「☰」章节目录：开合抽屉
+  const tocBtn = $('#readerTocBtn'); const toc = $('#readerToc');
+  if(tocBtn && toc){
+    tocBtn.onclick = (e)=>{ e.stopPropagation(); const show = toc.classList.toggle('hidden'); tocBtn.classList.toggle('on', !show); };
+  }
+  const tocClose = $('#tocClose');
+  if(tocClose && toc) tocClose.onclick = (e)=>{ e.stopPropagation(); toc.classList.add('hidden'); if(tocBtn) tocBtn.classList.remove('on'); };
+  // 目录项点击跳转
+  const list = $('#tocList');
+  if(list && toc) list.onclick = (e)=>{
+    const item = e.target.closest('[data-toc]'); if(!item) return;
+    openReader(+item.dataset.toc);
+  };
 }
 document.addEventListener('keydown', (e)=>{
   if(e.key === 'Escape'){
@@ -1117,6 +1215,29 @@ function bindView(){
   const btnCO = $('#btnConfirmOutline'); if(btnCO) btnCO.onclick = ()=>{ state.outlineConfirmed=true; persist(); render(); };
   const btnRO = $('#btnReOutline'); if(btnRO) btnRO.onclick = ()=>{ state.outline=null; state.outlineConfirmed=false; state.chapters=[]; persist(); render(); };
   const btnGA = $('#btnGenAllChapters'); if(btnGA) btnGA.onclick = genAllChapters;
+
+  // 标题管理器：点击当前名改名；点小三角展开/收起曾用名
+  const tmCur = $('#tmCur'); if(tmCur) tmCur.onclick = ()=>{
+    const newName = prompt('修改书名：', currentTitle());
+    if(newName == null) return; // 取消
+    renameTitle(newName);
+  };
+  const histPanel_ = $('#tmHist');
+  // 曾用名：点击外部关闭
+  const triBtn = $('#btnTmTri');
+  if(triBtn) triBtn.onclick = (e)=>{
+    e.stopPropagation();
+    const on = triBtn.classList.toggle('on');
+    if(histPanel_) histPanel_.classList.toggle('hidden', !on);
+  };
+  if(histPanel_) histPanel_.onclick = (e)=> e.stopPropagation();
+  document.addEventListener('click', (e)=>{
+    const pan = $('#tmHist');
+    if(pan && !pan.classList.contains('hidden') && !e.target.closest('.title-manager')){
+      pan.classList.add('hidden');
+      const b = $('#btnTmTri'); if(b) b.classList.remove('on');
+    }
+  });
   // 长篇：章节跳转下拉
   const longJump = $('#longJump'); if(longJump) longJump.onchange = ()=>{ const i=+longJump.value; if(longJump.value!=='') openReader(i); longJump.value=''; }; 
   if(isLong()) renderLongProgress();
@@ -1524,7 +1645,7 @@ function newProject(mode){
   return true;
 }
 function newLongProject(){
-  if(!confirm('创建一部「经典长篇小说」？\n\n将按 32-40 章大纲分批写作（每批 5 章，每章约 7000-9000 字），目标约 30 万字。\n此模式不生成视频提示词，只产出文字章节，可导出 TXT / EPUB / DOCX。')){
+  if(!confirm('创建一部「经典长篇小说」？\n\n支持多种写作范式（在「故事」页选择）：\n· 大师结构 / 分层递归 / 双审 / 网文节奏：约 32-40 章，每章约 7000-9000 字\n· 百章爽文：约 100-110 章，每章约 3000 字，全书约 30 万字\n\n每次按 5 章一批生成；百章模式可用阅读浮层右上角「☰」目录在 100+ 章间快速跳转。\n此模式不生成视频提示词，只产出文字章节，可导出 TXT / EPUB / DOCX。')){
     return false;
   }
   return newProject('longnovel');
