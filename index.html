@@ -139,9 +139,20 @@
   <div class="reader-panel">
     <div class="reader-head">
       <div class="reader-title" id="readerTitle"></div>
-      <button class="icon-btn reader-close" data-reader-close title="退出阅读">✕</button>
+      <div class="reader-actions">
+        <button class="icon-btn reader-toc-btn" id="readerTocBtn" title="章节目录">☰</button>
+        <button class="icon-btn reader-close" data-reader-close title="退出阅读">✕</button>
+      </div>
     </div>
     <div class="reader-body" id="readerBody"></div>
+    <!-- 章节目录抽屉：100+ 章快速跳转 -->
+    <div class="reader-toc hidden" id="readerToc">
+      <div class="toc-head">
+        <span>目录（<b id="tocCount"></b> 章）</span>
+        <button class="icon-btn" id="tocClose" title="收起">✕</button>
+      </div>
+      <div class="toc-list" id="tocList"></div>
+    </div>
   </div>
 </div>
 
