@@ -1021,15 +1021,34 @@ function glossaryCardHtml(){
   const g = (state.outline && state.outline.glossary) || {characters:[], places:[], propernouns:[]};
   const gl = ()=>state.outline.glossary = state.outline.glossary || {characters:[],places:[],propernouns:[]};
   const empty = !(g.characters&&g.characters.length) && !(g.places&&g.places.length) && !(g.propernouns&&g.propernouns.length);
-  if(empty) return `<div class="card"><h3>📇 设定表 · 万物词典</h3><p class="sub">当前大纲未含万物词典。此词典会在生成大纲时自动确立，作为全书人名/地名/专名的一致性基准；请重生成大纲以启用。</p></div>`;
-  // 内联可编辑：每一项名字/简述直接改，失焦即存（index 存到 data-gs-key 做下标）
-  const row = (val, sub) => `<div class="gs-row gs-row-tpl">
-      <input type="text" value="${esc(val)}" placeholder="填写" />
-      <span class="gs-sub">${esc(sub)}</span>
+  if(empty) return `<div class="card"><h3 class="gs-card-title">📇 设定表 · 万物词典 <span class="gs-tools">
+    <button type="button" class="btn ghost gs-tool" data-gs-export>导出 JSON</button>
+    <button type="button" class="btn ghost gs-tool" data-gs-import>导入 JSON</button>
+    <input type="file" id="gsImportFile" accept=".json,application/json" hidden />
+  </span></h3><p class="sub">当前大纲未含万物词典。此词典会在生成大纲时自动确立，作为全书人名/地名/专名的一致性基准；请重生成大纲以启用。</p></div>`;
+  // 可折叠条目：点击展开/收起该条目全部字段（建议1·此轮）
+  // 折叠态只显示名字 + 一行简述；展开态显示该条全部可编辑介绍，文字再多也能全部看到。
+  const fmt = (o, keys)=>{ const ks = (keys||[]).filter(k=>o[k]); return ks.map(k=>o[k]).join(' · '); };
+  const entry = (o, type, i, nameKeys, detailKeys)=>{
+    const name = o.name || '';
+    const brief = fmt(o, nameKeys);
+    const detail = detailKeys.map(k=>({k, v:o[k]})).filter(x=>x.v).map(x=>`<label class="gs-f"><span>${kLabel(x.k)}</span><input type="text" data-gs-set="${type}" data-gs-idx="${i}" data-gs-key="${x.k}" data-orig="${esc(x.v)}" value="${esc(x.v)}" /></label>`).join('');
+    // 折叠态：名字 + 简述（可点）；展开态：把名字也变成可编辑 + 全字段
+    return `<div class="gs-entry" data-gs-entry="${type}:${i}">
+      <div class="gs-head" role="button" tabindex="0" data-gs-toggle="${type}:${i}">
+        <span class="gs-fold-ico">▸</span>
+        <input type="text" class="gs-name" data-gs-name="${type}:${i}" data-orig="${esc(name)}" value="${esc(name)}" placeholder="名称" />
+        <span class="gs-brief">${esc(brief||'（无简介，点击展开编辑）')}</span>
+      </div>
+      <div class="gs-detail">
+        ${detail}
+      </div>
     </div>`;
-  const chars = (g.characters||[]).map(c=>row(c.name, c.role||c.identity||c.relation||'')).join('');
-  const places = (g.places||[]).map(p=>row(p.name, p.type||'')).join('');
-  const props = (g.propernouns||[]).map(p=>row(p.name, p.note||'')).join('');
+  };
+  const kLabel = k => ({name:'名称', relation:'关系', trait:'性格/外貌', identity:'身份', role:'职能', type:'类型', note:'说明'}[k]||k);
+  const chars = (g.characters||[]).map((c,i)=>entry(c,'char',i,['role','identity','relation'],['name','relation','trait','identity','role'])).join('');
+  const places = (g.places||[]).map((p,i)=>entry(p,'place',i,['type','note'],['name','type','note'])).join('');
+  const props = (g.propernouns||[]).map((p,i)=>entry(p,'proper',i,['note'],['name','note'])).join('');
   return `<div class="card"><h3>📇 设定表 · 万物词典</h3>
     <p class="sub">全文一致性基准：生成正文时一律使用以下人名/地名/专名，不得自造新名。可小幅修改错名，保留为准则。</p>
     <div class="gs-group" data-gs-type="char"><div class="gs-title">👤 人物（${g.characters.length}）</div>
@@ -1041,18 +1060,208 @@ function glossaryCardHtml(){
     <p class="muted" style="margin:6px 0 0">修改后自动保存生效。</p>
   </div>`;
 }
-// 绑定设定表编辑：失焦即写回 state，作为一致性基准（决策9）
-// 用「组类型(data-gs-type) + 组内下标」精确定位到 glossary 对应数组成员
+// 绑定设定表编辑：失焦即写回 state；点击条目折叠/展开全部字段（建议1·此轮）
+// 改动透明化（本版）：失焦判定改动→扫描受影响章节→弹出选择卡（仅新章生效 / 批量重生成 / 回退）
 function bindGlossary(){
-  $$('.gs-group[data-gs-type]').forEach(grp=>{
-    const type = grp.dataset.gsType;
-    const g = (state.outline && state.outline.glossary) || {characters:[],places:[],propernouns:[]};
-    const arr = type==='char'?(g.characters||[]):type==='place'?(g.places||[]):(g.propernouns||[]);
-    $$('.gs-row input', grp).forEach((inp,i)=>{
-      inp.onchange = ()=>{ if(arr[i]){ arr[i].name = inp.value; persist(); } };
+  if(!state.outline || !state.outline.glossary) return;
+  const g = state.outline.glossary;
+  const getArr = t => t==='char'?(g.characters||[]):t==='place'?(g.places||[]):(g.propernouns||[]);
+  // 折叠/展开：仅点击折线图标或简介触发；点击名字输入框不折叠
+  $$('[data-gs-toggle]').forEach(h=>{
+    const toggle = ()=>{ const box=h.closest('.gs-entry'); const on=box.classList.toggle('open'); h.querySelector('.gs-fold-ico').textContent = on?'▾':'▸'; };
+    h.onclick = (e)=>{
+      if(e.target.closest('input.gs-name')) return;   // 编辑名字时不折叠
+      toggle();
+    };
+    h.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); toggle(); } };
+  });
+  // 所有可编辑字段（名字 + 各详情）失焦即存；改动时评估影响范围
+  $$('[data-gs-name],[data-gs-set]').forEach(inp=>{
+    inp.onchange = ()=>{
+      const [type, idx] = inp.dataset.gsSet ? [inp.dataset.gsSet, +inp.dataset.gsIdx]
+        : inp.dataset.gsName.split(':').map((v,k)=> k===0?v:(+v));
+      const arr = getArr(type);
+      if(!arr[idx]) return;
+      const oldVal = inp.dataset.orig;
+      const newVal = inp.value;
+      const isName = inp.hasAttribute('data-gs-name');
+      const key = isName ? 'name' : inp.dataset.gsKey;
+      arr[idx][key] = newVal;                      // 先写回 state（保持现状可编辑即存）
+      persist();                                   // 改动即保存（防误操作丢数据）
+      inp.dataset.orig = newVal;                   // 该输入框的 basline 更新
+      // 触发「改动透明化」评估：仅在发生实质变化且在长篇（有正文生成）时弹选择卡
+      if(newVal !== oldVal && isLong()){
+        openGlossaryPanel({type, idx, isName, key, oldVal, newVal});
+      }
+    };
+  });
+  // 导出词典 JSON（项6）
+  $$('[data-gs-export]').forEach(b=> b.onclick = exportGlossaryJson);
+  // 导入词典 JSON（项7）
+  $$('[data-gs-import]').forEach(b=> b.onclick = ()=> { const f=$('#gsImportFile'); if(f) f.click(); });
+  const imp = $('#gsImportFile'); if(imp) imp.onchange = e=>{ const file = e.target.files && e.target.files[0]; if(file) importGlossaryJson(file); e.target.value=''; };
+}
+
+// 快照（项5）：记录任一条目改动前的整本词典，供一键回退
+let gsUndoStack = [];
+// 词典 JSON：导出全部 glossary（不做任何改写，保留用户手动编辑的新值）
+function exportGlossaryJson(){
+  const g = state.outline && state.outline.glossary;
+  if(!g){ toast('当前大纲尚无词典'); return; }
+  const title = (state.outline&&state.outline.title)||'story';
+  download(`词典_${title}.json`, JSON.stringify(g, null, 2));
+  toast('已导出词典 JSON');
+}
+// 词典 JSON：导入（校验结构后整体覆盖，属用户主动导入，不做影响评估）
+function importGlossaryJson(file){
+  const r = new FileReader();
+  r.onload = ()=>{
+    try{
+      const j = JSON.parse(r.result);
+      const ok = j && typeof j==='object'
+        && Array.isArray(j.characters) && Array.isArray(j.places) && Array.isArray(j.propernouns);
+      if(!ok) throw 0;
+      if(!state.outline) state.outline = state.outline || {};
+      state.outline.glossary = {
+        characters: j.characters, places: j.places, propernouns: j.propernouns
+      };
+      persist(); render();
+      toast('词典已导入');
+    }catch(e){ toast('导入失败：JSON 结构须含 characters/places/propernouns'); }
+  };
+  r.readAsText(file);
+}
+
+// 扫描正文：旧名/条目引用出现在哪些已生成章节（项2，纯本地字符串检索，零成本）
+function scanGlossaryImpact({type, idx, oldVal, newVal, isName}){
+  const g = state.outline.glossary;
+  const getArr = t => t==='char'?(g.characters||[]):t==='place'?(g.places||[]):(g.propernouns||[]);
+  const arr = getArr(type);
+  // 被改动的「实体名」：名字字段用旧名（正文里旧章节存的是旧名）；其它字段看该条自身名字 + 旧值
+  const entityName = arr[idx] ? arr[idx].name : oldVal;
+  const terms = new Set();
+  if(isName && oldVal) terms.add(oldVal);      // 改名：扫旧名，找旧章节正文
+  else if(entityName) terms.add(entityName);   // 改详情：扫该实体名是否被正文引用
+  const hits = state.chapters.map((c,i)=>{
+    if(!c || !c.content) return null;
+    let n = 0, occurs = 0;
+    for(const t of terms){ if(t){ const re = new RegExp(escRe(t), 'g'); const m = String(c.content).match(re); if(m){ n += m.length; occurs++; } } }
+    return occurs>0 ? {i, n, title: c.title||('第'+(i+1)+'章')} : null;
+  }).filter(Boolean);
+  // 词典内部相互引用：其它条目是否引用了被改条目（名字/名字改动时旧名）
+  const refs = [];
+  const refNames = isName ? [oldVal, newVal] : [entityName];
+  ['char','place','proper'].forEach(t=>{
+    getArr(t).forEach((it, ii)=>{
+      if(t===type && ii===idx) return;
+      const tsv = Object.values(it).join(' ');
+      for(const rn of refNames){ if(rn && tsv.includes(rn)){ refs.push({t, ii, name: it.name||''}); break; } }
     });
   });
+  return {hits, refs, word: isName ? oldVal : entityName};
 }
+function escRe(s){ return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+// 弹出「改动透明化」选择卡（项3/4/5）：默认全选可取消，出口=仅新章生效 / 批量重生成
+function openGlossaryPanel(info){
+  closeGlossaryPanel();
+  if(!state.outline || !state.outline.glossary) return;
+  const g = state.outline.glossary;
+  const getArr = t => t==='char'?(g.characters||[]):t==='place'?(g.places||[]):(g.propernouns||[]);
+  const arr = getArr(info.type);
+  const itemName = arr[info.idx] ? arr[info.idx].name : '该条目';
+  const scan = scanGlossaryImpact(info);
+  const hits = scan.hits || [];
+  // 快照整本词典，供回退
+  gsUndoStack.push(JSON.stringify(g));
+
+  const labels = {name:'名称', relation:'关系', trait:'性格/外貌', identity:'身份', role:'职能', type:'类型', note:'说明'};
+  const kind = info.isName ? `「${info.oldVal||''}」→「${info.newVal||''}」`
+    : `「${itemName}」的「${labels[info.key]||info.key||'详情'}」已修改（正文引用该条目 ${scan.word?('出现自 「'+scan.word+'」'):''}）`;
+  const hitHtml = hits.length ? hits.map(h=>`
+    <label class="gs-hit"><input type="checkbox" class="gs-hit-cb" data-ch="${h.i}" checked />
+      <span>第${h.i+1}章 · ${esc(h.title||'')}</span><i>正文出现 ${h.n} 次</i></label>`).join('')
+    : `<p class="gs-nohit">✓ 旧名在已生成正文中未出现，无需重塑任何章节。该改动仅对后续新生成章节生效。</p>`;
+  const refHtml = scan.refs.length ? `<div class="gs-refs">⚠️ 词典内其它条目仍引用旧名（建议一并核对）：${scan.refs.map(r=>{
+    const lab = r.t==='char'?'人物':r.t==='place'?'地点':'专名';
+    return `<span class="pill">${lab}「${esc(r.name||'')}」</span>`;
+  }).join('')}</div>` : '';
+
+  const names = {char:'人物',place:'地点',proper:'专名'};
+  const ov = document.createElement('div');
+  ov.id = 'gsPanel';
+  ov.className = 'gs-overlay';
+  ov.innerHTML = `
+    <div class="gs-modal">
+      <div class="gs-modal-head"><b>📇 词典改动 · 影响范围</b>
+        <button class="gs-x" data-gs-close>✕</button></div>
+      <p class="gs-modal-sub">检测到你改动了 ${names[info.type]||''}：${kind}</p>
+      <div class="gs-body">
+        <p class="gs-q"><b>① 会影响的已生成章节（默认全选，可取消个别）：</b></p>
+        ${hitHtml}
+        ${refHtml}
+      </div>
+      <div class="gs-actions">
+        <button class="btn ghost" data-gs-undo>↩ 回退本次改动</button>
+        <button class="btn ghost" data-gs-future>仅对新章生效</button>
+        <button class="btn primary" data-gs-regen ${hits.length?'':'disabled'}>⚡ 批量重生成所选章节（${hits.length}）</button>
+      </div>
+    </div>`;
+  document.body.appendChild(ov);
+  ov.querySelector('[data-gs-close]').onclick = closeGlossaryPanel;
+  ov.querySelector('[data-gs-future]').onclick = ()=>{
+    gsUndoStack.pop();              // 已生效，丢弃快照
+    closeGlossaryPanel();
+    toast('已保存，仅对后续新章生效');
+  };
+  ov.querySelector('[data-gs-undo]').onclick = ()=>{
+    const snap = gsUndoStack.pop();
+    if(snap){ try{ state.outline.glossary = JSON.parse(snap); persist(); }catch(e){} }
+    closeGlossaryPanel(); renderGlossaryOnly(); toast('已恢复改动前词典');
+  };
+  const regenBtn = ov.querySelector('[data-gs-regen]');
+  if(regenBtn) regenBtn.onclick = ()=>{
+    const sel = $$('.gs-hit-cb:checked', ov).map(b=>+b.dataset.ch);
+    gsUndoStack.pop();              // 用户已确认批量重生成，丢弃快照（重生成后为新一致性）
+    closeGlossaryPanel();
+    regenSelectedChapters(sel);
+  };
+  // 点遮罩关闭
+  ov.addEventListener('click', e=>{ if(e.target===ov) closeGlossaryPanel(); });
+}
+// 仅重绘「故事」视图（保留词典卡片反映回退后的词典；页面回顶，属可接受）
+function renderGlossaryOnly(){
+  const host = $('#view');
+  if(host){ host.innerHTML = viewStory(); bindView(); window.scrollTo({top:100, behavior:'smooth'}); }
+}
+
+// 批量重生成（项2/4）：对选中的受影响章节逐章按新词典重写，保证前后连贯
+async function regenSelectedChapters(list){
+  if(!list || !list.length) return;
+  const panel = document.createElement('div');
+  panel.id = 'gsPanel'; panel.className = 'gs-overlay';
+  panel.innerHTML = `<div class="gs-modal"><div class="gs-modal-head"><b>⚡ 正在按新词典重生成 ${list.length} 章…</b></div>
+    <p class="gs-progress muted">请保持页面打开，逐章推进，不会打断你浏览已生成章节。</p></div>`;
+  document.body.appendChild(panel);
+  state.generating = true;
+  try{
+    for(const i of list){
+      chState[i]='generating'; patchChapter(i);
+      const pg = panel.querySelector('.gs-progress');
+      if(pg) pg.textContent = `正在重写第 ${i+1} 章…`;
+      try{
+        const user = buildChapterUser(i, {regenerating:true});
+        const txt = await writeOneChapterContent(i, user);      // 关闭流式，单章连贯
+        state.chapters[i].content = txt;
+        chState[i]='done'; persist(); patchChapter(i);
+      }catch(e){ chState[i]='error'; persist(); patchChapter(i); }
+    }
+    closeGlossaryPanel();
+    renderChapters();
+    toast('所选章节已按新词典重生成完成');
+  }finally{ state.generating = false; }
+}
+function closeGlossaryPanel(){ const p=$('#gsPanel'); if(p) p.remove(); }
 
 function renderChapters(){
   const wrap = $('#chaptersWrap'); if(!wrap) return;
