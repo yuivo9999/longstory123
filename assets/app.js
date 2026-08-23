@@ -1021,11 +1021,13 @@ function glossaryCardHtml(){
   const g = (state.outline && state.outline.glossary) || {characters:[], places:[], propernouns:[]};
   const gl = ()=>state.outline.glossary = state.outline.glossary || {characters:[],places:[],propernouns:[]};
   const empty = !(g.characters&&g.characters.length) && !(g.places&&g.places.length) && !(g.propernouns&&g.propernouns.length);
-  if(empty) return `<div class="card"><h3 class="gs-card-title">📇 设定表 · 万物词典 <span class="gs-tools">
+  const tools = `<span class="gs-tools">
+    <button type="button" class="btn ghost gs-tool" data-gs-undo-card hidden>↩ 撤销上次改动</button>
     <button type="button" class="btn ghost gs-tool" data-gs-export>导出 JSON</button>
     <button type="button" class="btn ghost gs-tool" data-gs-import>导入 JSON</button>
     <input type="file" id="gsImportFile" accept=".json,application/json" hidden />
-  </span></h3><p class="sub">当前大纲未含万物词典。此词典会在生成大纲时自动确立，作为全书人名/地名/专名的一致性基准；请重生成大纲以启用。</p></div>`;
+  </span>`;
+  if(empty) return `<div class="card"><h3 class="gs-card-title">📇 设定表 · 万物词典 ${tools}</h3><p class="sub">当前大纲未含万物词典。此词典会在生成大纲时自动确立，作为全书人名/地名/专名的一致性基准；请重生成大纲以启用。</p></div>`;
   // 可折叠条目：点击展开/收起该条目全部字段（建议1·此轮）
   // 折叠态只显示名字 + 一行简述；展开态显示该条全部可编辑介绍，文字再多也能全部看到。
   const fmt = (o, keys)=>{ const ks = (keys||[]).filter(k=>o[k]); return ks.map(k=>o[k]).join(' · '); };
@@ -1049,7 +1051,7 @@ function glossaryCardHtml(){
   const chars = (g.characters||[]).map((c,i)=>entry(c,'char',i,['role','identity','relation'],['name','relation','trait','identity','role'])).join('');
   const places = (g.places||[]).map((p,i)=>entry(p,'place',i,['type','note'],['name','type','note'])).join('');
   const props = (g.propernouns||[]).map((p,i)=>entry(p,'proper',i,['note'],['name','note'])).join('');
-  return `<div class="card"><h3>📇 设定表 · 万物词典</h3>
+  return `<div class="card"><h3 class="gs-card-title">📇 设定表 · 万物词典 ${tools}</h3>
     <p class="sub">全文一致性基准：生成正文时一律使用以下人名/地名/专名，不得自造新名。可小幅修改错名，保留为准则。</p>
     <div class="gs-group" data-gs-type="char"><div class="gs-title">👤 人物（${g.characters.length}）</div>
       ${chars||'<span class="muted">（无）</span>'}</div>
@@ -1084,13 +1086,15 @@ function bindGlossary(){
       if(!arr[idx]) return;
       const oldVal = inp.dataset.orig;
       const newVal = inp.value;
+      if(newVal === oldVal) return;            // 无实质变化：不记录、不弹窗
       const isName = inp.hasAttribute('data-gs-name');
       const key = isName ? 'name' : inp.dataset.gsKey;
-      arr[idx][key] = newVal;                      // 先写回 state（保持现状可编辑即存）
-      persist();                                   // 改动即保存（防误操作丢数据）
-      inp.dataset.orig = newVal;                   // 该输入框的 basline 更新
-      // 触发「改动透明化」评估：仅在发生实质变化且在长篇（有正文生成）时弹选择卡
-      if(newVal !== oldVal && isLong()){
+      gsPushUndo();                            // 记录改动前的整本词典（任意模式，供常驻撤销）
+      arr[idx][key] = newVal;                  // 再写回 state（保持现状可编辑即存）
+      persist();                               // 改动即保存（防误操作丢数据）
+      inp.dataset.orig = newVal;               // 该输入框的 basline 更新
+      // 触发「改动透明化」评估：长篇（有正文生成）时弹选择卡
+      if(isLong()){
         openGlossaryPanel({type, idx, isName, key, oldVal, newVal});
       }
     };
@@ -1100,10 +1104,37 @@ function bindGlossary(){
   // 导入词典 JSON（项7）
   $$('[data-gs-import]').forEach(b=> b.onclick = ()=> { const f=$('#gsImportFile'); if(f) f.click(); });
   const imp = $('#gsImportFile'); if(imp) imp.onchange = e=>{ const file = e.target.files && e.target.files[0]; if(file) importGlossaryJson(file); e.target.value=''; };
+  // 词典卡片常驻「撤销上次改动」（建议1·此轮）：弹窗被关后仍有可见入口可回退
+  $$('[data-gs-undo-card]').forEach(b=> b.onclick = undoLastGlossaryChange);
+  syncGlossaryUndoBtn();
+}
+// 撤销最后一次词典改动（常驻入口）
+function undoLastGlossaryChange(){
+  if(!gsUndoStack.length){ syncGlossaryUndoBtn(); return; }
+  const snap = gsUndoStack.pop();
+  try{ if(snap){ state.outline.glossary = JSON.parse(snap); persist(); } }catch(e){}
+  syncGlossaryUndoBtn();
+  renderGlossaryOnly();
+  toast('已撤销词典改动');
+}
+// 按栈内快照数量刷新「撤销上次改动」按钮可见性
+function syncGlossaryUndoBtn(){
+  $$('[data-gs-undo-card]').forEach(b=>{
+    const n = gsUndoStack.length;
+    b.hidden = !n;
+    if(n) b.textContent = '↩ 撤销上次改动 ('+n+')';
+  });
 }
 
-// 快照（项5）：记录任一条目改动前的整本词典，供一键回退
+// 快照（项5）：记录任一条目改动前的整本词典，供一键回退；最多保留 10 步防无限膨胀
 let gsUndoStack = [];
+const GS_UNDO_MAX = 10;
+function gsPushUndo(){
+  const g = state.outline && state.outline.glossary;
+  if(g) gsUndoStack.push(JSON.stringify(g));
+  if(gsUndoStack.length > GS_UNDO_MAX) gsUndoStack.shift();
+  syncGlossaryUndoBtn();
+}
 // 词典 JSON：导出全部 glossary（不做任何改写，保留用户手动编辑的新值）
 function exportGlossaryJson(){
   const g = state.outline && state.outline.glossary;
@@ -1172,8 +1203,6 @@ function openGlossaryPanel(info){
   const itemName = arr[info.idx] ? arr[info.idx].name : '该条目';
   const scan = scanGlossaryImpact(info);
   const hits = scan.hits || [];
-  // 快照整本词典，供回退
-  gsUndoStack.push(JSON.stringify(g));
 
   const labels = {name:'名称', relation:'关系', trait:'性格/外貌', identity:'身份', role:'职能', type:'类型', note:'说明'};
   const kind = info.isName ? `「${info.oldVal||''}」→「${info.newVal||''}」`
@@ -1210,19 +1239,19 @@ function openGlossaryPanel(info){
   document.body.appendChild(ov);
   ov.querySelector('[data-gs-close]').onclick = closeGlossaryPanel;
   ov.querySelector('[data-gs-future]').onclick = ()=>{
-    gsUndoStack.pop();              // 已生效，丢弃快照
+    gsUndoStack.pop(); syncGlossaryUndoBtn();   // 已生效，丢弃快照
     closeGlossaryPanel();
     toast('已保存，仅对后续新章生效');
   };
   ov.querySelector('[data-gs-undo]').onclick = ()=>{
-    const snap = gsUndoStack.pop();
+    const snap = gsUndoStack.pop(); syncGlossaryUndoBtn();
     if(snap){ try{ state.outline.glossary = JSON.parse(snap); persist(); }catch(e){} }
     closeGlossaryPanel(); renderGlossaryOnly(); toast('已恢复改动前词典');
   };
   const regenBtn = ov.querySelector('[data-gs-regen]');
   if(regenBtn) regenBtn.onclick = ()=>{
     const sel = $$('.gs-hit-cb:checked', ov).map(b=>+b.dataset.ch);
-    gsUndoStack.pop();              // 用户已确认批量重生成，丢弃快照（重生成后为新一致性）
+    gsUndoStack.pop(); syncGlossaryUndoBtn();   // 用户已确认批量重生成，丢弃快照（重生成后为新一致性）
     closeGlossaryPanel();
     regenSelectedChapters(sel);
   };
@@ -1252,6 +1281,7 @@ async function regenSelectedChapters(list){
       try{
         const user = buildChapterUser(i, {regenerating:true});
         const txt = await writeOneChapterContent(i, user);      // 关闭流式，单章连贯
+        snapshotChapterVersion(i);            // v7.2：覆盖前存旧版，支持回退
         state.chapters[i].content = txt;
         chState[i]='done'; persist(); patchChapter(i);
       }catch(e){ chState[i]='error'; persist(); patchChapter(i); }
@@ -1262,6 +1292,82 @@ async function regenSelectedChapters(list){
   }finally{ state.generating = false; }
 }
 function closeGlossaryPanel(){ const p=$('#gsPanel'); if(p) p.remove(); }
+
+/* =====================================================
+ * 章节版本历史（v7.2）：重生成后可回退到之前版本
+ * 章节结构：{ title, content, confirmed, history:[{content,ts}] }
+ * 生成/重生成覆盖前快照旧内容；卡片「📚 版本」按钮可预览并恢复。
+ * ===================================================== */
+function ensureChapterHistory(i){
+  const c = state.chapters[i]; if(!c) return c;
+  if(!Array.isArray(c.history)) c.history = [];
+  return c;
+}
+// 生成/重生成覆盖前调用：把当前非空正文存入历史（尾=最新）
+function snapshotChapterVersion(i){
+  const c = ensureChapterHistory(i); if(!c) return;
+  const cur = c.content;
+  if(cur && String(cur).trim()) c.history.push({ content: cur, ts: Date.now() });
+  if(c.history.length > 30) c.history.splice(0, c.history.length - 30); // 上限30防膨胀
+}
+function chVersions(i){ const c=ensureChapterHistory(i); return c? c.history : []; }
+function hasChVersions(i){ return chVersions(i).length > 0; }
+
+// 版本历史弹窗：列出当前 + 历史，可预览、可恢复
+function openChapterVersionPanel(i){
+  closeChapterVersionPanel();
+  const c = ensureChapterHistory(i); if(!c) return;
+  const title = c.title || ('第'+(i+1)+'章');
+  const fmtTs = ts=>{ const d=new Date(ts); return (d.getMonth()+1)+'-'+d.getDate()+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); };
+  const cur = String(c.content||'');
+  const hist = c.history;
+  const rows = hist.map((v,origIdx)=>`
+    <div class="cv-row">
+      <div class="cv-meta"><span class="cv-time">${fmtTs(v.ts)}</span><span class="cv-wc">${(v.content||'').length} 字</span></div>
+      <div class="cv-actions">
+        <button type="button" class="btn ghost cv-b" data-cv-prev="${origIdx}">预览</button>
+        <button type="button" class="btn ghost cv-b" data-cv-restore="${origIdx}">↩ 恢复</button>
+      </div>
+    </div>`).join('');
+  const ov = document.createElement('div'); ov.id='cvPanel'; ov.className='gs-overlay';
+  ov.innerHTML = `
+    <div class="gs-modal">
+      <div class="gs-modal-head"><b>📚 版本历史 · 第${i+1}章「${esc(title)}」</b>
+        <button class="gs-x" data-cv-close>✕</button></div>
+      <div class="cv-body">
+        <div class="cv-row cur"><div class="cv-meta"><span class="cv-time">当前版本</span><span class="cv-wc">${cur.length} 字</span></div></div>
+        ${hist.length? `<div class="cv-div">历史版本（点「恢复」回到该版；恢复前会先把当前正文存为新的历史版本）</div>${rows}`
+        : '<p class="muted cv-empty">暂无历史版本。当章节被重生成时，旧正文会自动存档在这里，供你随时回退。</p>'}
+        <div class="cv-preview hidden" id="cvPreview">
+          <div class="cv-prev-head"><b id="cvPrevTitle">版本预览</b><button class="gs-x" data-cv-prev-close>✕</button></div>
+          <div class="cv-pre" id="cvReader"></div>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(ov);
+  ov.querySelector('[data-cv-close]').onclick = closeChapterVersionPanel;
+  ov.addEventListener('click', e=>{ if(e.target===ov) closeChapterVersionPanel(); });
+  // 预览：显示该版本全文
+  ov.addEventListener('click', e=>{
+    const p = e.target.closest('[data-cv-prev]'); if(!p) return;
+    const v = hist[+p.dataset.cvPrev]; if(!v) return;
+    const pr=$('#cvPreview'), rd=$('#cvReader'), pt=$('#cvPrevTitle');
+    if(pr && rd){ pt.textContent = '预览 · 历史版本（'+fmtTs(v.ts)+'）'; rd.textContent = v.content||'（空）'; pr.classList.remove('hidden'); }
+  });
+  ov.querySelector('[data-cv-prev-close]').onclick = ()=>{ const pr=$('#cvPreview'); if(pr) pr.classList.add('hidden'); };
+  // 恢复：确认后把当前正文存历史，再用选中版覆盖当前
+  ov.addEventListener('click', e=>{
+    const rb = e.target.closest('[data-cv-restore]'); if(!rb) return;
+    const v = hist[+rb.dataset.cvRestore]; if(!v) return;
+    if(!window.confirm('恢复该历史版本将覆盖当前正文。\n\n（当前正文会自动保存为一条新的历史版本，不会被删除。）\n确定恢复吗？')) return;
+    snapshotChapterVersion(i);                  // 先把当前正文存历史
+    c.content = v.content;                      // 用历史版覆盖当前
+    c.history.splice(+rb.dataset.cvRestore, 1); // 移除已升为当前的版本
+    persist(); closeChapterVersionPanel(); renderChapters();
+    toast('已恢复历史版本');
+  });
+}
+function closeChapterVersionPanel(){ const p=$('#cvPanel'); if(p) p.remove(); }
 
 function renderChapters(){
   const wrap = $('#chaptersWrap'); if(!wrap) return;
@@ -1289,6 +1395,7 @@ function renderChapters(){
         <div class="ch-body${foldedCls}">
           <textarea data-ch="${i}" style="margin-top:8px">${esc(c.content)}</textarea>
           <div class="btn-row">
+            ${hasChVersions(i)?`<button class="btn ghost" data-ver="${i}">📚 版本(${chVersions(i).length})</button>`:''}
             <button class="btn ghost" data-regen="${i}" ${state.generating?'disabled':''}>🔄 重生成</button>
             <button class="btn ghost" data-read="${i}" ${hasC?'':'disabled'}>📖 阅读</button>
           </div>
@@ -1315,6 +1422,7 @@ function renderChapters(){
         </div>
         <textarea data-ch="${i}" style="margin-top:8px">${esc(c.content)}</textarea>
         <div class="btn-row">
+          ${hasChVersions(i)?`<button class="btn ghost" data-ver="${i}">📚 版本(${chVersions(i).length})</button>`:''}
           <button class="btn ghost" data-regen="${i}">🔄 重生成</button>
           <button class="btn ghost" data-read="${i}" ${c.content&&c.content.trim()?'':'disabled'}>📖 阅读</button>
           <button class="btn ghost" data-toggle="${i}">${c.confirmed?'↺ 取消确认':'✓ 标记已确认'}</button>
@@ -2003,9 +2111,10 @@ function bindView(){
   renderChapters();
   // 用事件委托处理章节区内部点击：分页/折叠会重建部分按钮，委托在 #chaptersWrap 上保证始终生效（Bug2 修复）
   const chaptersDelegate = (e)=>{
-    const t = e.target.closest('[data-regen],[data-toggle],[data-read],[data-fold],[data-page]');
+    const t = e.target.closest('[data-regen],[data-toggle],[data-read],[data-fold],[data-page],[data-ver]');
     if(!t) return;
-    if(t.hasAttribute('data-regen')){ genOneChapter(+t.dataset.regen, t); }
+    if(t.hasAttribute('data-ver')){ openChapterVersionPanel(+t.dataset.ver); }
+    else if(t.hasAttribute('data-regen')){ openChapterRegenPanel(+t.dataset.regen); }
     else if(t.hasAttribute('data-toggle')){ const i=+t.dataset.toggle; state.chapters[i].confirmed=!state.chapters[i].confirmed; persist(); render(); }
     else if(t.hasAttribute('data-read')){ openReader(+t.dataset.read); }
     else if(t.hasAttribute('data-fold')){ const i=+t.dataset.fold; const body=t.closest('.ch-card').querySelector('.ch-body'); const ico=t.querySelector('.ch-fold-ico'); const on = body.classList.toggle('folded'); t.setAttribute('aria-expanded', String(!on)); if(ico) ico.textContent = on?'▸':'▾'; }
@@ -2304,6 +2413,10 @@ function buildChapterUser(i, opt={}){
   if(opt.regenerating && i < o.chapters.length-1){
     tail += `\n下一章概要（请预留衔接，但不要剧透下一章情节）：${o.chapters[i+1].summary||''}`;
   }
+  // 人工干预要求（建议3·此轮）：重生成时遵循用户指定的改动方向
+  if(opt.advice){
+    tail += `\n\n【人工干预要求（用户指定，务必优先遵循）】\n${opt.advice}\n请在重写本章时落实以上要求，其余不受影响的内容仍保持既有文风与世界观一致。`;
+  }
   return `${head}\n\n${tail}`;
 }
 // 章节生成状态机：chState[i] = 'idle'|'generating'|'done'|'error'（健壮性契约）
@@ -2335,13 +2448,53 @@ function patchChapter(i){
   if(re){ re.disabled = !!state.generating; }
 }
 
+// 重生成干预弹窗（建议3·此轮）：可任选「直接重生成」或「带人工建议重生成」
+function openChapterRegenPanel(i){
+  closeChapterRegenPanel();
+  const c = state.chapters[i];
+  const title = c && c.title ? c.title : ('第'+(i+1)+'章');
+  const ov = document.createElement('div');
+  ov.id = 'regenPanel'; ov.className = 'gs-overlay';
+  ov.innerHTML = `
+    <div class="gs-modal">
+      <div class="gs-modal-head"><b>🔄 重生成 · 第${i+1}章「${esc(title)}」</b>
+        <button class="gs-x" data-rp-close>✕</button></div>
+      <div class="gs-body">
+        <p class="gs-q"><b>想如何改动这一章？</b> 可在下方填写你的具体要求（改动方向、补充设定、错误修正等）；留空则按现有风格直接重写。</p>
+        <textarea id="rpAdvice" class="rp-advice" placeholder="例如：这一章节奏太慢，请压缩到 1500 字以内；女主的性格再外放一点；增加与上一章结尾的衔接…（可选）"></textarea>
+      </div>
+      <div class="gs-actions">
+        <button class="btn" data-rp-plain>直接重生成（无干预）</button>
+        <button class="btn primary" data-rp-with>💡 带我的建议重生成</button>
+      </div>
+    </div>`;
+  document.body.appendChild(ov);
+  ov.querySelector('[data-rp-close]').onclick = closeChapterRegenPanel;
+  ov.addEventListener('click', e=>{ if(e.target===ov) closeChapterRegenPanel(); });
+  ov.querySelector('[data-rp-plain]').onclick = ()=>{
+    const btn = document.querySelector('[data-regen="'+i+'"]');
+    closeChapterRegenPanel();
+    genOneChapter(i, btn, {});
+  };
+  ov.querySelector('[data-rp-with]').onclick = ()=>{
+    const advice = $('#rpAdvice').value.trim();
+    const btn = document.querySelector('[data-regen="'+i+'"]');
+    closeChapterRegenPanel();
+    genOneChapter(i, btn, {advice});
+  };
+  const ta = $('#rpAdvice'); if(ta) ta.focus();
+}
+function closeChapterRegenPanel(){ const p=$('#regenPanel'); if(p) p.remove(); }
+
 // 单章生成（🔄 重生成，决策5：只重写目标章，注入上章结尾+下章概要+全局词典）
-async function genOneChapter(i, btn){
+// opt.advice：可选的人工干预要求（建议3·此轮），随 buildChapterUser 注入模型
+async function genOneChapter(i, btn, opt={}){
   chState[i] = 'generating'; state.generating = true; patchChapter(i);
-  busy(btn,true,'生成中…');
+  if(btn) busy(btn,true,'生成中…');
   try{
-    const user = buildChapterUser(i, {regenerating:true});
+    const user = buildChapterUser(i, {regenerating:true, advice:opt.advice});
     const txt = await writeOneChapterContent(i, user);   // 关闭流式
+    snapshotChapterVersion(i);            // v7.2：覆盖前存旧版，支持回退
     state.chapters[i].content = txt;
     chState[i] = 'done';
     if(!isLong()) state.chapters[i].confirmed = false;
@@ -2349,7 +2502,7 @@ async function genOneChapter(i, btn){
     patchChapter(i);
     toast('第'+(i+1)+'章完成');
   }catch(e){ chState[i] = 'error'; patchChapter(i); toast('第'+(i+1)+'章生成失败：'+e.message); }
-  finally{ state.generating = false; busy(btn,false); patchChapter(i); }
+  finally{ state.generating = false; if(btn) busy(btn,false); patchChapter(i); }
 }
 
 // 从模型返回的连续两章正文里切分（分隔：模型输出按「【第X章…】…【第X+1章…】」组织）
@@ -2385,6 +2538,8 @@ ${prevEnd?('上一章结尾：'+prevEnd+'…'):''}
 请严格按顺序输出两章正文，用【第${pairStart+1}章】与【第${pairStart+2}章】作为分段标题。只输出正文，不要多余解释。`;
   const txt = await callDeepSeek(longChapterSys(), user, {maxTokens: mt});
   const pair = splitTwoChapters(txt);
+  snapshotChapterVersion(pairStart);            // v7.2：覆盖前存旧版，支持回退
+  snapshotChapterVersion(pairStart+1);
   state.chapters[pairStart].content = pair[0] || '';
   state.chapters[pairStart+1].content = pair[1] || state.chapters[pairStart+1].content || pair[0] || '';
 }
@@ -2415,10 +2570,12 @@ async function genAllChapters(){
         chState[i]='done'; chState[i+1]='done'; k++;   // 本对一次处理两章，外层 k 再前进
       } else if(isLong()){
         const txt = await writeOneChapterContent(i, buildChapterUser(i));
+        snapshotChapterVersion(i);            // v7.2：覆盖前存旧版，支持回退
         state.chapters[i].content = txt;
         chState[i]='done';
       } else {
         const txt = await callDeepSeek(PROMPTS.chapterSys + specSysAddition(), buildChapterUser(i));
+        snapshotChapterVersion(i);            // v7.2：覆盖前存旧版，支持回退
         state.chapters[i].content = txt; state.chapters[i].confirmed=false;
         chState[i]='done';
       }
@@ -2555,6 +2712,7 @@ async function genStoryboard(){
 /* =========================================================
  * 历史作品弹层（多项目管理：切换/新建/删除）
  * ========================================================= */
+let histOpenId = null;   // 当前展开详情的历史项目 id（折叠态，互不影响）
 function fmtHistTime(ts){
   if(!ts) return '';
   const d = new Date(ts), now = new Date();
@@ -2579,17 +2737,57 @@ function renderHistList(){
   const items = [...lib.items].sort((a,b)=> (b.updatedAt||0) - (a.updatedAt||0));
   list.innerHTML = items.map(p=>{
     const isCur = p.id === lib.curId;
-    return `<div class="hist-item ${isCur?'active':''}">
-      <button class="hist-main" data-switch="${p.id}">
-        <span class="hist-title">${isCur?'<em class="hist-cur">当前</em>':''}${esc(p.title||'未命名作品')}</span>
-        ${p.logline?`<span class="hist-desc">${esc(p.logline)}</span>`:''}
-        <span class="hist-meta">${histProgress(p)} · ${fmtHistTime(p.updatedAt)}</span>
-      </button>
-      <button class="hist-del" data-del="${p.id}" title="删除作品">🗑</button>
+    const open = histOpenId === p.id;
+    // 展开详情：按项目类型展示正文/大纲/已完成内容片段
+    const preview = histItemPreview(p);
+    return `<div class="hist-item ${isCur?'active':''} ${open?'open':''}" data-hist="${p.id}">
+      <div class="hist-head" data-hist-toggle="${p.id}">
+        <span class="hist-fold" data-hist-fold="${p.id}">${open?'▾':'▸'}</span>
+        <button class="hist-main" data-switch="${p.id}">
+          <span class="hist-title">${isCur?'<em class="hist-cur">当前</em>':''}${esc(p.title||'未命名作品')}</span>
+          ${p.logline?`<span class="hist-desc">${esc(p.logline)}</span>`:''}
+          <span class="hist-meta">${histProgress(p)} · ${fmtHistTime(p.updatedAt)}</span>
+        </button>
+        <button class="hist-del" data-del="${p.id}" title="删除作品">🗑</button>
+      </div>
+      <div class="hist-body">${preview}</div>
     </div>`;
   }).join('') || `<div class="hist-empty">还没有作品，点击「＋ 新建小说」开始。</div>`;
   $$('#histList [data-switch]').forEach(b=> b.onclick = ()=> switchProject(b.dataset.switch));
   $$('#histList [data-del]').forEach(b=> b.onclick = (e)=>{ e.stopPropagation(); deleteProject(b.dataset.del); });
+  // 折叠/展开单条项目详情：只影响当前项，不影响其它项的选择
+  $$('#histList .hist-head').forEach(h=> h.onclick = (e)=>{
+    if(e.target.closest('[data-switch]')) return;   // 点标题=切换项目，不折叠
+    if(e.target.closest('[data-del]')) return;      // 删除按钮不触发折叠
+    const id = h.dataset.histToggle;
+    histOpenId = (histOpenId===id) ? null : id;
+    renderHistList();                               // 重新渲染以切折叠态
+  });
+}
+// 单条历史作品的详情预览（HTML）
+function histItemPreview(p){
+  // 优先展示已有章正文的前若干字符，其次大纲标题，其次其它阶段摘要
+  const chapters = (p.chapters||[]).filter(c=> c && c.content && String(c.content).trim());
+  const parts = [];
+  if(chapters.length){
+    parts.push(`<b>正文已生成 ${chapters.length} 章：</b>`);
+    const rows = chapters.slice(0, 8).map((c,i)=>`<div class="hist-p-row">第${i+1}章 · ${esc(c.title||'')}</div>`).join('');
+    parts.push(rows);
+    if(chapters.length>8) parts.push(`<div class="muted">… 其余 ${chapters.length-8} 章</div>`);
+  }
+  const outline = p.outline && p.outline.chapters;
+  if(outline && outline.length){
+    parts.push(`<b>大纲（${outline.length} 章）：</b>`);
+    parts.push(`<div class="hist-p-row muted">${esc(outline.map(c=>c.title).slice(0,6).join(' / '))}${outline.length>6?' …':''}</div>`);
+  }
+  if(p.characters && p.characters.length){
+    parts.push(`<div class="hist-p-row muted">角色：${esc(p.characters.map(c=>c.name).slice(0,6).join('、'))}</div>`);
+  }
+  if(p.scenes && p.scenes.length){
+    parts.push(`<div class="hist-p-row muted">场景：${esc(p.scenes.map(s=>s.name).slice(0,6).join('、'))}</div>`);
+  }
+  if(!parts.length) parts.push('<div class="muted">（暂无内容，仅记录了构想与进度）</div>');
+  return parts.join('');
 }
 function openHistPanel(){ renderHistList(); $('#histPanel').classList.remove('hidden'); }
 function closeHistPanel(){ $('#histPanel').classList.add('hidden'); }
