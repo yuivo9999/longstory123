@@ -468,3 +468,27 @@ body.reader-lock{overflow:hidden}
 .hist-name{color:var(--txt); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 .hist-date{flex:0 0 auto; color:var(--muted); font-size:11px; font-variant-numeric:tabular-nums}
 .hist-empty{font-size:12px; color:var(--muted); padding:6px}
+
+/* 建议2：大纲章名横向划拉窗口（CSS scroll-snap，原生零依赖） */
+.outline-strip{display:flex;gap:8px;overflow-x:auto;margin:10px 0;padding:4px 2px 6px;scroll-snap-type:x mandatory;scrollbar-width:thin;scrollbar-color:var(--line) transparent;-webkit-overflow-scrolling:touch}
+.outline-strip::-webkit-scrollbar{height:4px}
+.outline-strip::-webkit-scrollbar-thumb{background:var(--line);border-radius:999px}
+.outline-pill{flex:0 0 auto;scroll-snap-align:start;font-size:12px;padding:5px 10px;border-radius:14px;background:var(--panel2);border:1px solid var(--line);color:var(--sub);white-space:nowrap;width:auto;max-width:220px;overflow:hidden;text-overflow:ellipsis}
+
+/* 建议9：万物词典「设定表」卡片 */
+.gs-group{margin:8px 0 4px}
+.gs-title{font-size:12px;font-weight:700;color:var(--sub);margin-bottom:6px}
+.gs-row{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.gs-row input{flex:0 1 46%;padding:6px 8px;font-size:13px;min-height:36px}
+.gs-sub{flex:1;font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* 建议1+3：长篇章节卡片折叠 + 分页 */
+.ch-card{overflow:hidden}
+.ch-card .ch-head{display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;padding:2px 0;border-radius:8px}
+.ch-card .ch-head:hover{background:color-mix(in srgb, var(--accent) 6%, transparent)}
+.ch-fold-ico{flex:0 0 auto;width:18px;text-align:center;color:var(--muted);font-size:13px;transition:transform .15s}
+.ch-card .ch-body.folded{display:none}
+.ch-pager{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:10px 0}
+.ch-pager .ch-page{padding:4px 10px;border-radius:8px;background:var(--panel2);border:1px solid var(--line);color:var(--sub);font-size:12px;cursor:pointer}
+.ch-pager .ch-page.active{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:700}
+.ch-pager .ch-page:active{transform:scale(.95)}

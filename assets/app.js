@@ -416,8 +416,9 @@ const PROMPTS = {
 
   longOutlineSys: `你是一位能驾驭超长篇的著名小说架构师。根据用户的一句话或几句构想，设计一部经典的【长篇小说】，最终成品体量约 30 万字。
 你不能用三幕流水的短剧套路来搭长篇，而要用真正的长篇小说结构美学来设计骨架。请严格只输出如下 JSON（不要任何解释、不要 markdown 代码块）：
-{"title":"小说名","logline":"一句话梗概（含核心冲突与深层命题）","structure":{"mode":"结构模式","designReason":"为何选此结构、其精妙之处","mainLine":"主线：贯穿始终的核心冲突","subLines":["副线1：具体内容","副线2：具体内容"],"hiddenLine":"暗线：先埋设后揭晓的隐藏真相","pivotChapter":"多线汇合/大逆转所在章号(如 24)","threeFix":"三定：定时间轴 / 定汇合点 / 定主次(哪条线是主轴)"},"chapters":[{"title":"第1章标题","summary":"该章核心事件与转折，1-2句","line":"该章推进哪条线/埋哪个伏笔/节奏起伏"}]}
-选择结构模式时，默认优先采用【多线交织或网状交织】（次选单线因果、板块拼贴或闭环循环），并补齐 mainLine / subLines / hiddenLine 三条以上的叙事线索；多线必须做到"三定"：定时间轴、定汇合点（在哪一章几条线收束汇合）、定主次（以一条线为轴，其余服务它），否则会散架。暗线要从早期章节就埋设，直到结局呼应揭晓。每章 title 有钩子感，summary 写清人物动机、情节推进与本批应埋伏笔；line 标注该章归属的线索与节奏（如"主线推进/暗线植入/支线完成/情绪张力升高"），使整体节奏有跌宕起伏的事件密度控制，而非平铺。`,
+{"title":"小说名","logline":"一句话梗概（含核心冲突与深层命题）","structure":{"mode":"结构模式","designReason":"为何选此结构、其精妙之处","mainLine":"主线：贯穿始终的核心冲突","subLines":["副线1：具体内容","副线2：具体内容"],"hiddenLine":"暗线：先埋设后揭晓的隐藏真相","pivotChapter":"多线汇合/大逆转所在章号(如 24)","threeFix":"三定：定时间轴 / 定汇合点 / 定主次(哪条线是主轴)"},"glossary":{"characters":[{"name":"人物姓名","identity":"身份地位","role":"在故事中的职能/作用","relation":"与该人相关人物及关系","trait":"性格/外貌/说话特征要点"}],"places":[{"name":"地名/场景名","type":"类型(城/宗门/村镇等)","note":"设定要点与作用"}],"propernouns":[{"name":"专名/专属设定术语","note":"含义与拼写唯一约定"}]},"chapters":[{"title":"第1章标题","summary":"该章核心事件与转折，1-2句","line":"该章推进哪条线/埋哪个伏笔/节奏起伏"}]}
+选择结构模式时，默认优先采用【多线交织或网状交织】（次选单线因果、板块拼贴或闭环循环），并补齐 mainLine / subLines / hiddenLine 三条以上的叙事线索；多线必须做到"三定"：定时间轴、定汇合点（在哪一章几条线收束汇合）、定主次（以一条线为轴，其余服务它），否则会散架。暗线要从早期章节就埋设，直到结局呼应揭晓。每章 title 有钩子感，summary 写清人物动机、情节推进与本批应埋伏笔；line 标注该章归属的线索与节奏（如"主线推进/暗线植入/支线完成/情绪张力升高"），使整体节奏有跌宕起伏的事件密度控制，而非平铺。
+【glossary 万物词典要求】glossary 是全文保持一致性的权威基准：必须列出本故事涉及的全部重要人物（含配角）、地域地名、专属设定术语；**全书正文一律只使用本词典中的人名/地名/专名，禁止自造或混用其他拼写**。人物 relation 写清角色间关系，trait 归纳其稳定性格与外貌要点以便后续各章保持一致。数量依故事体量，人物 3-15 名、地名 2-10 处、专名 2-8 个均可，务必覆盖后续章节会反复出现的核心要素。`,
 
   longChapterSys: `你是一位中文长篇小说的资深写手。根据「整体结构」「故事大纲」与「本章概要」写出本章完整正文，做到章章服务整体架构，绝不悬空发散。
 要求：严格围绕本章概要推进，同时照顾它在全书结构中的位置——本线、伏笔、明暗线呼应；细腻的环境与心理描写、生动对话、符合人物弧光；节奏张弛有度（本章若是情绪高潮或转折则加压，若是过渡则蓄力）；章末留悬念或钩子，为后续章节/伏笔回落埋线；只输出正文，不要标题、不要"本章完/未完待续"之类片尾标注、不要任何解释。`,
@@ -979,18 +980,19 @@ function viewStory(){
         ${titleManagerHtml()}
       </div>
       <p class="sub">${esc(o.logline||'')}</p>
-      <div style="margin:10px 0">${ (o.chapters||[]).map((c,i)=>`<span class="pill">${i+1}. ${esc(c.title)}</span>`).join('') }</div>
+      <div class="outline-strip">${ (o.chapters||[]).map((c,i)=>`<span class="outline-pill">${i+1}. ${esc(c.title)}</span>`).join('') }</div>
       ${ structureCard(o) }
       ${ state.outlineConfirmed ? `
         <div class="btn-row"><span class="pill tag-ok">✓ 大纲已确认</span></div>
+        ${ isLong() ? glossaryCardHtml() : '' }
         ${ isLong() ? `<div class="btn-row" style="margin-top:8px">
           <label class="long-jump"><span>跳到章节：</span>
           <select id="longJump"><option value="">— 选择章节阅读 —</option>${state.chapters.map((c,i)=>`<option value="${i}">第${i+1}章 ${esc(c.title)}</option>`).join('')}</select></label>
         </div>` : '' }
         <div id="chaptersWrap"></div>
         <div class="btn-row" style="margin-top:12px">
-          <button id="btnGenAllChapters" class="btn primary">${isLong()?'⚡ 生成下一批 5 章':'⚡ 一键生成全部章节'}</button>
-          <button id="btnReOutline" class="btn ghost">重生成大纲</button>
+          <button id="btnGenAllChapters" class="btn primary">${isLong()?'⚡ 生成下一批 2 章':'⚡ 一键生成全部章节'}</button>
+          ${ isLong() ? '' : '<button id="btnReOutline" class="btn ghost">重生成大纲</button>' }
         </div>
         <p id="chStatus" class="status"></p>
         ${ isLong() ? `<div class="long-progress"></div>` : '' }
@@ -1006,24 +1008,103 @@ function viewStory(){
   return html;
 }
 
+// 万物词典「设定表」卡片：展示人物/地名/专名，用户可更正错名（决策9）
+// 词典是全文一致性准则，可小幅修正，但禁用删除（应由大纲确立）。
+function glossaryCardHtml(){
+  const g = (state.outline && state.outline.glossary) || {characters:[], places:[], propernouns:[]};
+  const gl = ()=>state.outline.glossary = state.outline.glossary || {characters:[],places:[],propernouns:[]};
+  const empty = !(g.characters&&g.characters.length) && !(g.places&&g.places.length) && !(g.propernouns&&g.propernouns.length);
+  if(empty) return `<div class="card"><h3>📇 设定表 · 万物词典</h3><p class="sub">当前大纲未含万物词典。此词典会在生成大纲时自动确立，作为全书人名/地名/专名的一致性基准；请重生成大纲以启用。</p></div>`;
+  // 内联可编辑：每一项名字/简述直接改，失焦即存（index 存到 data-gs-key 做下标）
+  const row = (val, sub) => `<div class="gs-row gs-row-tpl">
+      <input type="text" value="${esc(val)}" placeholder="填写" />
+      <span class="gs-sub">${esc(sub)}</span>
+    </div>`;
+  const chars = (g.characters||[]).map(c=>row(c.name, c.role||c.identity||c.relation||'')).join('');
+  const places = (g.places||[]).map(p=>row(p.name, p.type||'')).join('');
+  const props = (g.propernouns||[]).map(p=>row(p.name, p.note||'')).join('');
+  return `<div class="card"><h3>📇 设定表 · 万物词典</h3>
+    <p class="sub">全文一致性基准：生成正文时一律使用以下人名/地名/专名，不得自造新名。可小幅修改错名，保留为准则。</p>
+    <div class="gs-group" data-gs-type="char"><div class="gs-title">👤 人物（${g.characters.length}）</div>
+      ${chars||'<span class="muted">（无）</span>'}</div>
+    <div class="gs-group" data-gs-type="place"><div class="gs-title">🗺️ 地点（${g.places.length}）</div>
+      ${places||'<span class="muted">（无）</span>'}</div>
+    <div class="gs-group" data-gs-type="proper"><div class="gs-title">📌 专名（${g.propernouns.length}）</div>
+      ${props||'<span class="muted">（无）</span>'}</div>
+    <p class="muted" style="margin:6px 0 0">修改后自动保存生效。</p>
+  </div>`;
+}
+// 绑定设定表编辑：失焦即写回 state，作为一致性基准（决策9）
+// 用「组类型(data-gs-type) + 组内下标」精确定位到 glossary 对应数组成员
+function bindGlossary(){
+  $$('.gs-group[data-gs-type]').forEach(grp=>{
+    const type = grp.dataset.gsType;
+    const g = (state.outline && state.outline.glossary) || {characters:[],places:[],propernouns:[]};
+    const arr = type==='char'?(g.characters||[]):type==='place'?(g.places||[]):(g.propernouns||[]);
+    $$('.gs-row input', grp).forEach((inp,i)=>{
+      inp.onchange = ()=>{ if(arr[i]){ arr[i].name = inp.value; persist(); } };
+    });
+  });
+}
+
 function renderChapters(){
   const wrap = $('#chaptersWrap'); if(!wrap) return;
-  wrap.innerHTML = state.chapters.map((c,i)=>`
-    <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
-        <div style="display:flex;align-items:center;gap:8px;min-width:0">
-          <h3 style="margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">第${i+1}章 · ${esc(c.title)}</h3>
+  const total = state.chapters.length;
+  if(isLong()){
+    // 建议3：长篇每页 10 章，分页渲染；chPage 对齐到有效页
+    const maxPage = Math.max(0, Math.ceil(total / CH_PAGE_SIZE) - 1);
+    if(chPage > maxPage) chPage = maxPage;
+    const from = chPage * CH_PAGE_SIZE;
+    const slice = state.chapters.slice(from, from + CH_PAGE_SIZE);
+    const html = slice.map((c,offset)=>{
+      const i = from + offset;
+      const hasC = !!(c.content && c.content.trim());
+      // 建议1：无正文章节→卡片折叠成标题行；有正文→默认展开；点击标题行切换
+      const foldedCls = hasC ? '' : ' folded';
+      const stTxt = chState[i]==='generating'?'⏳ 生成中':chState[i]==='error'?'⚠️ 生成失败':(hasC?'已生成':'未生成');
+       const stTag = chState[i]==='error'||!hasC?'tag-warn':'tag-ok';
+       return `<div class="card ch-card" data-ch-card="${i}">
+        <div class="ch-head" data-fold="${i}" role="button" tabindex="0" aria-expanded="${foldedCls?'false':'true'}">
+          <span class="ch-fold-ico">${hasC?'▾':'▸'}</span>
+          <h3 style="margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">第${i+1}章 · ${esc(c.title)}</h3>
+          <span class="pill ${stTag}" data-ch-state>${stTxt}</span>
           ${wcBadge(c.content, `data-wc-ch="${i}"`)}
         </div>
-        <span class="pill ${c.confirmed?'tag-ok':'tag-warn'}">${c.confirmed?'✓ 已确认':'待确认'}</span>
-      </div>
-      <textarea data-ch="${i}" style="margin-top:8px">${esc(c.content)}</textarea>
-      <div class="btn-row">
-        <button class="btn ghost" data-regen="${i}">🔄 重生成</button>
-        <button class="btn ghost" data-read="${i}" ${c.content&&c.content.trim()?'':'disabled'}>📖 阅读</button>
-        <button class="btn ghost" data-toggle="${i}">${c.confirmed?'↺ 取消确认':'✓ 标记已确认'}</button>
-      </div>
-    </div>`).join('');
+        <div class="ch-body${foldedCls}">
+          <textarea data-ch="${i}" style="margin-top:8px">${esc(c.content)}</textarea>
+          <div class="btn-row">
+            <button class="btn ghost" data-regen="${i}" ${state.generating?'disabled':''}>🔄 重生成</button>
+            <button class="btn ghost" data-read="${i}" ${hasC?'':'disabled'}>📖 阅读</button>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+    // 分页条
+    const pageCount = Math.max(1, Math.ceil(total / CH_PAGE_SIZE));
+    const pages = Array.from({length:pageCount},(_,p)=>p)
+      .map(p=>`<button type="button" class="ch-page${p===chPage?' active':''}" data-page="${p}">${p+1}</button>`).join('');
+    wrap.innerHTML = `<div class="ch-pager"><span class="muted">第 ${from+1}–${from+slice.length} 章 / 共 ${total} 章</span>${pages}</div>
+      ${html}
+      <div class="ch-pager">${pages}</div>`;
+  } else {
+    // 短片模式：全部渲染，保留「待确认/已确认」（决策7：仅长篇去除确认）
+    wrap.innerHTML = state.chapters.map((c,i)=>`
+      <div class="card ch-card" data-ch-card="${i}">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+          <div style="display:flex;align-items:center;gap:8px;min-width:0">
+            <h3 style="margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">第${i+1}章 · ${esc(c.title)}</h3>
+            ${wcBadge(c.content, `data-wc-ch="${i}"`)}
+          </div>
+          <span class="pill ${c.confirmed?'tag-ok':'tag-warn'}">${c.confirmed?'✓ 已确认':'待确认'}</span>
+        </div>
+        <textarea data-ch="${i}" style="margin-top:8px">${esc(c.content)}</textarea>
+        <div class="btn-row">
+          <button class="btn ghost" data-regen="${i}">🔄 重生成</button>
+          <button class="btn ghost" data-read="${i}" ${c.content&&c.content.trim()?'':'disabled'}>📖 阅读</button>
+          <button class="btn ghost" data-toggle="${i}">${c.confirmed?'↺ 取消确认':'✓ 标记已确认'}</button>
+        </div>
+      </div>`).join('');
+  }
 }
 
 /* ---------- 沉浸式章节阅读 ---------- */
@@ -1625,6 +1706,7 @@ function bindView(){
   // 体量二选一：点击 ☑ 勾选该侧（radio，二选一）
   $$('.size-pick').forEach(b=> b.onclick = ()=>{ pickSize(b.dataset.pick); });
   initDRS();
+  bindGlossary();
   const specCur = $('#specCurrentBtn'); if(specCur) specCur.onclick = openSpecPanel;
   const btnCO = $('#btnConfirmOutline'); if(btnCO) btnCO.onclick = ()=>{ state.outlineConfirmed=true; persist(); render(); };
   const btnRO = $('#btnReOutline'); if(btnRO) btnRO.onclick = ()=>{ state.outline=null; state.outlineConfirmed=false; state.chapters=[]; persist(); render(); };
@@ -1704,9 +1786,12 @@ function bindView(){
   // 章节编辑/重生成/确认/阅读（动态）
   renderChapters();
   $$('textarea[data-ch]').forEach(ta=> ta.oninput = ()=>{ const i=+ta.dataset.ch; state.chapters[i].content = ta.value; persist(); updateChapterWc(i, ta.value); updateWcTotal(); });
-  $$('[data-regen]').forEach(b=> b.onclick = ()=> genOneChapter(+b.dataset.regen));
+  $$('[data-regen]').forEach(b=> b.onclick = (e)=> genOneChapter(+b.dataset.regen, b));
   $$('[data-toggle]').forEach(b=> b.onclick = ()=>{ const i=+b.dataset.toggle; state.chapters[i].confirmed=!state.chapters[i].confirmed; persist(); render(); });
   $$('[data-read]').forEach(b=> b.onclick = ()=> openReader(+b.dataset.read));
+  // 长篇：章节折叠开关（建议1）；分页切换（建议3）
+  $$('[data-fold]').forEach(h=> h.onclick = ()=>{ const i=+h.dataset.fold; const body=h.closest('.ch-card').querySelector('.ch-body'); const ico=h.querySelector('.ch-fold-ico'); const on = body.classList.toggle('folded'); h.setAttribute('aria-expanded', String(!on)); if(ico) ico.textContent = on?'▸':'▾'; });
+  $$('[data-page]').forEach(p=> p.onclick = ()=> { chPage = +p.dataset.page; renderChapters(); });
   // 分镜时长手改：实时联动章段头与全局统计
   $$('[data-dur]').forEach(inp=> inp.oninput = ()=>{
     const i = +inp.dataset.dur;
@@ -1743,6 +1828,10 @@ async function genOutline(){
     }
     if(!o.chapters || !o.chapters.length) throw new Error('未解析到章节');
     state.outline = o; state.outlineConfirmed=false;
+    // 万物词典：新生成大纲默认含 glossary（人物/地名/专名）；旧大纲缺省时给空，UI 提示重生成可启用
+    if(!o.glossary || (!o.glossary.characters && !o.glossary.places && !o.glossary.propernouns)){
+      o.glossary = { characters:[], places:[], propernouns:[] };
+    }
     state.chapters = o.chapters.map(c=>({title:c.title, content:'', confirmed:false}));
     persist(); render();
     toast('大纲已生成');
@@ -1881,9 +1970,10 @@ function structureCard(o){
 // 写一条章节正文（依所勾选质量机制 post-processing：dual 双审 / selfref 自省 / plothole 伏笔洞检测）
 // 省 token 策略：正文与初审均带上 max_tokens 上限；各机制一律「段落级重写」而非整章重写，
 // 并共享一个整体重写预算，避免三种机制叠加把输出放大数倍。
-async function writeOneChapterContent(i, user, onStream){
+async function writeOneChapterContent(i, user){
   const mt = chapterMaxTokens();
-  let txt = await callDeepSeek(longChapterSys(), user, {maxTokens: mt, onStream});
+  // 关闭流式（建议6）：一次性返回全文，不再传 onStream
+  let txt = await callDeepSeek(longChapterSys(), user, {maxTokens: mt});
   if(!isLong()) return txt.trim();
   // 共享重写预算：最多 3 次段落级修正，三种机制共同消耗，防止 ×4 输出放大
   let budget = 3;
@@ -1947,9 +2037,10 @@ async function writeOneChapterContent(i, user, onStream){
   }
   return txt.trim();
 }
-// 组装单章生成的 user 提示词。恒定前缀块（标题/梗概/全部章节标题）保持在前、全章不变，
+// 组装单章生成的 user 提示词。恒定前缀块（标题/梗概/全部章节标题/一致性词典）保持在前、全章不变，
 // 以最大化 DeepSeek 上下文缓存命中；可变信息（本章概要/结构/上一章结尾）放最末。
-function buildChapterUser(i){
+// opt.regenerating=true 时（单章重生成）额外注入上章结尾+下章概要，保证前后连贯（建议5/决策5）。
+function buildChapterUser(i, opt={}){
   const o = state.outline;
   const prev = i>0 ? state.chapters[i-1].content : '';
   // 标题列表收窄：不再全量带上 100+ 章，仅保留与本章相关的一段，省去大量冗余输入。
@@ -1967,65 +2058,159 @@ function buildChapterUser(i){
     if(to < o.chapters.length - 1) parts.push(`…（后 ${o.chapters.length-1-to} 章略）`);
     titles = parts.join(' / ');
   }
-  const head = `故事标题：${o.title}\n一句话梗概：${o.logline}\n章节：${titles}`;
-  const tail = `本章标题：${state.chapters[i].title}\n本章概要：${o.chapters[i].summary}${longChapterContext(i)}${prev?('\n上一章结尾：'+prev.slice(-200)+'…'):'\n（这是第一章）'}`;
+  // 万物词典一致性基准（建议5）：全文服从，不得自造新名
+  let gloss = '';
+  const g = (o && o.glossary) || {characters:[],places:[],propernouns:[]};
+  const hasG = (g.characters&&g.characters.length)||(g.places&&g.places.length)||(g.propernouns&&g.propernouns.length);
+  if(hasG){
+    const cs = (g.characters||[]).filter(c=>c.name).map(c=>`${c.name}${c.relation?`（${c.relation}）`:''}`).join('、');
+    const ps = (g.places||[]).filter(p=>p.name).map(p=>`${p.name}${p.type?`（${p.type}）`:''}`).join('、');
+    const pn = (g.propernouns||[]).filter(p=>p.name).map(p=>p.name).join('、');
+    gloss = `\n\n【全文一致性基准（严格服从，禁止自造新名）】\n人物：${cs||'（无）'}\n地点：${ps||'（无）'}\n专名：${pn||'（无）'}\n正文人名一律使用以上基准中的名称。`;
+  }
+  const head = `故事标题：${o.title}\n一句话梗概：${o.logline}\n章节：${titles}${gloss}`;
+  // 重生成/首次都带上一章中文内容到末尾，保证承接；可选带下一章概要（重生成时注入）
+  let tail = `本章标题：${state.chapters[i].title}\n本章概要：${o.chapters[i].summary}${longChapterContext(i)}${prev?('\n上一章结尾：'+prev.slice(-200)+'…'):'\n（这是第一章）'}`;
+  if(opt.regenerating && i < o.chapters.length-1){
+    tail += `\n下一章概要（请预留衔接，但不要剧透下一章情节）：${o.chapters[i+1].summary||''}`;
+  }
   return `${head}\n\n${tail}`;
 }
-async function genOneChapter(i, btn){
-  busy(btn,true,'生成中…');
-  const user = buildChapterUser(i);
-  // 流式：实时把增量写进 state.chapters[i].content，并刷新正在编辑的 textarea（不整页 render，避免打断光标/进度）
-  state.chapters[i].content = '';
-  const ta = document.querySelector(`textarea[data-ch="${i}"]`);
-  let last = 0;
-  const patchUI = ()=>{
-    if(ta && !ta.matches(':focus')) ta.value = state.chapters[i].content;
-  };
-  try{
-    const txt = await writeOneChapterContent(i, user, (delta)=>{
-      state.chapters[i].content += delta;       // 始终计入 state，保证完整
-      if(++last % 2 === 0) return;              // 节流 DOM 写入：每两段刷新一次
-      patchUI();
-      const wc = $('[data-wc-ch="'+i+'"]'); if(wc) wc.innerHTML = wcBadge(state.chapters[i].content, `data-wc-ch="${i}"`);
-    });
-    // 流式回调可能因节流漏了尾段，这里用完整返回值兜底
-    state.chapters[i].content = txt;
-    state.chapters[i].confirmed = false;
-    persist(); render();
-    toast('第'+(i+1)+'章完成');
-  }catch(e){ toast('生成失败：'+e.message); }
-  finally{ busy(btn,false); }
+// 章节生成状态机：chState[i] = 'idle'|'generating'|'done'|'error'（健壮性契约）
+const chState = {};
+// 章节所在页数（建议3：每页 10 章），供渲染与跳转定位
+let chPage = 0;
+const CH_PAGE_SIZE = 10;
+
+// 定点刷新第 i 章卡片（健壮性契约：不整页 render，保留其它卡片/滚动位置/焦点）
+function patchChapter(i){
+  const card = document.querySelector('.ch-card[data-ch-card="'+i+'"]');
+  if(!card) return;               // 该章不在当前页渲染范围，跳过 DOM（数据已落库，翻页即见）
+  // 字数徽标
+  const wc = card.querySelector('[data-wc-ch="'+i+'"]');
+  if(wc) wc.innerHTML = wcBadge(state.chapters[i].content, `data-wc-ch="${i}"`);
+  // 生成态徽标 + 折叠开关
+  const statePill = card.querySelector('[data-ch-state]');
+  const stMap = { idle:'', generating:'⏳ 生成中', done:'已生成', error:'⚠️ 生成失败' };
+  const tagMap = { idle:'tag-warn', generating:'tag-warn', done:'tag-ok', error:'tag-warn' };
+  if(statePill){ statePill.textContent = stMap[chState[i]] || '未生成'; statePill.className='pill '+tagMap[chState[i]]; }
+  // textarea 值（焦点保护：正在编辑的不覆盖）
+  const hasC = !!(state.chapters[i].content && state.chapters[i].content.trim());
+  const body = card.querySelector('.ch-body');
+  const ta = card.querySelector('textarea[data-ch="'+i+'"]');
+  if(ta && !ta.matches(':focus')) ta.value = state.chapters[i].content;
+  if(body && body.classList.contains('folded') && hasC){ body.classList.remove('folded'); }
+  const ico = card.querySelector('.ch-fold-ico'); if(ico) ico.textContent = hasC ? '▾' : '▸';
+  const re = card.querySelector('[data-regen="'+i+'"]');
+  if(re){ re.disabled = !!state.generating; }
 }
 
+// 单章生成（🔄 重生成，决策5：只重写目标章，注入上章结尾+下章概要+全局词典）
+async function genOneChapter(i, btn){
+  chState[i] = 'generating'; state.generating = true; patchChapter(i);
+  busy(btn,true,'生成中…');
+  try{
+    const user = buildChapterUser(i, {regenerating:true});
+    const txt = await writeOneChapterContent(i, user);   // 关闭流式
+    state.chapters[i].content = txt;
+    chState[i] = 'done';
+    if(!isLong()) state.chapters[i].confirmed = false;
+    persist();                       // 不整页 render，仅定点刷新
+    patchChapter(i);
+    toast('第'+(i+1)+'章完成');
+  }catch(e){ chState[i] = 'error'; patchChapter(i); toast('第'+(i+1)+'章生成失败：'+e.message); }
+  finally{ state.generating = false; busy(btn,false); patchChapter(i); }
+}
+
+// 从模型返回的连续两章正文里切分（分隔：模型输出按「【第X章…】…【第X+1章…】」组织）
+function splitTwoChapters(txt){
+  // 以「第N章」「第N+1章」标题行切分；没有标题则对半均分兜底
+  const parts = txt.split(/\n?\s*【?第\s*\d+\s*章[】\s:：]*/).map(s=>s.trim()).filter(Boolean);
+  if(parts.length >= 2) return [parts[0], parts.slice(1).join('\n')];
+  const mid = Math.floor(txt.length/2);
+  return [txt.slice(0,mid), txt.slice(mid)];
+}
+
+// 一次写 2 章（建议6/决策6）：单次请求连续写两章正文，天然保证两章内人名地名关系一致
+async function genTwoChapters(pairStart){
+  const mt = chapterMaxTokens() * 1.6;   // 两章内容，放宽上限
+  const o = state.outline;
+  const head = `故事标题：${o.title}\n一句话梗概：${o.logline}`;
+  // 一致性词典
+  const g = (o && o.glossary) || {}; let gloss = '';
+  if((g.characters&&g.characters.length)||(g.places&&g.places.length)||(g.propernouns&&g.propernouns.length)){
+    const cs=(g.characters||[]).filter(c=>c.name).map(c=>`${c.name}${c.relation?`（${c.relation}）`:''}`).join('、');
+    const ps=(g.places||[]).filter(p=>p.name).map(p=>`${p.name}${p.type?`（${p.type}）`:''}`).join('、');
+    const pn=(g.propernouns||[]).filter(p=>p.name).map(p=>p.name).join('、');
+    gloss = `\n【全文一致性基准（严格服从，禁止自造新名）】\n人物：${cs||'（无）'}\n地点：${ps||'（无）'}\n专名：${pn||'（无）'}`;
+  }
+  const prevEnd = pairStart>0 ? state.chapters[pairStart-1].content.slice(-200) : '';
+  const user = `${head}${gloss}
+\n【写作任务】请连续写作以下两章正文，章间要紧扣衔接、人名地名人物关系保持一致，各自维持单章既定体量与章末钩子。\n
+第 ${pairStart+1} 章「${state.chapters[pairStart].title}」概要：${o.chapters[pairStart].summary}
+第 ${pairStart+2} 章「${state.chapters[pairStart+1].title}」概要：${o.chapters[pairStart+1].summary}
+${longChapterContext(pairStart)}
+${prevEnd?('上一章结尾：'+prevEnd+'…'):''}
+
+请严格按顺序输出两章正文，用【第${pairStart+1}章】与【第${pairStart+2}章】作为分段标题。只输出正文，不要多余解释。`;
+  const txt = await callDeepSeek(longChapterSys(), user, {maxTokens: mt});
+  const pair = splitTwoChapters(txt);
+  state.chapters[pairStart].content = pair[0] || '';
+  state.chapters[pairStart+1].content = pair[1] || state.chapters[pairStart+1].content || pair[0] || '';
+}
+
+// 批量生成：长篇每批固定 2 章（决策6）/ 短片全部。进度区 #chStatus 实时更新，页面不锁死。
 async function genAllChapters(){
   const btn = $('#btnGenAllChapters'); busy(btn,true,'逐章生成中…');
-  const st = $('#chStatus'); st.className='status';
-  // 长篇模式：只生成【下一批 5 章】（未生成或未确认的区间）；短片模式：全部
-  const batchSize = isLong() ? 5 : state.chapters.length;
+  const st = $('#chStatus'); if(st){ st.className='status'; st.textContent=''; }
+  const batchSize = isLong() ? 2 : state.chapters.length;   // 决策6：每批固定 2 章
   let start = 0;
   if(isLong()){
-    // 找第一批存在未生成章节的连续区间起点（从第一个空内容开始）
     const firstEmpty = state.chapters.findIndex(c => !(c.content && c.content.trim()));
     start = firstEmpty >= 0 ? firstEmpty : 0;
   }
   const genCount = Math.min(batchSize, state.chapters.length - start);
-  if(genCount <= 0){ st.className='status ok'; st.textContent = '全部章节已生成。'; busy(btn,false); return; }
+  if(genCount <= 0){ if(st){st.className='status ok'; st.textContent='全部章节已生成。';} busy(btn,false); return; }
   for(let k=0;k<genCount;k++){
     const i = start + k;
     if(!isLong() && state.chapters[i].content && state.chapters[i].confirmed) continue;
-    st.textContent = isLong()
-      ? `正在生成第 ${i+1}/${state.chapters.length} 章（本批第 ${k+1}/${genCount} 章）…`
+    chState[i] = 'generating'; state.generating = true; patchChapter(i);
+    if(st) st.textContent = isLong()
+      ? `正在生成第 ${i+1}/${state.chapters.length} 章（本批第 ${k+1}/${genCount} 章，每批 2 章）…`
       : `正在生成第 ${i+1}/${state.chapters.length} 章…`;
-    await genOneChapterNoUI(i);
+    try{
+      // 长篇：优先「一次 2 章」；若剩 1 章则单章
+      if(isLong() && k+1 < genCount){
+        await genTwoChapters(i);
+        chState[i]='done'; chState[i+1]='done'; k++;   // 本对一次处理两章，外层 k 再前进
+      } else if(isLong()){
+        const txt = await writeOneChapterContent(i, buildChapterUser(i));
+        state.chapters[i].content = txt;
+        chState[i]='done';
+      } else {
+        const txt = await callDeepSeek(PROMPTS.chapterSys + specSysAddition(), buildChapterUser(i));
+        state.chapters[i].content = txt; state.chapters[i].confirmed=false;
+        chState[i]='done';
+      }
+      persist(); patchChapter(i);
+      // 若生成落在当前页之外，切到其所在页以便用户看到（建议3）
+      const targetPage = Math.floor(i / CH_PAGE_SIZE);
+      if(isLong() && Math.abs(chPage - targetPage) >= 1){ chPage = targetPage; renderChapters(); }
+    }catch(e){
+      chState[i]='error'; state.chapters[i].content = state.chapters[i].content || ''; patchChapter(i);
+      if(st){ st.className='status err'; st.textContent += ` 第${i+1}章失败(${e.message})。已跳过，可重试。`; }
+      // 错误隔离：继续推进下一章/下一对，不中断整批
+    } finally { state.generating = false; }
   }
-  st.className='status ok';
-  st.textContent = isLong()
-    ? `本批 ${genCount} 章已生成（共进度 ${genCount+start}/${state.chapters.length} 章）。继续点「生成下一批 5 章」直到写完全部。`
-    : '全部章节已生成，请审阅并标记确认。';
-  busy(btn,false); render();
+  if(st){ st.className='status ok'; st.textContent = isLong()
+    ? `本批共 ${genCount} 章已处理。继续点「生成下一批 2 章」直到写完全部。`
+    : '全部章节已生成，请审阅并标记确认。'; }
+  busy(btn,false);
+  if(!isLong()) render();            // 短片模式可整页刷新（无折叠/分页负担）
+  else { renderChapters(); }         // 长篇仅重绘章节区，保留顶部/大纲不动
 }
 
-// 无 UI 阻塞版（供循环调用）
+// 无 UI 阻塞版（供短片循环调用，保留）
 async function genOneChapterNoUI(i){
   const user = buildChapterUser(i);
   try{
