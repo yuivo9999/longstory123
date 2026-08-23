@@ -512,6 +512,13 @@ body.reader-lock{overflow:hidden}
 .gs-tools{display:inline-flex;gap:6px;align-items:center}
 .gs-tools .gs-tool{margin:0;padding:4px 10px;font-size:12px;font-weight:500;border-radius:8px}
 .gs-tools .gs-tool:active{transform:scale(.97)}
+/* v8b 整卡收缩/展开：标题栏右侧圆形按钮 + 卡片标题头 + 可收缩 body */
+.gs-card-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.gs-card-head .gs-card-title{flex:1 1 auto;min-width:0}
+.gs-collapse-btn{flex:0 0 auto;width:30px;height:30px;border-radius:50%;border:1px solid var(--line);background:var(--panel2);color:var(--sub);font-size:18px;line-height:1;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:transform .15s,color .15s}
+.gs-collapse-btn:hover{color:var(--accent);border-color:var(--accent)}
+.gs-collapse-btn:active{transform:scale(.92)}
+.gs-card-body{padding-top:2px}
 
 /* v8 辅轨词典面板（构想阶段）：可复用词典卡片 + 遵从度滑条 + 允许补充开关 */
 .gs-pend{margin-top:12px}

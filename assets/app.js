@@ -29,6 +29,7 @@ const state = {
   pendingGlossary: null, // v8 辅轨槽位：大纲前导入的待用词典 {characters,places,propernouns}，不写进 outline 直至确认
   glossAdherence: 60,   // v8 遵从度（%）：用户控制 AI 遵循词典的程度；默认 60（折中，续作/新作均安全，见规划 Q4）
   glossAllowFill: false, // v8 「允许 AI 补充」开关：低遵从时是否放行 AI 新增实体
+  gsCollapsed: true,    // v8b：万物词典卡片是否整卡收缩（默认收缩，点圆形展开全部）
   chapters: [],         // [{title, content, confirmed}]
   characters: [],       // [{name, role, profile:{...}, prompts:{...}}]
   scenes: [],           // [{name, 作用, description, prompt}]
@@ -164,6 +165,7 @@ function projectSnapshot(){
     pendingGlossary: state.pendingGlossary,
     glossAdherence: state.glossAdherence,
     glossAllowFill: state.glossAllowFill,
+    gsCollapsed: state.gsCollapsed,
     chapters: state.chapters,
     characters: state.characters,
     scenes: state.scenes,
@@ -191,6 +193,7 @@ function applyProject(p){
   state.pendingGlossary = p.pendingGlossary || null;
   state.glossAdherence = (typeof p.glossAdherence === 'number') ? p.glossAdherence : 60;
   state.glossAllowFill = !!p.glossAllowFill;
+  state.gsCollapsed = (typeof p.gsCollapsed === 'boolean') ? p.gsCollapsed : true;
   state.chapters = p.chapters || [];
   state.characters = p.characters || [];
   state.scenes = p.scenes || [];
@@ -206,7 +209,7 @@ function clearState(){
   state.recipeSet = { structure:'mesh', rhythm:'web', quality:[] };
   state.wordRange = null; state.chapterRange = null;
   state.idea = ''; state.outline = null; state.coverPrompt = ''; state.coverWithTitle = false; state.outlineConfirmed = false;
-  state.pendingGlossary = null; state.glossAdherence = 60; state.glossAllowFill = false;
+  state.pendingGlossary = null; state.glossAdherence = 60; state.glossAllowFill = false; state.gsCollapsed = true;
   state.chapters = []; state.characters = []; state.scenes = []; state.storyboard = []; state.boardConcepts = []; state.titleHistory = []; state.raw = {};
   currentStep = 1;
 }
@@ -822,20 +825,19 @@ function outlineGlossaryInject(g){
 专名：${pn||'（无）'}
 底稿中已有人名/地名/专名一律沿用，不得推倒重造一套；只按本作大纲补充新增条目，新增条目 schema 与该类别保持一致。${fill}`;
 }
-// v8 阶段3+4：本体词典块（章节正文共同复用）。取合并后的大纲词典，生成「严格服从」一致性基准。
-// 瘦身（阶段4）：人物详情仅对前 GLOSS_DETAIL_CHAR 名附上，其余只列名字，省去长词典对单章上下文的 token 挤压；名字仍全部列出保证一致性。
-const GLOSS_DETAIL_CHAR = 14;
-const GLOSS_DETAIL_PLACE = 10;
+// v8 阶段3：本体词典块（章节正文共同复用）。取合并后的大纲词典，生成「严格服从」一致性基准。
+// v8b（建议1）：正文也全量带词典详情（人物关系/性格外貌/身份职能、地点类型/说明、专名含义），
+// 不再做瘦身上限——详情对提高重生成的上下文一致性收益大于其微小 token 开销（约 +300~500 token/章）。
 function chapterGlossaryBlock(){
   const o = state.outline;
   const g = (o && o.glossary) || {};
   if(!sourceHasGlossary(g)) return '';
-  const cs = (g.characters||[]).filter(c=>c.name).map((c, i)=> i < GLOSS_DETAIL_CHAR && c.relation ? `${c.name}（${c.relation}）` : c.name).join('、');
-  const ps = (g.places||[]).filter(p=>p.name).map((p, i)=> i < GLOSS_DETAIL_PLACE && p.type ? `${p.name}（${p.type}）` : p.name).join('、');
-  const pn = (g.propernouns||[]).filter(p=>p.name).map(p=>p.name).join('、');
-  const extraNote = ((g.characters||[]).length > GLOSS_DETAIL_CHAR || (g.places||[]).length > GLOSS_DETAIL_PLACE)
-    ? '\n（人物/地点超出展示上限的仅列名字，正文仍须严格使用上述所有名称，不得自造。）' : '';
-  return `\n\n【全文一致性基准（严格服从，禁止自造新名）】\n人物：${cs||'（无）'}\n地点：${ps||'（无）'}\n专名：${pn||'（无）'}\n正文人名一律使用以上基准中的名称。${extraNote}`;
+  const cDetail = c => [c.relation?`关系:${c.relation}`:'', c.trait?`性格/外貌:${c.trait}`:'', c.identity?`身份:${c.identity}`:'', c.role?`职能:${c.role}`:''].filter(Boolean).join('；');
+  const pDetail = p => [p.type?`类型:${p.type}`:'', p.note?`说明:${p.note}`:''].filter(Boolean).join('；');
+  const cs = (g.characters||[]).filter(c=>c.name).map(c=> `${c.name}${cDetail(c)?`（${cDetail(c)}）`:''}`).join('、');
+  const ps = (g.places||[]).filter(p=>p.name).map(p=> `${p.name}${pDetail(p)?`（${pDetail(p)}）`:''}`).join('、');
+  const pn = (g.propernouns||[]).filter(p=>p.name).map(p=> `${p.name}${p.note?`（${p.note}）`:''}`).join('、');
+  return `\n\n【全文一致性基准（严格服从，禁止自造新名）】\n人物：${cs||'（无）'}\n地点：${ps||'（无）'}\n专名：${pn||'（无）'}\n正文人名一律使用以上基准中的名称，人物关系/性格、地点类型、专名含义按上表保持统一。`;
 }
 // v8 阶段4：覆盖面自检——对每条词典条目统计其在已生成章节正文的出现次数，返回 {used:[],unused:[]} 与全局命中率。
 function checkGlossaryCoverage(){
@@ -1054,7 +1056,7 @@ const CYBER_HOME_GRID = `
 function viewStory(){
   if(!state.outline){
     const homeSub = isLong()
-      ? '用几句话描述你的长篇构想（世界观、主角、核心冲突都行）。AI 会先扩写成与所选体量匹配的全书大纲，之后按「5 章一批」逐步写到约 30 万字。'
+      ? '用几句话描述你的长篇构想（世界观、主角、核心冲突都行）。AI 会先扩写成与所选体量匹配的全书大纲，之后按「两章一批」逐步写到约 30 万字。'
       : '用几句话描述你的点子（世界观、主角、核心冲突都行）。AI 会扩写成完整故事大纲与章节。';
     return CYBER_HOME_GRID + `
     <div class="card">
@@ -1147,7 +1149,14 @@ function glossaryCardHtml(){
   const chars = (g.characters||[]).map((c,i)=>entry(c,'char',i,['role','identity','relation'],['name','relation','trait','identity','role'])).join('');
   const places = (g.places||[]).map((p,i)=>entry(p,'place',i,['type','note'],['name','type','note'])).join('');
   const props = (g.propernouns||[]).map((p,i)=>entry(p,'proper',i,['note'],['name','note'])).join('');
-  return `<div class="card"><h3 class="gs-card-title">📇 设定表 · 万物词典 ${tools}</h3>
+  const collapsed = !!state.gsCollapsed;
+  const total = (g.characters||[]).length + (g.places||[]).length + (g.propernouns||[]).length;
+  return `<div class="card gs-card${collapsed?' gs-collapsed':''}">
+    <div class="gs-card-head">
+      <h3 class="gs-card-title">📇 设定表 · 万物词典（${total} 条）${tools}</h3>
+      <button type="button" class="gs-collapse-btn" data-gs-collapse title="${collapsed?'展开全部':'收缩'}" aria-label="${collapsed?'展开':'收缩'}">${collapsed?'＋':'−'}</button>
+    </div>
+    <div class="gs-card-body"${collapsed?' style="display:none"':''}>
     <p class="sub">全文一致性基准：生成正文时一律使用以下人名/地名/专名，不得自造新名。可小幅修改错名，保留为准则。</p>
     <div class="gs-group" data-gs-type="char"><div class="gs-title">👤 人物（${g.characters.length}）</div>
       ${chars||'<span class="muted">（无）</span>'}</div>
@@ -1156,6 +1165,7 @@ function glossaryCardHtml(){
     <div class="gs-group" data-gs-type="proper"><div class="gs-title">📌 专名（${g.propernouns.length}）</div>
       ${props||'<span class="muted">（无）</span>'}</div>
     <p class="muted" style="margin:6px 0 0">修改后自动保存生效。</p>
+    </div>
   </div>`;
 }
 // 绑定设定表编辑：失焦即写回 state；点击条目折叠/展开全部字段（建议1·此轮）
@@ -1164,6 +1174,23 @@ function bindGlossary(){
   if(!state.outline || !state.outline.glossary) return;
   const g = state.outline.glossary;
   const getArr = t => t==='char'?(g.characters||[]):t==='place'?(g.places||[]):(g.propernouns||[]);
+  // 整卡收缩/展开：标题右侧圆形按钮；展开时同时把所有条目展开
+  $$('[data-gs-collapse]').forEach(b=>{
+    b.onclick = ()=>{
+      state.gsCollapsed = !state.gsCollapsed;
+      persist();
+      const card = b.closest('.gs-card');
+      const body = card && card.querySelector('.gs-card-body');
+      if(body){ body.style.display = state.gsCollapsed ? 'none' : ''; }
+      b.textContent = state.gsCollapsed ? '＋' : '−';
+      b.title = state.gsCollapsed ? '展开全部' : '收缩';
+      if(!state.gsCollapsed){ // 展开时把所有条目也展开
+        card && $$('.gs-entry', card).forEach(en=>{ en.classList.add('open'); const h=en.querySelector('.gs-fold-ico'); if(h) h.textContent='▾'; });
+      } else { // 收缩时把所有条目折叠
+        card && $$('.gs-entry', card).forEach(en=>{ en.classList.remove('open'); const h=en.querySelector('.gs-fold-ico'); if(h) h.textContent='▸'; });
+      }
+    };
+  });
   // 折叠/展开：仅点击折线图标或简介触发；点击名字输入框不折叠
   $$('[data-gs-toggle]').forEach(h=>{
     const toggle = ()=>{ const box=h.closest('.gs-entry'); const on=box.classList.toggle('open'); h.querySelector('.gs-fold-ico').textContent = on?'▾':'▸'; };
@@ -2041,7 +2068,7 @@ function viewExport(){
 /* ---------- 长篇模式导出 ---------- */
 function longExportView(){
   const written = state.chapters.filter(c=> c.content && String(c.content).trim()).length;
-  if(!written) return `<div class="center-empty">尚无已写章节，请先在「故事」里「生成下一批 5 章」。</div>`;
+  if(!written) return `<div class="center-empty">尚无已写章节，请先在「故事」里「生成下一批 2 章」。</div>`;
   // 清理已失效的勾选（章节被重生成等）
   expSel = expSel.filter(i=> state.chapters[i] && state.chapters[i].content && String(state.chapters[i].content).trim());
   const title = state.outline?.title || '未命名长篇小说';
@@ -2601,7 +2628,14 @@ async function writeOneChapterContent(i, user){
   const mt = chapterMaxTokens();
   // 关闭流式（建议6）：一次性返回全文，不再传 onStream
   let txt = await callDeepSeek(longChapterSys(), user, {maxTokens: mt});
+  return applyChapterQuality(txt, user, mt);
+}
+// 对单章正文执行所勾选的质量机制（dual 双审 / selfref 自省 / plothole 伏笔洞检测）。
+// 抽出为独立函数：单章路径与批量 2 章路径（genTwoChapters 对两章各自调用）共用，
+// 保证「选了质检就处处生效」。
+async function applyChapterQuality(txt, user, mt){
   if(!isLong()) return txt.trim();
+  mt = mt || chapterMaxTokens();
   // 共享重写预算：最多 3 次段落级修正，三种机制共同消耗，防止 ×4 输出放大
   let budget = 3;
   // 双审：编辑评审打分，不满 70 由写手按意见做段落级重写（不整章重发）
@@ -2667,24 +2701,28 @@ async function writeOneChapterContent(i, user){
 // 组装单章生成的 user 提示词。恒定前缀块（标题/梗概/全部章节标题/一致性词典）保持在前、全章不变，
 // 以最大化 DeepSeek 上下文缓存命中；可变信息（本章概要/结构/上一章结尾）放最末。
 // opt.regenerating=true 时（单章重生成）额外注入上章结尾+下章概要，保证前后连贯（建议5/决策5）。
+// 章节标题窗口列表（v8b 抽出）：以第 i 章为中心、前后各 R 章；分卷结构整卷全列。
+// 单章路径 buildChapterUser 与批量 2 章 genTwoChapters(topic 窗口以 pairStart 为中心) 共用，
+// 确保两种生成方式模型都能看到本章在全书中的位置与前后节奏。
+function chapterTitleWindow(i){
+  const o = state.outline;
+  const vol = o.chapters[i] && o.chapters[i].volume;
+  if(vol){
+    return o.chapters.map(c=>c.title).filter((_,k)=> o.chapters[k] && o.chapters[k].volume === vol).join(' / ');
+  }
+  const R = 10;
+  const from = Math.max(0, i - R), to = Math.min(o.chapters.length - 1, i + R);
+  const parts = [];
+  if(from > 0) parts.push(`…（前 ${from} 章略）`);
+  for(let k=from;k<=to;k++) parts.push(o.chapters[k].title);
+  if(to < o.chapters.length - 1) parts.push(`…（后 ${o.chapters.length-1-to} 章略）`);
+  return parts.join(' / ');
+}
 function buildChapterUser(i, opt={}){
   const o = state.outline;
   const prev = i>0 ? state.chapters[i-1].content : '';
-  // 标题列表收窄：不再全量带上 100+ 章，仅保留与本章相关的一段，省去大量冗余输入。
-  // 分卷结构（layered）取本卷全部标题；其余结构取以本章为中心的窗口标题。
-  let titles;
-  const vol = o.chapters[i] && o.chapters[i].volume;
-  if(vol){
-    titles = o.chapters.map(c=>c.title).filter((_,k)=> o.chapters[k] && o.chapters[k].volume === vol).join(' / ');
-  }else{
-    const R = 10;
-    const from = Math.max(0, i - R), to = Math.min(o.chapters.length - 1, i + R);
-    const parts = [];
-    if(from > 0) parts.push(`…（前 ${from} 章略）`);
-    for(let k=from;k<=to;k++) parts.push(o.chapters[k].title);
-    if(to < o.chapters.length - 1) parts.push(`…（后 ${o.chapters.length-1-to} 章略）`);
-    titles = parts.join(' / ');
-  }
+  // 标题列表收窄（v8b 复用 chapterTitleWindow）：不再全量带上 100+ 章，仅保留与本章相关的窗口。
+  const titles = chapterTitleWindow(i);
   // 万物词典一致性基准（建议5）：全文服从，不得自造新名（v8 统一走 chapterGlossaryBlock）
   const gloss = chapterGlossaryBlock();
   const head = `故事标题：${o.title}\n一句话梗概：${o.logline}\n章节：${titles}${gloss}`;
@@ -2787,41 +2825,62 @@ async function genOneChapter(i, btn, opt={}){
 
 // 从模型返回的连续两章正文里切分（分隔：模型输出按「【第X章…】…【第X+1章…】」组织）
 function splitTwoChapters(txt){
-  // 以「第N章」「第N+1章」标题行切分；没有标题则对半均分兜底
-  const parts = txt.split(/\n?\s*【?第\s*\d+\s*章[】\s:：]*/).map(s=>s.trim()).filter(Boolean);
-  if(parts.length >= 2) return [parts[0], parts.slice(1).join('\n')];
-  const mid = Math.floor(txt.length/2);
-  return [txt.slice(0,mid), txt.slice(mid)];
+  // 以「第N章」标题行切分（兼容【第N章】或「第N章」两种写法）。不盲切对半：
+  // 若模型未按规范分段（只出一章或没分段），返回空结果交给调用方抛错停批，避免把两章错填进一格。
+  const parts = txt.split(/\n?\s*【?\s*第\s*\d+\s*章\s*[】]?[\s:：]*/).map(s=>s.trim()).filter(Boolean);
+  if(parts.length >= 2){
+    const a = parts[0], b = parts.slice(1).join('\n');
+    if(a && b) return [a, b];
+  }
+  return ['', ''];
 }
 
 // 一次写 2 章（建议6/决策6）：单次请求连续写两章正文，天然保证两章内人名地名关系一致
 async function genTwoChapters(pairStart){
   const mt = chapterMaxTokens() * 1.6;   // 两章内容，放宽上限
   const o = state.outline;
-  const head = `故事标题：${o.title}\n一句话梗概：${o.logline}`;
+  // 标题窗口（v8b）：以本对开头章为中心，与单章共用 chapterTitleWindow，保证模型看见本章在全书中的位置与前后节奏
+  const titles = chapterTitleWindow(pairStart);
+  const head = `故事标题：${o.title}\n一句话梗概：${o.logline}\n章节：${titles}`;
   // 一致性词典（v8 统一走 chapterGlossaryBlock）
   const gloss = chapterGlossaryBlock();
+  // 批量字数说明（v8c）：两章各自落在所选区间，合计上限为单章上限 ×2。作为独立块追加在写作任务之后，使体量约束在批量场景更明确。
+  const batchSizeNote = `\n【每章篇幅体量】两章分别都应落在 ${fmtRange(selSize().range)} 字区间内；两章合计不超过该区间上限的 2 倍（即 ${fmtRange(selSize().range)} × 2）。前略后详、张弛可控，但每章本身不得超出单章上限太多。`;
   const prevEnd = pairStart>0 ? state.chapters[pairStart-1].content.slice(-200) : '';
   const user = `${head}${gloss}
 \n【写作任务】请连续写作以下两章正文，章间要紧扣衔接、人名地名人物关系保持一致，各自维持单章既定体量与章末钩子。\n
 第 ${pairStart+1} 章「${state.chapters[pairStart].title}」概要：${o.chapters[pairStart].summary}
 第 ${pairStart+2} 章「${state.chapters[pairStart+1].title}」概要：${o.chapters[pairStart+1].summary}
+${batchSizeNote}
 ${longChapterContext(pairStart)}
 ${prevEnd?('上一章结尾：'+prevEnd+'…'):''}
 
 请严格按顺序输出两章正文，用【第${pairStart+1}章】与【第${pairStart+2}章】作为分段标题。只输出正文，不要多余解释。`;
   const txt = await callDeepSeek(longChapterSys(), user, {maxTokens: mt});
   const pair = splitTwoChapters(txt);
+  // 建议2/3：两章必须都正确切出才落库，否则抛错交给批次停批，绝不静默错填（杜绝“两章挤进一格”）
+  if(!pair[0] || !pair[1] || !pair[0].trim() || !pair[1].trim()){
+    throw new Error('模型未按【第N章】分别输出两章正文，未落库。可重试本批。');
+  }
+  // 质检搬入批量 2 章（v8b）：对两章分别执行所勾选的质量机制；第二章质检时以打磨后的第一章作为“前章承接”。
+  // 每章各自的 user 用 buildChapterUser 重建，保证质检的“前章结尾/下一章概要”上下文正确。
+  // 先质检通过、后统一快照+落库，避免质检中途失败污染已落库内容（质检失败会向上抛错停批）。
+  const a = await applyChapterQuality(pair[0].trim(), buildChapterUser(pairStart), mt);
+  // 临时把打磨后的第一章写回 state.chapters，使第二章 buildChapterUser 能读到真实的前章内容作为承接；
+  // 若 B 质检失败，异常上抛停批，此刻未快照未 persist，内存残留会在重试时被覆盖。
+  state.chapters[pairStart].content = a;
+  const b = await applyChapterQuality(pair[1].trim(), buildChapterUser(pairStart+1), mt);
   snapshotChapterVersion(pairStart);            // v7.2：覆盖前存旧版，支持回退
   snapshotChapterVersion(pairStart+1);
-  state.chapters[pairStart].content = pair[0] || '';
-  state.chapters[pairStart+1].content = pair[1] || state.chapters[pairStart+1].content || pair[0] || '';
+  state.chapters[pairStart].content = a;
+  state.chapters[pairStart+1].content = b;
 }
 
 // 批量生成：长篇每批固定 2 章（决策6）/ 短片全部。进度区 #chStatus 实时更新，页面不锁死。
 async function genAllChapters(){
   const btn = $('#btnGenAllChapters'); busy(btn,true,'逐章生成中…');
   const st = $('#chStatus'); if(st){ st.className='status'; st.textContent=''; }
+  let batchFailed = false;                             // 建议2：批次是否因任一章失败而中止
   const batchSize = isLong() ? 2 : state.chapters.length;   // 决策6：每批固定 2 章
   let start = 0;
   if(isLong()){
@@ -2858,12 +2917,15 @@ async function genAllChapters(){
       const targetPage = Math.floor(i / CH_PAGE_SIZE);
       if(isLong() && Math.abs(chPage - targetPage) >= 1){ chPage = targetPage; renderChapters(); }
     }catch(e){
-      chState[i]='error'; state.chapters[i].content = state.chapters[i].content || ''; patchChapter(i);
-      if(st){ st.className='status err'; st.textContent += ` 第${i+1}章失败(${e.message})。已跳过，可重试。`; }
-      // 错误隔离：继续推进下一章/下一对，不中断整批
+      chState[i]='error'; patchChapter(i);
+      if(st){ st.className='status err'; st.textContent += ` 第${i+1}章失败(${e.message})。`; }
+      // 建议2：长篇批量必须两章都对，任一对出错即停批，不继续生成后续章节
+      if(isLong()){ if(st){ st.textContent += ' 已停止本批，请修复后重试。'; } batchFailed = true; break; }
+      // 短片模式保留既有错误隔离（跳过继续），符合短片中单章失败不影响整批的预期
+      state.chapters[i].content = state.chapters[i].content || '';
     } finally { state.generating = false; }
   }
-  if(st){ st.className='status ok'; st.textContent = isLong()
+  if(st && !batchFailed){ st.className='status ok'; st.textContent = isLong()
     ? `本批共 ${genCount} 章已处理。继续点「生成下一批 2 章」直到写完全部。`
     : '全部章节已生成，请审阅并标记确认。'; }
   busy(btn,false);
