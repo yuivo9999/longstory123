@@ -513,6 +513,18 @@ body.reader-lock{overflow:hidden}
 .gs-tools .gs-tool{margin:0;padding:4px 10px;font-size:12px;font-weight:500;border-radius:8px}
 .gs-tools .gs-tool:active{transform:scale(.97)}
 
+/* v8 辅轨词典面板（构想阶段）：可复用词典卡片 + 遵从度滑条 + 允许补充开关 */
+.gs-pend{margin-top:12px}
+.gs-pend-count{font-size:12px;color:var(--ok);font-weight:500;background:rgba(55,201,139,.12);padding:2px 8px;border-radius:20px}
+.gs-adherence{margin-top:10px;padding:12px;background:var(--panel2);border:1px solid var(--line);border-radius:12px}
+.gat-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:2px}
+.gat-head b{font-size:13px;color:var(--sub)}
+.gat-val{font-size:14px;font-weight:700;color:var(--accent)}
+.gs-adherence input[type=range]{width:100%;margin:6px 0 2px;accent-color:var(--accent);min-height:24px}
+.gat-hint{font-size:12px;color:var(--sub);margin:2px 0 8px;min-height:15px}
+.gat-switch{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--sub);cursor:pointer}
+.gat-switch input{width:auto;accent-color:var(--accent);flex:0 0 auto}
+
 /* 覆盖层选择卡 */
 .gs-overlay{position:fixed;inset:0;z-index:2000;background:rgba(0,0,0,.55);display:flex;align-items:flex-end;justify-content:center;padding:12px;animation:gsFade .18s ease}
 .gs-overlay .gs-modal{width:100%;max-width:520px;max-height:86vh;overflow-y:auto;background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:0 10px 40px rgba(0,0,0,.5);display:flex;flex-direction:column}
@@ -555,3 +567,11 @@ body.reader-lock{overflow:hidden}
 .cv-prev-head b{font-size:13px}
 .cv-pre{max-height:300px;overflow-y:auto;padding:12px;background:var(--panel2);white-space:pre-wrap;font-size:13px;line-height:1.7;color:var(--txt);word-break:break-word}
 .ch-pager .ch-page:active{transform:scale(.95)}
+
+/* —— v8 词典覆盖面自检弹窗 —— */
+.cv-sec{font-size:12px;font-weight:600;color:var(--sub);margin:10px 0 6px}
+.cv-row .cv-icon{flex:0 0 auto;font-size:14px}
+.cv-row b{flex:1;font-size:13px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cv-row .cv-cnt{flex:0 0 auto;font-size:11px;color:var(--ok);background:rgba(55,201,139,.12);padding:1px 8px;border-radius:20px}
+.cv-row.cv-zero{opacity:.75;border-color:var(--line)}
+.cv-row.cv-zero .cv-cnt{color:var(--warn);background:rgba(245,185,66,.12)}
