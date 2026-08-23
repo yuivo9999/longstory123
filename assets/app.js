@@ -1650,7 +1650,7 @@ function renderChapters(){
           <div class="btn-row">
             ${hasChVersions(i)?`<button class="btn ghost" data-ver="${i}">📚 版本(${chVersions(i).length})</button>`:''}
             <button class="btn ghost" data-regen="${i}" ${state.generating?'disabled':''}>🔄 重生成</button>
-            <button class="btn ghost" data-read="${i}" ${hasC?'':'disabled'}>📖 阅读</button>
+            <button class="btn ghost" data-read="${i}">📖 阅读</button>
           </div>
         </div>
       </div>`;
@@ -1677,7 +1677,7 @@ function renderChapters(){
         <div class="btn-row">
           ${hasChVersions(i)?`<button class="btn ghost" data-ver="${i}">📚 版本(${chVersions(i).length})</button>`:''}
           <button class="btn ghost" data-regen="${i}">🔄 重生成</button>
-          <button class="btn ghost" data-read="${i}" ${c.content&&c.content.trim()?'':'disabled'}>📖 阅读</button>
+          <button class="btn ghost" data-read="${i}">📖 阅读</button>
           <button class="btn ghost" data-toggle="${i}">${c.confirmed?'↺ 取消确认':'✓ 标记已确认'}</button>
         </div>
       </div>`).join('');
@@ -1701,8 +1701,12 @@ function openReader(i){
   const ov = $('#readerOverlay'); if(!ov) return;
   $('#readerTitle').textContent = `第${i+1}章 · ${c.title||''}`;
   const paras = String(c.content||'').split(/\n+/).map(p=>p.trim()).filter(Boolean);
-  $('#readerBody').innerHTML = paras.length ? paras.map(p=>`<p>${esc(p)}</p>`).join('')
-    : `<p class="muted">（本章暂无正文）</p>`;
+  // 无正文时：展示大纲概要，让「空章也可预览剧情定位」
+  let fallback = `<p class="muted">（本章尚未生成正文）</p>`;
+  const sum = (state.outline && state.outline.chapters && state.outline.chapters[i] && state.outline.chapters[i].summary) || '';
+  if(sum) fallback = `<p class="muted">📋 大纲概要：${esc(sum)}</p>
+    <p class="muted" style="margin-top:6px">生成正文后将在此展示全文。可用下方「重生成」或「一键批量生成」补写。</p>`;
+  $('#readerBody').innerHTML = paras.length ? paras.map(p=>`<p>${esc(p)}</p>`).join('') : fallback;
   // 构建目录并定位当前章
   renderToc(i);
   readerCur = i;
@@ -2660,22 +2664,26 @@ function structureCard(o){
 // 写一条章节正文（依所勾选质量机制 post-processing：dual 双审 / selfref 自省 / plothole 伏笔洞检测）
 // 省 token 策略：正文与初审均带上 max_tokens 上限；各机制一律「段落级重写」而非整章重写，
 // 并共享一个整体重写预算，避免三种机制叠加把输出放大数倍。
-async function writeOneChapterContent(i, user){
+async function writeOneChapterContent(i, user, onPhase){
   const mt = chapterMaxTokens();
+  onPhase = onPhase || (()=>{});
   // 关闭流式（建议6）：一次性返回全文，不再传 onStream
+  onPhase('撰写本章正文…');
   let txt = await callDeepSeek(longChapterSys(), user, {maxTokens: mt});
-  return applyChapterQuality(txt, user, mt);
+  return applyChapterQuality(txt, user, mt, onPhase);
 }
 // 对单章正文执行所勾选的质量机制（dual 双审 / selfref 自省 / plothole 伏笔洞检测）。
 // 抽出为独立函数：单章路径与批量 2 章路径（genTwoChapters 对两章各自调用）共用，
 // 保证「选了质检就处处生效」。
-async function applyChapterQuality(txt, user, mt){
+async function applyChapterQuality(txt, user, mt, onPhase){
   if(!isLong()) return txt.trim();
   mt = mt || chapterMaxTokens();
+  onPhase = onPhase || (()=>{});
   // 共享重写预算：最多 3 次段落级修正，三种机制共同消耗，防止 ×4 输出放大
   let budget = 3;
   // 双审：编辑评审打分，不满 70 由写手按意见做段落级重写（不整章重发）
   if(hasQuality('dual')){
+    onPhase('编辑双审中…');
     for(let r=0; r<2 && budget>0; r++){
       const draft = txt;
       let j;
@@ -2698,6 +2706,7 @@ async function applyChapterQuality(txt, user, mt){
   }
   // 自省重写：自评本轮最大短板，仅针对该短板及其所在段做段落级修正
   if(hasQuality('selfref')){
+    onPhase('自省打磨中…');
     const selfSys = `你是本章的自我编辑。请通读【本章初稿】，找出本章最明显的短板（只选一个：情绪感染力 / 剧情逻辑 / 文笔细节 / 人物刻画），指出该短板具体落在哪一个段落。请严格只输出 JSON（不要解释、不要 markdown 代码块）：{"weak":"短板名","why":"具体到句段的不足","how":"改进方向，简明可执行","anchor":"短板对应段落中的一句原文（用于定位该段）","rewritten":"按改进方向改写后的该段完整文字"}`;
     let s;
     try{ s = parseJson(await callDeepSeek(selfSys, '【本章初稿】\n'+txt.slice(0,3000))); }catch(e){ s={}; }
@@ -2714,6 +2723,7 @@ async function applyChapterQuality(txt, user, mt){
   }
   // 伏笔洞检测：专项核查连续性错误，问题段落级修正（无问题零额外输出）
   if(hasQuality('plothole')){
+    onPhase('伏笔连续性核查中…');
     const holeSys = `你是长篇小说的连续性校对编辑。请专项核查【本章初稿】的四类逻辑漏洞：①时间线是否自洽；②人物性格/外貌/称呼是否与前文统一；③已铺设的伏笔是否被丢弃或矛盾；④地名/专名是否统一。若发现问题，请严格只输出如下 JSON（不要解释、不要 markdown 代码块）：{"issues":[{"type":"时间线|性格|伏笔|专名","desc":"具体问题","fix":"修正说明","anchor":"该问题所在段落中的一句原文","rewritten":"按 fix 改写后的该段完整文字"}],"pass":true}`;
     let h;
     try{ h = parseJson(await callDeepSeek(holeSys, '【本章初稿】\n'+txt.slice(0,3000))); }catch(e){ h={}; }
@@ -2846,17 +2856,22 @@ function closeChapterRegenPanel(){ const p=$('#regenPanel'); if(p) p.remove(); }
 async function genOneChapter(i, btn, opt={}){
   chState[i] = 'generating'; state.generating = true; patchChapter(i);
   if(btn) busy(btn,true,'生成中…');
+  // 进度区：与「一键批量生成」同源。单章也在此实时显示「第几章 + 当前阶段」。
+  const st = $('#chStatus');
+  const setPhase = msg => { if(st){ st.className='status'; st.textContent = `第 ${i+1}/${state.chapters.length} 章：${msg||''}`; } };
+  setPhase('准备中…');
   try{
     const user = buildChapterUser(i, {regenerating:true, advice:opt.advice});
-    const txt = await writeOneChapterContent(i, user);   // 关闭流式
+    const txt = await writeOneChapterContent(i, user, setPhase);   // 关闭流式；各阶段经 setPhase 上报
     snapshotChapterVersion(i);            // v7.2：覆盖前存旧版，支持回退
     state.chapters[i].content = txt;
     chState[i] = 'done';
     if(!isLong()) state.chapters[i].confirmed = false;
     persist();                       // 不整页 render，仅定点刷新
     patchChapter(i);
+    if(st){ st.className='status ok'; st.textContent = `第 ${i+1} 章已生成。`; }
     toast('第'+(i+1)+'章完成');
-  }catch(e){ chState[i] = 'error'; patchChapter(i); toast('第'+(i+1)+'章生成失败：'+e.message); }
+  }catch(e){ chState[i] = 'error'; patchChapter(i); if(st){ st.className='status err'; st.textContent = '第'+(i+1)+'章生成失败：'+e.message; } toast('第'+(i+1)+'章生成失败：'+e.message); }
   finally{ state.generating = false; if(btn) busy(btn,false); patchChapter(i); }
 }
 
