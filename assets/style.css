@@ -538,6 +538,18 @@ body.reader-lock{overflow:hidden}
 .gs-tools{display:inline-flex;gap:6px;align-items:center}
 .gs-tools .gs-tool{margin:0;padding:4px 10px;font-size:12px;font-weight:500;border-radius:8px}
 .gs-tools .gs-tool:active{transform:scale(.97)}
+.gs-tools .gs-tool-on{color:var(--accent);border-color:var(--accent);background:color-mix(in srgb, var(--accent) 12%, transparent)}
+/* 追加规划·词典「内容」「历史更改」面板 */
+.gs-panel{margin:8px 0 2px;padding:10px 12px;background:var(--panel2);border:1px solid var(--line);border-radius:12px}
+.gs-panel-title{font-size:13px;font-weight:600;color:var(--accent2);margin-bottom:6px}
+.gs-dup-note .gs-panel-title{color:var(--warn)}
+.gs-pre{white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.7;color:var(--sub);margin:0;max-height:220px;overflow-y:auto;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.gs-hist-row{display:flex;align-items:center;gap:8px;padding:8px 4px;border-bottom:1px dashed var(--line);flex-wrap:wrap}
+.gs-hist-row:last-child{border-bottom:none}
+.gs-hist-ts{font-size:12px;color:var(--muted);white-space:nowrap}
+.gs-hist-desc{font-size:12px;color:var(--sub);flex:1 1 auto;min-width:90px}
+.gs-hist-actions{display:inline-flex;gap:6px}
+.gs-hist-actions .gs-tool{padding:2px 8px;font-size:11px}
 /* v8b 整卡收缩/展开：标题栏右侧圆形按钮 + 卡片标题头 + 可收缩 body */
 .gs-card-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .gs-card-head .gs-card-title{flex:1 1 auto;min-width:0}
@@ -611,7 +623,8 @@ body.reader-lock{overflow:hidden}
 
 /* ---------- 多 AI 模型配置（顶栏徽标 + 设置三段区） ---------- */
 .cfg-badge{
-  flex:0 0 auto; max-width:46%; font-size:12px; font-weight:600;
+  flex:0 0 auto; max-width:38%; margin-left:auto; margin-right:118px;
+  font-size:12px; font-weight:600;
   color:var(--accent2); background:color-mix(in srgb, var(--accent2) 12%, transparent);
   border:1px solid color-mix(in srgb, var(--accent2) 45%, transparent);
   border-radius:20px; padding:3px 10px; cursor:pointer; white-space:nowrap;
