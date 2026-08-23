@@ -99,10 +99,80 @@ function wcBadge(text, attrs){
 }
 
 /* ---------- 配置 ---------- */
+/* 多 AI 模型配置：组(groups) → 账号(keys) → 模型(models) 三层。
+ * 当前「生成使用」的唯一来源 = cfg.active，绝不并发多模型请求。
+ * 深度兼容旧平铺 {apiKey, baseUrl, model}：首次读取时一次性迁移。 */
+let uidSeq = 1000;
+function uid(p){ return (p||'id')+(++uidSeq); }
+function defaultModels(){ return [
+  {name:'deepseek-v4-pro', label:'deepseek-v4-pro（质量最高，推荐）', kind:'pro'},
+  {name:'deepseek-v4-flash', label:'deepseek-v4-flash（最快/最便宜）', kind:'flash'},
+  {name:'deepseek-v4-flash-vision-exp', label:'deepseek-v4-flash-vision-exp（带视觉）', kind:'flash'}
+]; }
+function cfgDeepSeekGroup(){ return {id:'deepseek', kind:'openai', label:'DeepSeek 官方', baseUrl:'https://api.deepseek.com', keys:[], models:defaultModels()}; }
+
+// 归一化 cfg：保证 groups/active 存在，迁移旧平铺配置。
+function normalizeCfg(cfg){
+  cfg = cfg || {};
+  if(!Array.isArray(cfg.groups)){
+    const g = cfgDeepSeekGroup();
+    if(cfg.apiKey){            // 旧版单 Key 迁移
+      const id = uid('k');
+      g.keys.push({id, label:'默认账号', key:cfg.apiKey});
+      cfg.active = { groupId:'deepseek', keyId:id, model: cfg.model || 'deepseek-v4-pro' };
+    }
+    cfg.groups = [g];
+  }
+  cfg.groups.forEach((gr,i)=>{
+    gr.kind = gr.kind || 'openai';
+    gr.baseUrl = gr.baseUrl || '';
+    gr.keys = (gr.keys||[]).map((k,j)=>({id: k.id||uid('k'), label: k.label||('账号'+(j+1)), key: k.key||''}));
+    gr.models = (gr.models && gr.models.length) ? gr.models : defaultModels();
+  });
+  // active 兜底：组 → 账号 → 模型
+  const act = cfg.active || {};
+  const group = cfg.groups.find(g=>g.id===act.groupId) || cfg.groups[0];
+  if(group){
+    const key = group.keys.find(k=>k.id===act.keyId) || group.keys[0];
+    const model = group.models.find(m=>m.name===act.model)
+      || group.models.find(m=>m.name==='deepseek-v4-pro') || group.models[0];
+    cfg.active = { groupId: group.id, keyId: key ? key.id : null, model: model ? model.name : 'deepseek-v4-pro' };
+  } else {
+    cfg.active = { groupId:null, keyId:null, model:'' };
+  }
+  return cfg;
+}
 function getCfg(){
-  try{ return JSON.parse(localStorage.getItem(KEY_CFG)) || {}; }catch(e){ return {}; }
+  try{ return normalizeCfg(JSON.parse(localStorage.getItem(KEY_CFG)) || {}); }catch(e){ return normalizeCfg({}); }
 }
 function saveCfg(cfg){ localStorage.setItem(KEY_CFG, JSON.stringify(cfg)); }
+
+// 解析「当前生成使用」的具体请求参数（来源唯一，组→账号→模型）。
+function resolveActiveSpec(){
+  const cfg = getCfg();
+  const act = cfg.active || {};
+  const group = cfg.groups.find(g=>g.id===act.groupId) || cfg.groups[0] || {};
+  const key = (group.keys||[]).find(k=>k.id===act.keyId) || (group.keys||[])[0] || {};
+  const model = (group.models||[]).find(m=>m.name===act.model) || (group.models||[])[0] || {};
+  return {
+    groupId: group.id, groupLabel: group.label,
+    keyId: key.id, keyLabel: key.label,
+    baseUrl: (group.baseUrl || 'https://api.deepseek.com').replace(/\/+$/, ''),
+    apiKey: key.key || '',
+    model: model.name || 'deepseek-v4-pro',
+    temperature: (cfg.temperature==null ? 0.7 : cfg.temperature)
+  };
+}
+function currentSpecLabel(){
+  const s = resolveActiveSpec();
+  const model = s.model.replace('deepseek-v4-','').split('-')[0]; // v4-pro → pro
+  return (s.groupLabel||'AI') + ' · ' + (s.keyLabel||'默认') + ' · ' + model;
+}
+// 当前所选是否为 DeepSeek 模型：只有 DeepSeek 才启用流式进度反馈，其他 AI 不反馈。
+function currentIsDeepSeek(){
+  const s = resolveActiveSpec();
+  return /deepseek/i.test(s.model||'') || /deepseek/i.test(s.groupId||'');
+}
 
 /* ---------- 主题切换（单页内深色 / 3D 黑板 / 热血 FC） ---------- */
 const THEMES = ['dark','light','blackboard','mecha','cyber','guofeng'];
@@ -303,18 +373,19 @@ function persist(){
   robustSaveLib();
 }
 
-/* ---------- DeepSeek 调用（浏览器直连，已验证支持 CORS，支持流式） ---------- */
+/* ---------- AI 请求（浏览器直连 OpenAI 兼容协议，支持流式） ---------- */
+// 来源唯一：仅使用 cfg.active 指向的 (组/账号/模型)，绝不并发多模型。
 // onStream(deltaText)：提供时开启流式（stream:true），每收到一段增量就回调用；不传则一次性返回全文。
+// 函数名沿用 callDeepSeek；内部为通用 OpenAI 兼容协议，非 DeepSeek 型号也照常调用。
 async function callDeepSeek(system, user, {temperature=null, signal=null, maxTokens=null, onStream=null}={}){
-  const cfg = getCfg();
-  if(!cfg.apiKey) throw new Error('请先到 ⚙️ 填写 DeepSeek API Key');
-  const base = (cfg.baseUrl || 'https://api.deepseek.com').replace(/\/+$/, '');
-  const url = base + '/chat/completions';
+  const s = resolveActiveSpec();
+  if(!s.apiKey) throw new Error('请先在 ⚙️ 配置并选择要使用的 AI 账号（API Key）');
+  const url = s.baseUrl + '/chat/completions';
   const streaming = typeof onStream === 'function';
   const body = {
-    model: cfg.model || 'deepseek-v4-pro',
+    model: s.model,
     messages: [{role:'system', content: system}, {role:'user', content: user}],
-    temperature: (temperature==null ? (cfg.temperature ?? 0.7) : temperature),
+    temperature: (temperature==null ? s.temperature : temperature),
     stream: streaming
   };
   // 缓存友好：请求的前缀（system + user 恒定首部）在全书各章保持不变，
@@ -324,7 +395,7 @@ async function callDeepSeek(system, user, {temperature=null, signal=null, maxTok
   try{
     res = await fetch(url, {
       method:'POST',
-      headers:{'Content-Type':'application/json','Authorization':'Bearer '+cfg.apiKey},
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+s.apiKey},
       body: JSON.stringify(body),
       signal
     });
@@ -2749,12 +2820,12 @@ function structureCard(o){
 // 写一条章节正文（依所勾选质量机制 post-processing：dual 双审 / selfref 自省 / plothole 伏笔洞检测）
 // 省 token 策略：正文与初审均带上 max_tokens 上限；各机制一律「段落级重写」而非整章重写，
 // 并共享一个整体重写预算，避免三种机制叠加把输出放大数倍。
-async function writeOneChapterContent(i, user, onPhase){
+async function writeOneChapterContent(i, user, onPhase, onStream){
   const mt = chapterMaxTokens();
   onPhase = onPhase || (()=>{});
-  // 关闭流式（建议6）：一次性返回全文，不再传 onStream
+  // onPhase 阶段上报；onStream 若提供则开启流式边收边显示（成本0，实时进度），否则一次性返回全文
   onPhase('撰写本章正文…');
-  let txt = await callDeepSeek(longChapterSys(), user, {maxTokens: mt});
+  let txt = await callDeepSeek(longChapterSys(), user, {maxTokens: mt, onStream});
   return applyChapterQuality(txt, user, mt, onPhase);
 }
 // 对单章正文执行统一「两段式自动质检」：草扫(scanDraft)判定有无硬伤 + 精修(rewriteSegment)只改错误段落。
@@ -2934,7 +3005,11 @@ async function genOneChapter(i, btn, opt={}){
   setPhase('准备中…');
   try{
     const user = buildChapterUser(i, {regenerating:true, advice:opt.advice});
-    const txt = await writeOneChapterContent(i, user, setPhase);   // 关闭流式；各阶段经 setPhase 上报
+    // 实时进度（成本0）：仅 DeepSeek 才接 onStream 边收边显示字数；其他 AI 不流式、不反馈。
+    const stStream = $('#chStatus');
+    let _s = 0;
+    const onStream = currentIsDeepSeek() ? (delta => { if(stStream){ _s += String(delta||'').length; stStream.className='status'; stStream.textContent = `第 ${i+1}/${state.chapters.length} 章：撰写中 · 已生成 ${_s} 字`; } }) : null;
+    const txt = await writeOneChapterContent(i, user, setPhase, onStream);   // 各阶段经 setPhase 上报，正文流式实时字数经 onStream
     snapshotChapterVersion(i);            // v7.2：覆盖前存旧版，支持回退
     state.chapters[i].content = txt;
     chState[i] = 'done';
@@ -2978,7 +3053,10 @@ ${longChapterContext(pairStart)}
 ${prevEnd?('\n【前文完整正文（含前面全部已写章节，用于衔接承接，只增不改）】\n'+prevEnd):'\n（这是小说的最开头，请直接从第一章写起）'}
 
 请严格按顺序输出两章正文，用【第${pairStart+1}章】与【第${pairStart+2}章】作为分段标题。只输出正文，不要多余解释。`;
-  const txt = await callDeepSeek(longChapterSys(), user, {maxTokens: mt});
+  // 实时进度（成本0）：仅 DeepSeek 接 onStream 显示「写到第几章 + 已生成字数」；其他 AI 不流式。
+  const stProg = $('#chStatus');
+  const onStream = currentIsDeepSeek() ? makeStreamProgress(stProg, pairStart, 2) : null;
+  const txt = await callDeepSeek(longChapterSys(), user, {maxTokens: mt, onStream});
   const pair = splitTwoChapters(txt);
   // 建议2/3：两章必须都正确切出才落库，否则抛错交给批次停批，绝不静默错填（杜绝“两章挤进一格”）
   if(!pair[0] || !pair[1] || !pair[0].trim() || !pair[1].trim()){
@@ -3004,6 +3082,23 @@ ${prevEnd?('\n【前文完整正文（含前面全部已写章节，用于衔接
   snapshotChapterVersion(pairStart+1);
   state.chapters[pairStart].content = a;
   state.chapters[pairStart+1].content = b;
+}
+
+// 实时进度（成本0，§8 反馈错误.md）：纯流式展示，不新增请求、不改 token。
+// 返回一个 onStream 回调：收到增量时累加字数，并扫描【第N章】分段标题推算当前写到第几章，实时写回 #chStatus。
+// baseIdx = 本批起始章下标；n = 本批章数；titles 累计 = 已开始写第 (titles+1) 章（第 0 个标题出现前写批内第 1 章）。
+function makeStreamProgress(st, baseIdx, n){
+  let total = 0, titles = 0;
+  return function(delta){
+    if(!st) return;
+    total += String(delta||'').length;
+    const m = String(delta).match(/【第\s*\d+\s*章】/g);
+    if(m) titles += m.length;
+    const curBatch = Math.min(titles, Math.max(0, n-1));          // 批内 0 基：当前写到第几章
+    const cur = baseIdx + curBatch;
+    st.className = 'status';
+    st.textContent = `正在写第 ${cur+1}/${state.chapters.length} 章 · 已生成 ${total} 字`;
+  };
 }
 
 // 通用拆分器：以【第N章】标题行为界切分正文，返回全部切出的块（不限定数量）。
@@ -3035,7 +3130,10 @@ ${longChapterContext(start)}
 ${prevEnd?('\n【前文完整正文（含前面全部已写章节，用于衔接承接，只增不改）】\n'+prevEnd):'\n（这是小说的最开头，请直接从第一章写起）'}
 
 请严格按顺序输出 ${n} 章正文，用【第${start+1}章】至【第${start+n}章】作为分段标题。只输出正文，不要多余解释。`;
-  const txt = await callDeepSeek(longChapterSys(), user, {maxTokens: mt});
+  // 实时进度（成本0）：仅 DeepSeek 接 onStream 显示「写到第几章 + 已生成字数」；其他 AI 不流式。
+  const stProg = $('#chStatus');
+  const onStream = currentIsDeepSeek() ? makeStreamProgress(stProg, start, n) : null;
+  const txt = await callDeepSeek(longChapterSys(), user, {maxTokens: mt, onStream});
   const parts = splitNChapters(txt, n);
   // 建议2/3 复刻：必须切足 n 章才落库，否则抛错交给批次停批，绝不静默错填（杜绝“多章挤进一格”“缺章”）
   if(parts.length !== n || parts.some(p=>!p || !p.trim())){
@@ -3456,48 +3554,175 @@ function updateSpecButton(){
 }
 
 /* =========================================================
- * 设置弹窗
+ * 设置弹窗（多 AI 模型：服务列表 → 组详情 → 三级联动选择）
+ * 红色护栏：生成来源永远只有一个 editCfg.active 指向的账号/模型，绝不并发多模型请求。
  * ========================================================= */
-function openSettings(){ $('#settingsModal').classList.remove('hidden'); fillCfg(); }
-function closeSettings(){ $('#settingsModal').classList.add('hidden'); }
-function fillCfg(){
-  const c = getCfg();
-  $('#cfgKey').value = c.apiKey||'';
-  $('#cfgBase').value = c.baseUrl||'';
-  const ms = $('#cfgModel');
-  ms.value = c.model || 'deepseek-v4-pro';
-  if(!ms.value) ms.value = 'deepseek-v4-pro'; // 兜底旧配置/未知模型
-  $('#cfgTemp').value = (c.temperature==null?'':c.temperature);
+let editCfg = null;        // 弹窗编辑中的工作副本（打开时从 getCfg 深拷贝）
+let selGroupId = null;     // 当前「组详情」区选中的组
+
+function openSettings(){
+  editCfg = JSON.parse(JSON.stringify(getCfg()));
+  selGroupId = editCfg.active ? editCfg.active.groupId : (editCfg.groups[0] && editCfg.groups[0].id);
+  $('#settingsModal').classList.remove('hidden');
+  $('#cfgTemp').value = (editCfg.temperature==null ? '' : editCfg.temperature);
+  const st = $('#cfgStatus'); if(st){ st.className='status'; st.textContent=''; }
+  renderGroupsList(); renderGroupDetail(); renderActiveSelects(); updateCfgBadge();
 }
+function closeSettings(){ $('#settingsModal').classList.add('hidden'); }
+
+function _curSpec(){
+  const cfg = (editCfg && editCfg.groups) ? editCfg : getCfg();
+  const act = cfg.active || {};
+  const g = cfg.groups.find(x=>x.id===act.groupId) || cfg.groups[0];
+  const m = g && (g.models.find(x=>x.name===act.model) || g.models[0]);
+  const k = g && (g.keys.find(x=>x.id===act.keyId) || g.keys[0]);
+  return { group: g?g.label:'', key: k?k.label:'', model: m?m.name:'', flash: !!(m && m.kind==='flash') };
+}
+function shortModel(name){
+  if(!name) return '';
+  if(name.indexOf('deepseek-v4-')===0) return name.replace('deepseek-v4-','');
+  const parts=name.split('-');
+  return parts.length>1 ? parts.slice(-1)[0] : name;
+}
+function updateCfgBadge(){
+  const b=$('#cfgBadge'); if(!b) return;
+  const s=_curSpec();
+  b.textContent = (s.group?'':'AI') + s.group + ' · ' + (shortModel(s.model)||'未选') + (s.flash?' ⚡':'');
+  if(b.title != null) b.title='当前模型：'+s.group+' · '+s.key+' · '+s.model+'（点击切换）';
+}
+
+/* --- 第一段：服务列表 --- */
+function renderGroupsList(){
+  const el=$('#groupsList'); if(!el) return;
+  el.innerHTML='';
+  if(!editCfg.groups.length){ el.innerHTML='<div class="muted">暂无服务，点上方「＋ 新增组」添加。</div>'; return; }
+  editCfg.groups.forEach(g=>{
+    if(!selGroupId) selGroupId=g.id;
+    const d=document.createElement('div');
+    d.className='group-item' + (g.id===selGroupId ? ' active' : '');
+    d.innerHTML = `<span class="gi-label">${esc(g.label)}</span><span class="gi-meta">${g.keys.length} 账号 · ${g.models.length} 模型</span>`;
+    d.onclick = ()=>{ selGroupId=g.id; renderGroupsList(); renderGroupDetail(); };
+    el.appendChild(d);
+  });
+}
+
+/* --- 第二段：组详情（baseUrl + 多账号 + 模型清单） --- */
+function _dg(){ return editCfg.groups.find(x=>x.id===selGroupId) || editCfg.groups[0]; }
+function renderGroupDetail(){
+  const el=$('#groupDetail'); if(!el) return;
+  const g=_dg();
+  if(!g){ el.innerHTML='<div class="muted">选择左侧一个服务，或点上方「＋ 新增组」添加。</div>'; return; }
+  selGroupId=g.id;
+  el.innerHTML = `
+    <div class="set-block-head">
+      <span>${esc(g.label)} · 详情</span>
+      <span class="gd-acts">
+        <button class="btn small ghost" data-act="addkey" type="button">＋ 账号</button>
+        <button class="btn small ghost" data-act="addmodel" type="button">＋ 模型</button>
+        ${g.id!=='deepseek' ? '<button class="btn small ghost del" data-act="delgroup" type="button">删组</button>' : ''}
+      </span>
+    </div>
+    <label class="field"><span>接口地址（OpenAI 兼容协议）</span>
+      <input class="g-base" type="text" value="${esc(g.baseUrl)}" placeholder="https://api.deepseek.com">
+    </label>
+    <div class="gd-title">账号（API Key 仅存本机，多账号=多卡分流）</div>
+    ${g.keys.length ? g.keys.map((k,i)=>`
+      <div class="key-row">
+        <input class="k-lab" data-idx="${i}" type="text" value="${esc(k.label)}" placeholder="备注">
+        <input class="k-key" data-idx="${i}" type="password" value="${esc(k.key)}" placeholder="sk-..." autocomplete="off">
+        <button class="btn small ghost del" data-act="delkey" data-id="${k.id}" type="button">删</button>
+      </div>`).join('') : '<div class="muted">该组还没有账号，点「＋ 账号」粘贴 API Key。</div>'}
+    <div class="gd-title">模型清单</div>
+    ${g.models.length ? g.models.map(m=>`
+      <div class="model-row">
+        <span class="m-name">${esc(m.name)}</span>
+        ${m.kind==='flash' ? '<span class="pill tag-warn">最快/最便宜</span>' : ''}
+        <button class="btn small ghost del" data-act="delmodel" data-name="${esc(m.name)}" type="button">删</button>
+      </div>`).join('') : '<div class="muted">请点「＋ 模型」添加模型名。</div>'}
+  `;
+  el.onclick = onDetail;
+  el.querySelectorAll('.k-lab').forEach(inp=> inp.onchange=()=>{ const gg=_dg(); gg.keys[+inp.dataset.idx].label = inp.value || ('账号'+(+inp.dataset.idx+1)); });
+  el.querySelectorAll('.k-key').forEach(inp=> { inp.onchange=()=>{ const gg=_dg(); gg.keys[+inp.dataset.idx].key = inp.value.trim(); updateCfgBadge(); }; });
+  const base = el.querySelector('.g-base'); if(base) base.onchange=(ev)=>{ const gg=_dg(); gg.baseUrl = ev.target.value.trim(); };
+}
+function onDetail(ev){
+  const b = ev.target && ev.target.closest('[data-act]'); if(!b) return;
+  const act = b.dataset.act, g = _dg(); if(!g) return;
+  if(act==='addkey'){
+    const v=prompt('粘贴该账号的 API Key（sk-...）：');
+    if(v==null) return;
+    if(!v.trim()){ toast('Key 为空，未添加'); return; }
+    g.keys.push({ id: uid('k'), label:'账号'+(g.keys.length+1), key:v.trim() });
+  } else if(act==='addmodel'){
+    const n=prompt('模型名（如 deepseek-v4-flash 或第三方模型名）：');
+    if(n==null) return;
+    if(!n.trim()){ toast('模型名为空，未添加'); return; }
+    g.models.push({ name:n.trim(), label:n.trim(), kind:'' });
+  } else if(act==='delkey'){
+    g.keys = g.keys.filter(x=>x.id!==b.dataset.id);
+  } else if(act==='delmodel'){
+    g.models = g.models.filter(x=>x.name!==b.dataset.name);
+  } else if(act==='delgroup'){
+    editCfg.groups = editCfg.groups.filter(x=>x.id!==g.id);
+    selGroupId = null;
+  }
+  refreshAfter();
+}
+function refreshAfter(){ renderGroupsList(); renderGroupDetail(); renderActiveSelects(); updateCfgBadge(); }
+
+function addGroup(){
+  const label=prompt('新服务名称（如：Kimi / 智谱 / 我的中转）：');
+  if(label==null) return;
+  if(!label.trim()){ toast('名称为空，未添加'); return; }
+  const base=prompt('接口地址（OpenAI 兼容，如 https://api.deepseek.com）：','');
+  const g={ id:uid('g'), kind:'openai', label:label.trim(), baseUrl:(base||'').trim(), keys:[], models:defaultModels() };
+  editCfg.groups.push(g); selGroupId=g.id; refreshAfter();
+}
+
+/* --- 第三段：三级联动「当前生成使用」 --- */
+function renderActiveSelects(){
+  const selG=$('#c_selGroup'), selK=$('#c_selKey'), selM=$('#c_selModel');
+  if(!selG || !editCfg) return;
+  const act = editCfg.active || {};
+  selG.innerHTML = editCfg.groups.map(g=>`<option value="${esc(g.id)}">${esc(g.label)}</option>`).join('');
+  selG.value = editCfg.groups.some(g=>g.id===act.groupId) ? act.groupId : (editCfg.groups[0]?editCfg.groups[0].id:'');
+  const g = editCfg.groups.find(x=>x.id===selG.value) || editCfg.groups[0];
+  const keys = g?g.keys:[];
+  selK.innerHTML = keys.map(k=>`<option value="${esc(k.id)}">${esc(k.label)}${k.key?'':'（未填）'}</option>`).join('');
+  selK.value = keys.some(k=>k.id===act.keyId) ? act.keyId : (keys[0]?keys[0].id:'');
+  const models = g?g.models:[];
+  selM.innerHTML = models.map(m=>`<option value="${esc(m.name)}">${esc(m.label)}${m.kind==='flash'?' ⚡':''}</option>`).join('');
+  selM.value = models.some(m=>m.name===act.model) ? act.model : (models[0]?models[0].name:'');
+}
+
 function saveSettings(){
-  const c = {
-    apiKey: $('#cfgKey').value.trim(),
-    baseUrl: $('#cfgBase').value.trim() || 'https://api.deepseek.com',
-    model: $('#cfgModel').value.trim() || 'deepseek-v4-pro',
-    temperature: parseFloat($('#cfgTemp').value)
-  };
-  if(isNaN(c.temperature)) c.temperature = 0.7;
-  saveCfg(c);
-  const st = $('#cfgStatus'); st.className='status ok'; st.textContent='已保存到本机浏览器。';
+  if(!editCfg){ return; }
+  const t = parseFloat($('#cfgTemp').value);
+  editCfg.temperature = isNaN(t) ? 0.7 : t;
+  const selG=$('#c_selGroup'), selK=$('#c_selKey'), selM=$('#c_selModel');
+  if(selG){
+    const gId=selG.value || (editCfg.groups[0] && editCfg.groups[0].id);
+    editCfg.active = { groupId:gId, keyId:(selK&&selK.value)||null, model:(selM&&selM.value)||'' };
+  }
+  saveCfg(editCfg);
+  const st=$('#cfgStatus'); if(st){ st.className='status ok'; st.textContent='已保存到本机浏览器。'; }
   toast('配置已保存');
+  updateCfgBadge();
 }
 async function testConn(){
-  const st = $('#cfgStatus'); st.className='status'; st.textContent='测试中…';
-  const old = getCfg();
-  // 临时保存后再测
+  const st = $('#cfgStatus'); if(st){ st.className='status'; st.textContent='测试中…'; }
   saveSettings();
   try{
     const r = await callDeepSeek('你是测试助手，只回复「ok」。','你好');
-    st.className='status ok'; st.textContent='连接成功：'+r.slice(0,20);
+    if(st){ st.className='status ok'; st.textContent='连接成功：'+r.slice(0,20); }
   }catch(e){
-    st.className='status err';
-    let msg = e.message;
-    if(/insufficient balance/i.test(msg)){
-      msg += '（账户余额不足，请去 DeepSeek 控制台充值，不是 Key 填错）';
-    }else if(/not found.*model/i.test(msg)){
-      msg += '（模型名不存在，请从下拉菜单选择官方模型）';
+    if(st){
+      st.className='status err';
+      let msg = e.message;
+      if(/insufficient balance/i.test(msg)) msg += '（账户余额不足，请到对应控制台充值，不是 Key 填错）';
+      else if(/not found.*model/i.test(msg)) msg += '（模型名不存在，请检查当前所选模型）';
+      st.textContent='连接失败：'+msg;
     }
-    st.textContent='连接失败：'+msg;
   }
 }
 
@@ -3526,6 +3751,14 @@ function init(){
   $$('[data-close]').forEach(b=> b.onclick = closeSettings);
   $('#btnCfgSave').onclick = saveSettings;
   $('#btnCfgTest').onclick = testConn;
+  // 多 AI 模型控件
+  const btnAddG = $('#btnAddGroup'); if(btnAddG) btnAddG.onclick = addGroup;
+  const selG=$('#c_selGroup'), selK=$('#c_selKey'), selM=$('#c_selModel');
+  if(selG) selG.onchange = ()=>{ if(editCfg){ editCfg.active.groupId = selG.value; renderActiveSelects(); updateCfgBadge(); } };
+  if(selK) selK.onchange = ()=>{ if(editCfg){ editCfg.active.keyId = selK.value; updateCfgBadge(); } };
+  if(selM) selM.onchange = ()=>{ if(editCfg){ editCfg.active.model = selM.value; updateCfgBadge(); } };
+  const cfgBadge=$('#cfgBadge'); if(cfgBadge) cfgBadge.onclick = openSettings;
+  updateCfgBadge();
   // 主题按钮
   $$('.theme-btns .theme').forEach(b=> b.onclick = ()=> applyTheme(b.dataset.theme));
   // 机甲主题顶部胶囊导航
@@ -3540,7 +3773,7 @@ function init(){
   // 底部导航
   $$('.tab').forEach(t=> t.onclick = ()=>{ currentStep = +t.dataset.step; render(); window.scrollTo(0,0); });
   // 进入时若无 Key，自动弹设置
-  if(!c.apiKey) setTimeout(openSettings, 300);
+  if(!resolveActiveSpec().apiKey) setTimeout(openSettings, 300);
   render();
 }
 document.addEventListener('DOMContentLoaded', init);

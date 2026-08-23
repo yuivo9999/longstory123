@@ -608,3 +608,36 @@ body.reader-lock{overflow:hidden}
 .cv-row .cv-cnt{flex:0 0 auto;font-size:11px;color:var(--ok);background:rgba(55,201,139,.12);padding:1px 8px;border-radius:20px}
 .cv-row.cv-zero{opacity:.75;border-color:var(--line)}
 .cv-row.cv-zero .cv-cnt{color:var(--warn);background:rgba(245,185,66,.12)}
+
+/* ---------- 多 AI 模型配置（顶栏徽标 + 设置三段区） ---------- */
+.cfg-badge{
+  flex:0 0 auto; max-width:46%; font-size:12px; font-weight:600;
+  color:var(--accent2); background:color-mix(in srgb, var(--accent2) 12%, transparent);
+  border:1px solid color-mix(in srgb, var(--accent2) 45%, transparent);
+  border-radius:20px; padding:3px 10px; cursor:pointer; white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis;
+}
+.cfg-badge:active{filter:brightness(1.1)}
+
+.set-block{border:1px solid var(--line);border-radius:12px;padding:10px;margin-bottom:14px}
+.set-block-head{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px;font-weight:700;color:var(--sub);margin-bottom:8px}
+.set-block-head .gd-acts{display:flex;gap:6px;flex-wrap:wrap}
+
+.groups-list{display:flex;flex-direction:column;gap:4px}
+.group-item{
+  display:flex;align-items:center;justify-content:space-between;gap:8px;
+  padding:8px 10px;border:1px solid var(--line);border-radius:10px;
+  background:var(--panel2);cursor:pointer;
+}
+.group-item .gi-label{font-size:13px;font-weight:700;color:var(--txt)}
+.group-item .gi-meta{font-size:11px;color:var(--muted)}
+.group-item.active{border-color:var(--accent);background:color-mix(in srgb, var(--accent) 12%, var(--panel2))}
+
+.gd-title{font-size:12px;font-weight:600;color:var(--sub);margin:12px 0 6px}
+.key-row{display:grid;grid-template-columns:88px 1fr auto;gap:6px;margin-bottom:6px;align-items:center}
+.model-row{display:flex;align-items:center;gap:8px;padding:6px 2px;border-bottom:1px dashed var(--line)}
+.model-row .m-name{flex:1;min-width:0;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+.btn.small{font-size:12px;padding:5px 9px;font-weight:600}
+.btn.del{color:var(--warn)}
+.btn.del:hover{background:color-mix(in srgb, #ff5a5a 14%, transparent)}
