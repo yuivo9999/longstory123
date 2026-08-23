@@ -17,16 +17,25 @@
 <body>
 <div id="bg3d"></div>
 <div id="app">
-  <!-- 右上角工具组（固定，跨主题一致）：规范 + 设置 -->
-  <div id="topTools">
-    <button id="btnSpec" class="icon-btn" title="创作规范">⚖️<span class="tb-lab">规范</span></button>
-    <button id="btnSettings" class="icon-btn" title="设置">⚙️</button>
-  </div>
-
-  <!-- 左上角工具组（固定）：历史作品入口（新建小说 / 新建长篇在历史弹层内） -->
-  <div id="topLeft">
-    <button id="btnHist" class="icon-btn" title="历史作品">📚<span class="tb-lab">历史</span></button>
-  </div>
+  <!-- 顶栏：两行布局（第一行功能入口 / 第二行品牌+模型信息） -->
+  <header class="topbar">
+    <div class="tb-row tb-row-1">
+      <div class="tb-left">
+        <button id="btnHist" class="icon-btn" title="历史作品">📚<span class="tb-lab">历史</span></button>
+      </div>
+      <div class="tb-right">
+        <button id="btnTheme" class="icon-btn" title="切换界面主题">🎨<span class="tb-lab">主题</span></button>
+        <button id="btnSettings" class="icon-btn" title="设置">☰<span class="tb-lab">选项</span></button>
+      </div>
+    </div>
+    <div class="tb-row tb-row-2">
+      <div class="brand">
+        <span class="logo">🎬</span>
+        <span class="title">影视前期提示词生成器</span>
+      </div>
+      <button id="cfgBadge" class="cfg-badge" title="当前模型：点击切换">AI · 未选</button>
+    </div>
+  </header>
 
   <!-- 历史作品弹层（点击 📚 展开；复用 spec-panel 样式保证跨主题一致） -->
   <div id="histPanel" class="spec-panel hidden">
@@ -40,23 +49,21 @@
     <div class="hist-list" id="histList"></div>
   </div>
 
-  <!-- 创作规范弹层（点击 ⚖️ 展开，仅作用于写小说环节） -->
-  <div id="specPanel" class="spec-panel hidden">
+  <!-- 主题弹层（点击 🎨 展开；复用 spec-panel 样式保证跨主题一致） -->
+  <div id="themePanel" class="spec-panel hidden">
     <div class="spec-head">
-      <span>📐 创作规范</span>
-      <span class="spec-note">仅作用于「写小说」</span>
+      <span>🎨 界面主题</span>
+      <span class="spec-note">实时切换，无需换页</span>
     </div>
-    <div class="spec-list" id="specList"></div>
+    <div class="theme-btns" id="themeBtns">
+      <button type="button" class="btn theme" data-theme="dark">🌙 默认深色</button>
+      <button type="button" class="btn theme" data-theme="light">☀️ 白天</button>
+      <button type="button" class="btn theme" data-theme="blackboard">🎮 3D 黑板</button>
+      <button type="button" class="btn theme" data-theme="mecha">🦾 机甲科幻</button>
+      <button type="button" class="btn theme" data-theme="cyber">🕹️ 赛博朋克</button>
+      <button type="button" class="btn theme" data-theme="guofeng">🏮 古风国潮</button>
+    </div>
   </div>
-
-  <!-- 顶栏 -->
-  <header class="topbar">
-    <div class="brand">
-      <span class="logo">🎬</span>
-      <span class="title">影视前期提示词生成器</span>
-    </div>
-    <button id="cfgBadge" class="cfg-badge" title="当前模型：点击切换">AI · 未选</button>
-  </header>
 
   <!-- 步骤指示 -->
   <nav id="stepper" class="stepper"></nav>
@@ -126,19 +133,6 @@
         <input id="cfgTemp" type="number" step="0.1" min="0" max="1" placeholder="0.7">
       </label>
       <p class="hint">API Key 仅存本机浏览器，不会上传任何第三方；生成时只使用上方所选的账号与模型，避免多个 AI 并发导致费用激增。</p>
-
-      <div class="theme-box">
-        <h4>🎨 界面主题（实时切换，无需换页）</h4>
-        <div class="theme-btns">
-          <button type="button" class="btn theme" data-theme="dark">🌙 默认深色</button>
-          <button type="button" class="btn theme" data-theme="light">☀️ 白天</button>
-          <button type="button" class="btn theme" data-theme="blackboard">🎮 3D 黑板</button>
-          <button type="button" class="btn theme" data-theme="mecha">🦾 机甲科幻</button>
-          <button type="button" class="btn theme" data-theme="cyber">🕹️ 赛博朋克</button>
-          <button type="button" class="btn theme" data-theme="guofeng">🏮 古风国潮</button>
-        </div>
-        <p class="hint">选择后即时生效并保存到本机；3D 黑板为 three.js 教室背景，机甲科幻为黑金青绿工业金属风，赛博朋克为霓虹游戏手柄风，古风国潮为木质卷轴牌匾风。</p>
-      </div>
 
       <div class="modal-actions">
         <button id="btnCfgTest" class="btn ghost">测试连接</button>
