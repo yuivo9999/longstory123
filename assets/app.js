@@ -976,10 +976,11 @@ function storyContentBlock(){
   const chs = (o.chapters||[]);
   if(chs.length){
     lines.push('【三、章节梗概】');
+    // 章节定位契约（v10·§4.4）：逐章梗概统一为「第 N 章《标题》：梗概」，与标题窗口/上一章/本章任务记法一致。
     chs.forEach((c,i)=>{
       const t = (c && c.title) ? c.title : `第${i+1}章`;
       const s = (c && c.summary) ? c.summary : (c && c.goal) ? c.goal : '';
-      lines.push(`${i+1}. ${t}${s?(' — '+s):''}`);
+      lines.push(`第 ${i+1} 章《${t}》${s?('：'+s):''}`);
     });
   }
   return lines.join('\n');
@@ -1166,6 +1167,14 @@ function getSpec(){
   const id = cfg.spec || 'full';
   return SPECS.find(s=>s.id===id) || SPECS[0];
 }
+/* 故事页内联创作规范选择器（替代原顶栏规范弹层） */
+function specPickerHtml(){
+  const cur = getSpec().id;
+  return `<div class="spec-pick" id="specPicker">
+    <div class="spec-pick-head"><span>📐 创作规范（作用于「写小说」）</span></div>
+    <div class="spec-pick-opts">${SPECS.map(s=>`<button type="button" class="spec-opt ${s.id===cur?'active':''}" data-spec="${s.id}" title="${esc(s.desc)}">${esc(s.short)}</button>`).join('')}</div>
+  </div>`;
+}
 function specSysAddition(){
   const s = getSpec();
   return (s && s.sys) ? '\n\n【本次创作规范 · '+s.name+'】\n'+s.sys : '';
@@ -1281,7 +1290,7 @@ function viewStory(){
       <h3>① 输入故事构想</h3>
       <p class="sub">${homeSub}</p>
       ${ isLong() ? recipePicker() : '' }
-      ${ isLong() ? '' : `<div class="spec-current" id="specCurrentBtn" title="点击修改创作规范">当前创作规范：<b>${esc(getSpec().name)}</b> · 点击右上角 ⚖️ 修改</div>` }
+      ${ isLong() ? '' : specPickerHtml() }
       <div class="idea-row">
         <textarea id="ideaInput" placeholder="${esc(currentIdeaPhrase())}">${esc(state.idea)}</textarea>
         <button id="btnRerollIdea" class="btn ghost idea-reroll" title="换个示例">🎲</button>
@@ -2045,7 +2054,7 @@ document.addEventListener('keydown', (e)=>{
   if(e.key === 'Escape'){
     closeReader();
     const h = $('#histPanel'); if(h && !h.classList.contains('hidden')) closeHistPanel();
-    const p = $('#specPanel'); if(p && !p.classList.contains('hidden')) closeSpecPanel();
+    const t = $('#themePanel'); if(t && !t.classList.contains('hidden')) closeThemePanel();
   }
 });
 
@@ -2619,7 +2628,8 @@ function bindView(){
   initDRS();
   bindGlossary();
   bindPendingGlossary();
-  const specCur = $('#specCurrentBtn'); if(specCur) specCur.onclick = openSpecPanel;
+  // 故事页内联规范选择器
+  $$('.spec-opt').forEach(b=> b.onclick = ()=>{ selectSpec(b.dataset.spec); });
   const btnCO = $('#btnConfirmOutline'); if(btnCO) btnCO.onclick = ()=>{ state.outlineConfirmed=true; persist(); render(); };
   const btnRO = $('#btnReOutline'); if(btnRO) btnRO.onclick = ()=>{ state.outline=null; state.outlineConfirmed=false; state.chapters=[]; persist(); render(); };
   const btnGA = $('#btnGenAllChapters'); if(btnGA) btnGA.onclick = genAllChapters;
@@ -3081,13 +3091,23 @@ function locateSegment(txt, anchor){
 // 单章路径 buildChapterUser 与批量 2 章 genTwoChapters(topic 窗口以 pairStart 为中心) 共用，
 // 确保两种生成方式模型都能看到本章在全书中的位置与前后节奏。
 // 章节标题列表（v9 改为全列）：标题很短，全书全列仅几千 token，利于远距伏笔对上前情，且放进恒定前缀区利于缓存命中。
+// 章节定位契约（v10·统一编号 §4.4）：每一项统一为「第 N 章《标题》」，与逐章梗概、上一章、本章任务的记法完全一致，杜绝 1. / 【第N章】 等混杂写法。
 function chapterTitleWindow(i){
   const o = state.outline;
   if(!o || !Array.isArray(o.chapters)) return '';
-  return o.chapters.map(c=> (c && c.title) || '').filter(Boolean).join(' / ');
+  return o.chapters.map((c,k)=> (c && c.title) ? `第 ${k+1} 章《${c.title}》` : '').filter(Boolean).join(' / ');
+}
+// 承接来源（v10）：只提供「上一章真实正文」，取代旧的全量前文（cumulativeChapters）。恒定内容块承载全书脉络。
+// 上一章标签统一为【上一章（第 N 章《标题》）】，i 为当前章 0 基下标；第 1 章（i<=0）无前文返回空。
+function prevChapter(i){
+  if(i <= 0) return '';
+  const c = state.chapters[i-1];
+  if(!(c && c.content && String(c.content).trim())) return '';
+  return `【上一章（第 ${i} 章《${c.title||''}》）真实正文】\n${String(c.content).trim()}`;
 }
 // 批间累积前缀（v9）：拼接第 1..(i-1) 章完整正文，放进恒定前缀区（从第0个token起与前序请求完整复用 → 缓存命中，见 安排token.md §14）。
 // 每写一章只在末尾追加上一章，前缀部分整段命中；为尽量减少宽占用可根据体量不超上下文，单章下限亦覆盖。
+// 注：v10 生成的「AI 注入」改用 prevChapter（仅上一章）；本函数保留供阅读/导出等仍用全量文本的地方复用，勿删。
 function cumulativeChapters(i){
   const out = [];
   const start = 0;
@@ -3099,14 +3119,18 @@ function cumulativeChapters(i){
 }
 function buildChapterUser(i, opt={}){
   const o = state.outline;
-  // 累积前缀 1..i-1（取代旧的「上一章完整正文」）：既是承接来源，又从请求开头起稳定复用前文 → 命中缓存
-  const prev = i>0 ? cumulativeChapters(i) : '';
+  // 承接来源（v10）：仅上一章真实正文（替代旧的全量前文）
+  const prev = i>0 ? prevChapter(i) : '';
   const titles = chapterTitleWindow(i);
   // 万物词典一致性基准（建议5）：全文服从，不得自造新名（v8 统一走 chapterGlossaryBlock）
   const gloss = chapterGlossaryBlock();
   const head = `故事标题：${o.title}\n一句话梗概：${o.logline}\n章节：${titles}${gloss}`;
-  let tail = `本章标题：${state.chapters[i].title}
-${prev?('\n【前文完整正文（含前面全部已写章节，用于衔接承接，只增不改）】\n'+prev):'\n（这是第一章，暂无前文直接开头）'}`;
+  // 章节定位契约（v10·§4.4 统一编号）：明示当前要写第几章、紧接上一章之后
+  const chap = state.chapters[i];
+  const curN = i + 1;
+  let tail = `你现在要写第 ${curN} 章《${chap.title}》${i>0?`，紧接第 ${i} 章之后`:''}
+${prev?('\n【前文衔接（上一章真实正文，用于承接，只增不改）】\n'+prev):'\n（这是第一章，暂无前文直接开头）'}`;
+  tail += longChapterContext(i);   // 章节定位（卷/阶段/整体结构）：单章与批量逐章统一注入，保持定位一致
   const nextHasContent = i < o.chapters.length-1 && state.chapters[i+1] && state.chapters[i+1].content && String(state.chapters[i+1].content).trim();
   if(opt.regenerating && nextHasContent){
     tail += `\n下一章概要（请预留衔接，但不要剧透下一章情节）：${o.chapters[i+1].summary||''}`;
@@ -3212,143 +3236,31 @@ async function genOneChapter(i, btn, opt={}){
   finally{ state.generating = false; if(btn) busy(btn,false); patchChapter(i); }
 }
 
-// 从模型返回的连续两章正文里切分（分隔：模型输出按「【第X章…】…【第X+1章…】」组织）
-function splitTwoChapters(txt){
-  // 以「第N章」标题行切分（兼容【第N章】或「第N章」两种写法）。不盲切对半：
-  // 若模型未按规范分段（只出一章或没分段），返回空结果交给调用方抛错停批，避免把两章错填进一格。
-  const parts = txt.split(/\n?\s*【?\s*第\s*\d+\s*章\s*[】]?[\s:：]*/).map(s=>s.trim()).filter(Boolean);
-  if(parts.length >= 2){
-    const a = parts[0], b = parts.slice(1).join('\n');
-    if(a && b) return [a, b];
-  }
-  return ['', ''];
-}
-
-// 一次写 2 章（建议6/决策6）：单次请求连续写两章正文，天然保证两章内人名地名关系一致
+// 一次写 2 章（v10）：由「一次请求连写两章再切分」改为逐章顺序生成——每章独立一个请求，
+// 第 k 章用「上一章」刚生成的（或此前已写）真实正文承接，产出即章节，无需【第N章】切分，杜绝两章挤一格/错切。
+// 章节定位契约（统一编号）在 buildChapterUser 内体现；恒定的词典/内容块/章节定位随每章完整注入。
 async function genTwoChapters(pairStart){
-  const mt = chapterMaxTokens() * 1.6;   // 两章内容，放宽上限
-  const o = state.outline;
-  // 标题窗口（v8b）：以本对开头章为中心，与单章共用 chapterTitleWindow，保证模型看见本章在全书中的位置与前后节奏
-  const titles = chapterTitleWindow(pairStart);
-  const head = `故事标题：${o.title}\n一句话梗概：${o.logline}\n章节：${titles}`;
-  // 一致性词典（v8 统一走 chapterGlossaryBlock）
-  const gloss = chapterGlossaryBlock();
-  // 批量字数说明（v8c）：两章各自落在所选区间，合计上限为单章上限 ×2。作为独立块追加在写作任务之后，使体量约束在批量场景更明确。
-  const batchSizeNote = `\n【每章篇幅体量】两章各自都应落在 ${fmtRange(selSize().range)} 字区间内，两章尽量均衡，不可一章过短、一章过长（合计不超过该区间上限的 2 倍，即 ${fmtRange(selSize().range)} × 2）。`;
-  const prevEnd = pairStart>0 ? cumulativeChapters(pairStart) : '';
-  const user = `${head}${gloss}
-\n【写作任务】请连续写作以下两章正文，章间要紧扣衔接、人名地名人物关系保持一致，各自维持单章既定体量与章末钩子。\n
-${batchSizeNote}
-${longChapterContext(pairStart)}
-${prevEnd?('\n【前文完整正文（含前面全部已写章节，用于衔接承接，只增不改）】\n'+prevEnd):'\n（这是小说的最开头，请直接从第一章写起）'}
-
-请严格按顺序输出两章正文，用【第${pairStart+1}章】与【第${pairStart+2}章】作为分段标题。只输出正文，不要多余解释。`;
-  // 实时进度（成本0）：仅 DeepSeek 接 onStream 显示「写到第几章 + 已生成字数」；其他 AI 不流式。
-  const stProg = $('#chStatus');
-  const onStream = currentIsDeepSeek() ? makeStreamProgress(stProg, pairStart, 2) : null;
-  const txt = await callDeepSeek(longChapterSys(), user, {maxTokens: mt, onStream});
-  const pair = splitTwoChapters(txt);
-  // 建议2/3：两章必须都正确切出才落库，否则抛错交给批次停批，绝不静默错填（杜绝“两章挤进一格”）
-  if(!pair[0] || !pair[1] || !pair[0].trim() || !pair[1].trim()){
-    throw new Error('模型未按【第N章】分别输出两章正文，未落库。可重试本批。');
+  for(let k=0;k<2;k++){
+    const idx = pairStart + k;
+    // 每章完整上下文：词典+内容块（大纲/结构/逐章梗概）+ longChapterContext（卷/阶段/结构）+ 上一章真实正文
+    const txt = await writeOneChapterContent(idx, buildChapterUser(idx));
+    snapshotChapterVersion(idx);            // v7.2：覆盖前存旧版，支持回退
+    state.chapters[idx].content = txt;
   }
-  // 建议2（v8d）：篇幅合理性校验——若某章远低于所选字数下限（< 下限的 45%），多半是模型把两章内容塞给了另一章，
-  // 判定为可疑并抛错停批，交由用户重试，而不是静默产出一章过短的长短失衡结果。
-  const ink = selSize().range.min;   // 所选单章字数下限
-  const sizA = String(pair[0]).replace(/\s/g,'').length, sizB = String(pair[1]).replace(/\s/g,'').length;
-  const short = Math.min(sizA, sizB), long = Math.max(sizA, sizB);
-  if(long > 0 && short < ink * 0.45 && long > short * 3){
-    throw new Error(`两章篇幅失衡（第${pairStart+1}章 ${sizA} 字 / 第${pairStart+2}章 ${sizB} 字），可能被模型错切，未落库。可重试本批。`);
-  }
-  // 质检搬入批量 2 章（v8b）：对两章分别执行所勾选的质量机制；第二章质检时以打磨后的第一章作为“前章承接”。
-  // 每章各自的 user 用 buildChapterUser 重建，保证质检的“前章结尾/下一章概要”上下文正确。
-  // 先质检通过、后统一快照+落库，避免质检中途失败污染已落库内容（质检失败会向上抛错停批）。
-  const a = await applyChapterQuality(pair[0].trim(), buildChapterUser(pairStart), mt);
-  // 临时把打磨后的第一章写回 state.chapters，使第二章 buildChapterUser 能读到真实的前章内容作为承接；
-  // 若 B 质检失败，异常上抛停批，此刻未快照未 persist，内存残留会在重试时被覆盖。
-  state.chapters[pairStart].content = a;
-  const b = await applyChapterQuality(pair[1].trim(), buildChapterUser(pairStart+1), mt);
-  snapshotChapterVersion(pairStart);            // v7.2：覆盖前存旧版，支持回退
-  snapshotChapterVersion(pairStart+1);
-  state.chapters[pairStart].content = a;
-  state.chapters[pairStart+1].content = b;
 }
 
-// 实时进度（成本0，§8 反馈错误.md）：纯流式展示，不新增请求、不改 token。
-// 返回一个 onStream 回调：收到增量时累加字数，并扫描【第N章】分段标题推算当前写到第几章，实时写回 #chStatus。
-// baseIdx = 本批起始章下标；n = 本批章数；titles 累计 = 已开始写第 (titles+1) 章（第 0 个标题出现前写批内第 1 章）。
-function makeStreamProgress(st, baseIdx, n){
-  let total = 0, titles = 0;
-  return function(delta){
-    if(!st) return;
-    total += String(delta||'').length;
-    const m = String(delta).match(/【第\s*\d+\s*章】/g);
-    if(m) titles += m.length;
-    const curBatch = Math.min(titles, Math.max(0, n-1));          // 批内 0 基：当前写到第几章
-    const cur = baseIdx + curBatch;
-    st.className = 'status';
-    st.textContent = `正在写第 ${cur+1}/${state.chapters.length} 章 · 已生成 ${total} 字`;
-  };
-}
-
-// 通用拆分器：以【第N章】标题行为界切分正文，返回全部切出的块（不限定数量）。
-// 与 splitTwoChapters 同源正则，供多章一体生成使用。是否切足数量由调用方校验。
-function splitNChapters(txt, n){
-  const parts = txt.split(/\n?\s*【?\s*第\s*\d+\s*章\s*[】]?[\s:：]*/).map(s=>s.trim()).filter(Boolean);
-  return parts.slice(0, n);   // 取前 n 块；切不足 n 由调用方抛错（杜绝错填、挤进一格）
-}
-
-// 一次连续写 n 章（复刻 genTwoChapters 全部规则，仅章数 2 → 用户任意 n）：
-// 单次请求连写 n 章保证人名地名关系一致 → 拆分为 n 块 → 篇幅均衡校验 → 逐章质检（前一章打磨结果作为后一章承接）
-// → 统一快照 + 落库（质检失败向上抛错，交由批次停批，绝不静默错填）。
+// 一次写 n 章（v10）：由「一次请求连写 n 章再 splitNChapters 切分」改为逐章顺序生成——每章独立一个请求，
+// 第 k 章用上一章刚生成/已写的真实正文承接；产出即章节，无需切分器判归属，杜绝整批错切/缺章/挤一格。
+// 篇幅均衡自动由每章独立生成其区间保证；质检随 writeOneChapterContent 逐章执行；失败向上抛错交由批次停批。
 async function genNChapters(start, n){
   if(n <= 0) return;
-  const mt = Math.round(chapterMaxTokens() * 1.6 * n / 2);   // n 章内容，每章约 0.8 单章上限的折算
-  const o = state.outline;
-  // 标题窗口：以本批开头章为中心，与单章共用 chapterTitleWindow，保证模型看见本章在全书中的位置与前后节奏
-  const titles = chapterTitleWindow(start);
-  const head = `故事标题：${o.title}\n一句话梗概：${o.logline}\n章节：${titles}`;
-  // 一致性词典（v8 统一走 chapterGlossaryBlock）
-  const gloss = chapterGlossaryBlock();
-  // 批量字数说明（v8c 复刻）：n 章各自落在所选区间，合计上限为单章上限 × n。作为独立块追加在写作任务之后。
-  const batchSizeNote = `\n【每章篇幅体量】${n} 章各自都应落在 ${fmtRange(selSize().range)} 字区间内，${n} 章尽量均衡，不可一章过短、一章过长（合计不超过该区间上限的 ${n} 倍，即 ${fmtRange(selSize().range)} × ${n}）。`;
-   const prevEnd = start>0 ? cumulativeChapters(start) : '';
-  const user = `${head}${gloss}
-\n【写作任务】请连续写作以下 ${n} 章正文，章间要紧扣衔接、人名地名人物关系保持一致，各自维持单章既定体量与章末钩子。\n
-${batchSizeNote}
-${longChapterContext(start)}
-${prevEnd?('\n【前文完整正文（含前面全部已写章节，用于衔接承接，只增不改）】\n'+prevEnd):'\n（这是小说的最开头，请直接从第一章写起）'}
-
-请严格按顺序输出 ${n} 章正文，用【第${start+1}章】至【第${start+n}章】作为分段标题。只输出正文，不要多余解释。`;
-  // 实时进度（成本0）：仅 DeepSeek 接 onStream 显示「写到第几章 + 已生成字数」；其他 AI 不流式。
-  const stProg = $('#chStatus');
-  const onStream = currentIsDeepSeek() ? makeStreamProgress(stProg, start, n) : null;
-  const txt = await callDeepSeek(longChapterSys(), user, {maxTokens: mt, onStream});
-  const parts = splitNChapters(txt, n);
-  // 建议2/3 复刻：必须切足 n 章才落库，否则抛错交给批次停批，绝不静默错填（杜绝“多章挤进一格”“缺章”）
-  if(parts.length !== n || parts.some(p=>!p || !p.trim())){
-    throw new Error(`模型未按【第N章】分别输出 ${n} 章正文，未落库。可重试本批。`);
-  }
-  // 建议2（v8d 复刻）：篇幅合理性校验——若某章远低于所选字数下限（< 下限的 45%），多半是模型把多章内容塞给了某章，
-  // 判定为可疑并抛错停批，而不是静默产出长短失衡的结果。
-  const ink = selSize().range.min;
-  const sizes = parts.map(p=>String(p).replace(/\s/g,'').length);
-  const shortMany = Math.min.apply(null, sizes), longMany = Math.max.apply(null, sizes);
-  if(longMany > 0 && shortMany < ink * 0.45 && longMany > shortMany * 3){
-    throw new Error(`${n} 章篇幅失衡（各章 ${sizes.join('/')} 字），可能被模型错切，未落库。可重试本批。`);
-  }
-  // 质检搬入批量（v8b 复刻）：对 n 章分别执行所勾选的质量机制；下一章质检时以上一章打磨后的内容作为“前章承接”。
-  // 逐章 buildChapterUser 重建，保证质检的“前章结尾/下一章概要”上下文正确。先质检通过、后统一快照+落库。
-  const polished = [];
   for(let k=0;k<n;k++){
     const idx = start + k;
-    if(polished.length){ state.chapters[idx].content = polished[polished.length-1]; }  // 临时写入上一章打磨结果供承接
-    const p = await applyChapterQuality(parts[k].trim(), buildChapterUser(idx), mt);
-    polished.push(p);
-  }
-  for(let k=0;k<n;k++){
-    snapshotChapterVersion(start+k);            // v7.2：覆盖前存旧版，支持回退
-    state.chapters[start+k].content = polished[k];
+    // 上一章真实正文已被本循环上一轮写入 state.chapters[start+k-1].content，
+    // buildChapterUser 的 prevChapter 自动读它为承接（genTwoChapters 同）。
+    const txt = await writeOneChapterContent(idx, buildChapterUser(idx));
+    snapshotChapterVersion(idx);            // v7.2：覆盖前存旧版，支持回退
+    state.chapters[idx].content = txt;
   }
 }
 
@@ -3717,31 +3629,23 @@ function rebindHistPanel(){
 }
 
 /* =========================================================
- * 创作规范弹层
+ * 创作规范：故事页内联选择器（仅作用于写小说）
  * ========================================================= */
-function renderSpecList(){
-  const cur = getSpec().id;
-  const list = $('#specList'); if(!list) return;
-  list.innerHTML = SPECS.map(s=>`
-    <button class="spec-row ${s.id===cur?'active':''}" data-spec="${s.id}">
-      <div class="sr-title">${s.name} ${s.id===cur?'<span class="sr-check">✓</span>':''}</div>
-      <div class="sr-desc">${s.desc}</div>
-    </button>`).join('');
-  $$('#specList .spec-row').forEach(b=> b.onclick = ()=> selectSpec(b.dataset.spec));
-}
-function openSpecPanel(){ renderSpecList(); $('#specPanel').classList.remove('hidden'); }
-function closeSpecPanel(){ $('#specPanel').classList.add('hidden'); }
 function selectSpec(id){
   const cfg = getCfg(); cfg.spec = id; saveCfg(cfg);
-  closeSpecPanel(); renderSpecList(); updateSpecButton();
   toast('创作规范：'+getSpec().name+'（仅作用于写小说）');
-  if(currentStep===1) render(); // 刷新首页的规范提示
+  if(currentStep===1) render(); // 刷新故事页规范高亮
 }
-function updateSpecButton(){
-  const b = $('#btnSpec'); if(!b) return;
-  const lab = b.querySelector('.tb-lab');
-  if(lab) lab.textContent = getSpec().short;
+
+/* 主题弹层（顶栏 🎨 入口） */
+function openThemePanel(){
+  const p = $('#themePanel'); if(!p) return;
+  // 同步高亮当前主题
+  const cur = (document.documentElement.getAttribute('data-theme')) || 'dark';
+  $$('.theme-btns .theme').forEach(b=> b.classList.toggle('active', b.dataset.theme===cur));
+  p.classList.remove('hidden');
 }
+function closeThemePanel(){ const p=$('#themePanel'); if(p) p.classList.add('hidden'); }
 
 /* =========================================================
  * 设置弹窗（多 AI 模型：服务列表 → 组详情 → 三级联动选择）
@@ -3929,13 +3833,12 @@ function init(){
   $('#btnSettings').onclick = openSettings;
   // 历史作品按钮：展开/收起弹层；新建小说 / 新建长篇按钮
   rebindHistPanel();
-  // 创作规范按钮：展开/收起弹层（仅作用于写小说）
-  const btnSpec = $('#btnSpec');
-  if(btnSpec) btnSpec.onclick = (e)=>{ e.stopPropagation(); const p=$('#specPanel'); if(p.classList.contains('hidden')) openSpecPanel(); else closeSpecPanel(); };
-  updateSpecButton();
-  // 点击空白处关闭规范/历史弹层
+  // 主题按钮：展开/收起主题弹层
+  const btnTheme = $('#btnTheme');
+  if(btnTheme) btnTheme.onclick = (e)=>{ e.stopPropagation(); const p=$('#themePanel'); if(p.classList.contains('hidden')) openThemePanel(); else closeThemePanel(); };
+  // 点击空白处关闭主题/历史弹层
   document.addEventListener('click', (e)=>{
-    const p = $('#specPanel'); if(p && !p.classList.contains('hidden') && !p.contains(e.target) && !e.target.closest('#btnSpec')) closeSpecPanel();
+    const t = $('#themePanel'); if(t && !t.classList.contains('hidden') && !t.contains(e.target) && !e.target.closest('#btnTheme')) closeThemePanel();
     const h = $('#histPanel'); if(h && !h.classList.contains('hidden') && !h.contains(e.target) && !e.target.closest('#btnHist')) closeHistPanel();
   });
   $$('[data-close]').forEach(b=> b.onclick = closeSettings);
@@ -3949,8 +3852,8 @@ function init(){
   if(selM) selM.onchange = ()=>{ if(editCfg){ editCfg.active.model = selM.value; updateCfgBadge(); } };
   const cfgBadge=$('#cfgBadge'); if(cfgBadge) cfgBadge.onclick = openSettings;
   updateCfgBadge();
-  // 主题按钮
-  $$('.theme-btns .theme').forEach(b=> b.onclick = ()=> applyTheme(b.dataset.theme));
+  // 主题按钮（顶栏 🎨 弹层内）：点击即应用并收起
+  $$('.theme-btns .theme').forEach(b=> b.onclick = ()=>{ applyTheme(b.dataset.theme); closeThemePanel(); });
   // 机甲主题顶部胶囊导航
   const mtn = $('#mechaTopNav');
   if(mtn){

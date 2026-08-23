@@ -84,7 +84,8 @@
   color: var(--cy-cyan);
   box-shadow: 0 0 8px rgba(168,85,247,0.2);
 }
-[data-theme="cyber"] #topLeft .icon-btn {
+[data-theme="cyber"] .tb-left .icon-btn,
+[data-theme="cyber"] .tb-right .icon-btn {
   background: rgba(168,85,247,0.12);
   border: 1px solid rgba(168,85,247,0.35);
   border-radius: 10px;
