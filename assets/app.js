@@ -104,7 +104,7 @@ function getCfg(){
 function saveCfg(cfg){ localStorage.setItem(KEY_CFG, JSON.stringify(cfg)); }
 
 /* ---------- 主题切换（单页内深色 / 3D 黑板 / 热血 FC） ---------- */
-const THEMES = ['dark','blackboard','mecha','cyber','guofeng'];
+const THEMES = ['dark','light','blackboard','mecha','cyber','guofeng'];
 let bbLoaded = false;
 function ensureBlackboard(){
   if(bbLoaded) return Promise.resolve();
@@ -222,7 +222,7 @@ function migrateRecipeSet(set, legacyRecipe){
     const out = {
       structure: (typeof set.structure === 'string' && STRUCTURE_IDS.includes(set.structure)) ? set.structure : null,
       rhythm: (typeof set.rhythm === 'string' && RHYTHM_IDS.includes(set.rhythm)) ? set.rhythm : null,
-      quality: Array.isArray(set.quality) ? set.quality.filter(q=> QUALITY_IDS.includes(q)) : []
+      quality: Array.isArray(set.quality) ? set.quality.filter(q=> QUALITY_IDS.includes(q)).slice(0,1) : [] // 质量已改互斥单选：旧多选仅保留首个
     };
     // 修正结构维度内部互斥：若同时出现多个结构，只保留第一个
     if(STRUCTURE_IDS.indexOf(out.structure) > -1) out.structure = out.structure;
@@ -455,7 +455,7 @@ rules：role/plot/world 各按 0-100 打分；pass=true 当且仅当三维都 �
  *                              hero英雄之旅 / savecat节拍表 / seven七点结构
  * 节奏(RHYTHMS, 单选互斥)      web黄金网文 / repress压抑反转 / slice慢生活
  *                              mystery悬疑解谜 / epic群像史诗 / fatal悲剧宿命 / inward文艺向内
- * 质量(QUALITIES, 可多选可空)   dual写手-编辑双审 / selfref自省重写 / plothole伏笔洞检测
+ * 质量(QUALITIES, 互斥单选可空)   dual写手-编辑双审 / selfref自省重写 / plothole伏笔洞检测
  * 页面选择与介绍折叠遵循 v2 方案；默认节奏为 web（黄金网文），默认结构 mesh。
  * ========================================================= */
 const SIZE_DEFAULT = { min:3000, max:5000 };
@@ -766,7 +766,48 @@ function chapterMaxTokens(){
   else base = Math.round(totalWordsBase() / ((sz.range.min + sz.range.max) / 2));
   return Math.min(20000, Math.max(600, Math.ceil(base * 1.6)));
 }
+// 段落去重（落库前安全网）：把正文按空行切成段落，若有相邻两段相似度 ≥0.8（80% 以上重叠），
+// 则按“谁更像原稿/更长”保留其一、丢弃重复的那段，避免单章因多次段落级重写而出现整段重复。
+function dedupAdjacentParagraphs(text){
+  if(!text) return text;
+  const sep = '\n\n';
+  const paras = String(text).split(sep).map(p=> p.trim());
+  if(paras.length < 2) return text;
+  const norm = s => s.replace(/\s+/g,' ');
+  // 相似度 = 2×公共子串长度占两段长度之和的比例（粗略，够用于整段重复检测）
+  function sim(a,b){
+    const aa = norm(a), bb = norm(b);
+    if(!aa.length || !bb.length) return 0;
+    const short = aa.length < bb.length ? aa : bb;
+    const long = aa.length < bb.length ? bb : aa;
+    // 用重叠滑动窗口取最大公共子串近似
+    let best = 0;
+    for(let step = Math.max(2, Math.floor(short.length/4)); step <= short.length; step++){
+      let found = false;
+      for(let k=0; k+step <= short.length; k++){
+        if(long.indexOf(short.slice(k,k+step)) >= 0){ found = true; best = step; break; }
+      }
+      if(!found) break;
+    }
+    return 2*best / (aa.length + bb.length);
+  }
+  const out = [];
+  for(const p of paras){
+    if(!p) continue;                       // 跳过空段
+    const last = out[out.length-1];
+    if(last && sim(p, last) >= 0.8){
+      // 保留更长/更完整的一段（通常新改写段更长，保留它）；等长时保留后插入的
+      if(p.length > last.length) out[out.length-1] = p;
+      else if(p.length === last.length && out[out.length-1] && p !== last) out[out.length-1] = last;
+      continue;                            // 丢弃重复的当前段
+    }
+    out.push(p);
+  }
+  return out.join(sep);
+}
+
 // 把「锚点 → 改写段落」应用回初稿（段落级重写合并）。锚点找不到则跳过该条，保守不破坏正文。
+// 采用「删除→插入」：以锚点句定位其所在整段，删掉该段后用改写段顶替，杜绝「原文保留+改写追加」式重复。
 function applyPatches(draft, patches){
   if(!Array.isArray(patches) || !patches.length) return draft;
   let out = draft;
@@ -781,6 +822,7 @@ function applyPatches(draft, patches){
     if(segEnd < 0) segEnd = out.length;
     const leading = out.slice(0, segStart);
     const trailing = out.slice(segEnd);
+    // 删除→插入：删掉锚点所在整段，用改写段 r 顶替，从根上杜绝“原文保留+改写追加”式重复。
     out = leading + r + (trailing.startsWith('\n') || /[\n。！？）」』]\s*$/.test(r) ? trailing : '\n' + trailing);
   }
   return out;
@@ -1101,7 +1143,7 @@ function viewStory(){
         <div id="chaptersWrap"></div>
         <div class="btn-row" style="margin-top:12px">
           <button id="btnGenAllChapters" class="btn primary">${isLong()?'⚡ 生成下一批 2 章':'⚡ 一键生成全部章节'}</button>
-          ${ isLong() ? '<button id="btnGenOneChapter" class="btn ghost">⚡ 生成单章</button>' : '<button id="btnReOutline" class="btn ghost">重生成大纲</button>' }
+          ${ isLong() ? '<button id="btnGenOneChapter" class="btn blue">⚡ 生成单章</button>' : '<button id="btnReOutline" class="btn ghost">重生成大纲</button>' }
         </div>
         <p id="chStatus" class="status"></p>
         ${ isLong() ? `<div class="long-progress"></div>` : '' }
@@ -2280,8 +2322,8 @@ function bindView(){
     const id = b.dataset.quality;
     state.recipeSet = state.recipeSet || {structure:null,rhythm:null,quality:[]};
     if(!Array.isArray(state.recipeSet.quality)) state.recipeSet.quality = [];
-    if(state.recipeSet.quality.includes(id)) state.recipeSet.quality = state.recipeSet.quality.filter(q=> q!==id);
-    else state.recipeSet.quality.push(id);
+    // 质量机制改为互斥单选：点已选中的取消；否则只保留这一个
+    state.recipeSet.quality = (state.recipeSet.quality.includes(id)) ? [] : [id];
     persist(); render();
   });
   // 体量二选一：点击 ☑ 勾选该侧（radio，二选一）
@@ -2548,7 +2590,7 @@ function recipePicker(){
   const core = twOn ? `
     ${dim('结构骨架','🏗️','单选 · 可选其一', STRUCTURES.map(it=>card(it,'structure', it.id===rs.structure)).join(''))}
     ${dim('节奏风格','⚡','单选 · 可选其一（默认黄金网文）', RHYTHMS.map(it=>card(it,'rhythm', it.id===rs.rhythm)).join(''))}
-    ${dim('质量机制','🛡️','可多选 · 可不选', QUALITIES.map(it=>card(it,'quality', hasQuality(it.id))).join(''))}
+    ${dim('质量机制','🛡️','单选 · 可不选', QUALITIES.map(it=>card(it,'quality', hasQuality(it.id))).join(''))}
     <div class="poly-size">
       <div class="poly-head"><span class="poly-ic">📏</span><b>体量设定</b><span class="poly-rule">先勾选一项 · 再滑动调区间 · 二选一（全书总字数 ${totalWan()} 万字）</span></div>
       <div class="size-grid">
@@ -2742,7 +2784,10 @@ async function applyChapterQuality(txt, user, mt, onPhase){
       }
     }
   }
-  return txt.trim();
+  // 落库前安全网：仅在确实启用了任一段落级质量机制（可能产生段落级改写）时才做相邻去重，
+  // 否则保留原文不动，避免多余处理或误改。
+  return (hasQuality('dual') || hasQuality('selfref') || hasQuality('plothole'))
+    ? dedupAdjacentParagraphs(txt).trim() : txt.trim();
 }
 // 组装单章生成的 user 提示词。恒定前缀块（标题/梗概/全部章节标题/一致性词典）保持在前、全章不变，
 // 以最大化 DeepSeek 上下文缓存命中；可变信息（本章概要/结构/上一章结尾）放最末。
