@@ -21,6 +21,7 @@ const state = {
   recipeSet: { structure:'mesh', rhythm:'web', quality:[] }, // 长篇三维写作范式：结构(单选)+节奏(单选)+质量(可多选)
   wordRange: null,      // 用户填的单章字数区间 {min,max}；与 chapterRange 互斥
   chapterRange: null,   // 用户填的全书章节区间 {min,max}；与 wordRange 互斥
+  totalWords: null,     // 用户最前选定的「全书大约总字数」（原始整数字，UI 以【万】输入；null=未设）
   idea: '',
   coverPrompt: '',      // 整部小说封面提示词（场景页生成 / 长篇模式用）
   coverWithTitle: false,// 封面提示词是否包含「汉字书名」（false=纯画面无文字）
@@ -157,6 +158,7 @@ function projectSnapshot(){
     recipeSet: state.recipeSet || { structure:'mesh', rhythm:'web', quality:[] },
     wordRange: state.wordRange || null,
     chapterRange: state.chapterRange || null,
+    totalWords: state.totalWords || null,
     idea: state.idea,
     coverPrompt: state.coverPrompt,
     coverWithTitle: state.coverWithTitle,
@@ -185,6 +187,7 @@ function applyProject(p){
   state.recipeSet = migrateRecipeSet(p.recipeSet, p.recipe);
   state.wordRange = (p.wordRange && p.wordRange.min && p.wordRange.max) ? {min:+p.wordRange.min, max:+p.wordRange.max} : (p.chapterRange ? null : null);
   state.chapterRange = (p.chapterRange && p.chapterRange.min && p.chapterRange.max) ? {min:+p.chapterRange.min, max:+p.chapterRange.max} : null;
+  state.totalWords = (p.totalWords && +p.totalWords>0) ? +p.totalWords : null;
   state.idea = p.idea || '';
   state.coverPrompt = p.coverPrompt || '';
   state.coverWithTitle = !!p.coverWithTitle;
@@ -207,7 +210,7 @@ function clearState(){
   state.mode = 'shortfilm';
   state.recipe = 'mesh';
   state.recipeSet = { structure:'mesh', rhythm:'web', quality:[] };
-  state.wordRange = null; state.chapterRange = null;
+  state.wordRange = null; state.chapterRange = null; state.totalWords = null;
   state.idea = ''; state.outline = null; state.coverPrompt = ''; state.coverWithTitle = false; state.outlineConfirmed = false;
   state.pendingGlossary = null; state.glossAdherence = 60; state.glossAllowFill = false; state.gsCollapsed = true;
   state.chapters = []; state.characters = []; state.scenes = []; state.storyboard = []; state.boardConcepts = []; state.titleHistory = []; state.raw = {};
@@ -429,7 +432,7 @@ const PROMPTS = {
   coverSys: `你是一位资深书籍装帧设计师与插画师。根据用户提供的小说标题与故事梗概，为这部小说的【封面图】产出一条可粘贴到「即梦(Dreamina)」的中文出图提示词【纯画面版，不含任何文字】。
 要求：画面要抓住小说核心意象与情绪（世界观/主角困境/关键场景），构图强烈、光影戏剧化、色彩有记忆点；为封面预留的书法/书名排布位置要留出充足留白（如顶部或居中留白区），方便排版方后期加字；长度 150-280 字；结尾可附风格关键词（如"电影级打光、史诗感、高对比、厚涂插画"）；**严禁生成任何文字/标题/字幕/笔画**，画面里不要出现可辨认的汉字或拼音字母；只输出提示词正文，不要解释、不要 markdown 代码块。`,
 
-  longOutlineSys: `你是一位能驾驭超长篇的著名小说架构师。根据用户的一句话或几句构想，设计一部经典的【长篇小说】，最终成品体量约 30 万字。
+  longOutlineSys: `你是一位能驾驭超长篇的著名小说架构师。根据用户的一句话或几句构想，设计一部经典的【长篇小说】，最终成品体量以用户指定的总字数目标为准。
 你不能用三幕流水的短剧套路来搭长篇，而要用真正的长篇小说结构美学来设计骨架。请严格只输出如下 JSON（不要任何解释、不要 markdown 代码块）：
 {"title":"小说名","logline":"一句话梗概（含核心冲突与深层命题）","structure":{"mode":"结构模式","designReason":"为何选此结构、其精妙之处","mainLine":"主线：贯穿始终的核心冲突","subLines":["副线1：具体内容","副线2：具体内容"],"hiddenLine":"暗线：先埋设后揭晓的隐藏真相","pivotChapter":"多线汇合/大逆转所在章号(如 24)","threeFix":"三定：定时间轴 / 定汇合点 / 定主次(哪条线是主轴)"},"glossary":{"characters":[{"name":"人物姓名","identity":"身份地位","role":"在故事中的职能/作用","relation":"与该人相关人物及关系","trait":"性格/外貌/说话特征要点"}],"places":[{"name":"地名/场景名","type":"类型(城/宗门/村镇等)","note":"设定要点与作用"}],"propernouns":[{"name":"专名/专属设定术语","note":"含义与拼写唯一约定"}]},"chapters":[{"title":"第1章标题","summary":"该章核心事件与转折，1-2句","line":"该章推进哪条线/埋哪个伏笔/节奏起伏"}]}
 选择结构模式时，默认优先采用【多线交织或网状交织】（次选单线因果、板块拼贴或闭环循环），并补齐 mainLine / subLines / hiddenLine 三条以上的叙事线索；多线必须做到"三定"：定时间轴、定汇合点（在哪一章几条线收束汇合）、定主次（以一条线为轴，其余服务它），否则会散架。暗线要从早期章节就埋设，直到结局呼应揭晓。每章 title 有钩子感，summary 写清人物动机、情节推进与本批应埋伏笔；line 标注该章归属的线索与节奏（如"主线推进/暗线植入/支线完成/情绪张力升高"），使整体节奏有跌宕起伏的事件密度控制，而非平铺。
@@ -661,11 +664,14 @@ function selSize(){
   return { kind:'word', range: SIZE_DEFAULT };
 }
 const fmtRange = r => `${r.min}-${r.max}`;
-// 由区间中值 30 万映射到对侧建议值
+// 全书总字数基准：优先用用户在「最前」设定的 totalWords，未设时回退 30 万
+function totalWordsBase(){ return (state.totalWords && +state.totalWords>0) ? +state.totalWords : 300000; }
+const totalWan = () => (totalWordsBase()/10000).toLocaleString('en-US');
+// 由区间中值映射到对侧建议值（总字数可调，故按 totalWordsBase）
 function estCounterpart(sz){
   const mid = (sz.range.min + sz.range.max) / 2;
   if(!mid) return null;
-  return sz.kind==='word' ? Math.round(300000/mid) : Math.round(300000/mid);
+  return Math.round(totalWordsBase()/mid);
 }
 // 体量一句提示（页面 + 可复用）
 function sizeHintText(){
@@ -757,7 +763,7 @@ function chapterMaxTokens(){
   const sz = selSize();
   let base;
   if(sz.kind==='word') base = sz.range.max;
-  else base = Math.round(300000 / ((sz.range.min + sz.range.max) / 2));
+  else base = Math.round(totalWordsBase() / ((sz.range.min + sz.range.max) / 2));
   return Math.min(20000, Math.max(600, Math.ceil(base * 1.6)));
 }
 // 把「锚点 → 改写段落」应用回初稿（段落级重写合并）。锚点找不到则跳过该条，保守不破坏正文。
@@ -784,8 +790,8 @@ function applyPatches(draft, patches){
 function outlineSizeNote(){
   const sz = selSize();
   const cnt = estCounterpart(sz);
-  if(sz.kind === 'word') return `全书目标约 30 万字；单章篇幅落在 ${fmtRange(sz.range)} 字，据此全书约 ${cnt} 章。`;
-  return `全书目标约 30 万字 / ${fmtRange(sz.range)} 章，据此每章约 ${cnt} 字。`;
+  if(sz.kind === 'word') return `全书目标约 ${totalWan()} 万字；单章篇幅落在 ${fmtRange(sz.range)} 字，据此全书约 ${cnt} 章。`;
+  return `全书目标约 ${totalWan()} 万字 / ${fmtRange(sz.range)} 章，据此每章约 ${cnt} 字。`;
 }
 /* 万物词典统一要求块：无论选哪种结构都追加到大纲提示词，保证模型输出 glossary（建议7/决策8/9）
  * 用独立的“追加 JSON 字段”写法，兼容各结构各自的 schema，无需改每个结构模板。 */
@@ -887,8 +893,8 @@ function closeCoveragePanel(){ const p=$('#cvPanel'); if(p) p.remove(); }
 function sizeChapterInjection(){
   const sz = selSize();
   const cnt = estCounterpart(sz);
-  if(sz.kind === 'word') return `本章正文应落在 ${fmtRange(sz.range)} 字区间（全书约 ${cnt} 章、总目标约 30 万字），据此把握本章的容量与叙事节奏。`;
-  return `全书约 ${fmtRange(sz.range)} 章（每章据此约 ${cnt} 字），总目标约 30 万字，据此把握单章容量与节奏。`;
+  if(sz.kind === 'word') return `本章正文应落在 ${fmtRange(sz.range)} 字区间（全书约 ${cnt} 章、总目标约 ${totalWan()} 万字），据此把握本章的容量与叙事节奏。`;
+  return `全书约 ${fmtRange(sz.range)} 章（每章据此约 ${cnt} 字），总目标约 ${totalWan()} 万字，据此把握单章容量与节奏。`;
 }
 // 更新体量派生提示（页面内）
 function bindSizeHint(){
@@ -1056,7 +1062,7 @@ const CYBER_HOME_GRID = `
 function viewStory(){
   if(!state.outline){
     const homeSub = isLong()
-      ? '用几句话描述你的长篇构想（世界观、主角、核心冲突都行）。AI 会先扩写成与所选体量匹配的全书大纲，之后按「两章一批」逐步写到约 30 万字。'
+      ? `用几句话描述你的长篇构想（世界观、主角、核心冲突都行）。AI 会先扩写成与所选体量匹配的全书大纲，之后按「两章一批」逐步写到约 ${totalWan()} 万字。`
       : '用几句话描述你的点子（世界观、主角、核心冲突都行）。AI 会扩写成完整故事大纲与章节。';
     return CYBER_HOME_GRID + `
     <div class="card">
@@ -1095,7 +1101,7 @@ function viewStory(){
         <div id="chaptersWrap"></div>
         <div class="btn-row" style="margin-top:12px">
           <button id="btnGenAllChapters" class="btn primary">${isLong()?'⚡ 生成下一批 2 章':'⚡ 一键生成全部章节'}</button>
-          ${ isLong() ? '' : '<button id="btnReOutline" class="btn ghost">重生成大纲</button>' }
+          ${ isLong() ? '<button id="btnGenOneChapter" class="btn ghost">⚡ 生成单章</button>' : '<button id="btnReOutline" class="btn ghost">重生成大纲</button>' }
         </div>
         <p id="chStatus" class="status"></p>
         ${ isLong() ? `<div class="long-progress"></div>` : '' }
@@ -1766,7 +1772,7 @@ function renderLongProgress(){
   let chars = 0; state.chapters.forEach(c=> chars += countWords(c.content).total);
   const sz = selSize();
   const sizeName = sz.kind==='word' ? `每章约 ${fmtRange(sz.range)} 字` : `全书约 ${fmtRange(sz.range)} 章`;
-  el.innerHTML = `<span class="pill">写作进度：${done}/${total} 章</span> <span class="pill">已写约 ${chars.toLocaleString('en-US')} 字（目标 30 万字 · ${sizeName}）</span>`;
+  el.innerHTML = `<span class="pill">写作进度：${done}/${total} 章</span> <span class="pill">已写约 ${chars.toLocaleString('en-US')} 字（目标 ${totalWan()} 万字 · ${sizeName}）</span>`;
 }
 
 /* ---------- P2 角色 ---------- */
@@ -2276,6 +2282,17 @@ function bindView(){
   });
   // 体量二选一：点击 ☑ 勾选该侧（radio，二选一）
   $$('.size-pick').forEach(b=> b.onclick = ()=>{ pickSize(b.dataset.pick); });
+  // 全书总字数：直接填数字（单位：万）。失焦/回车提交 → 设定或解锁范式与体量
+  const twIn = $('#totalWordsIn');
+  if(twIn){
+    twIn.addEventListener('keydown', e=>{ if(e.key==='Enter') twIn.blur(); });
+    twIn.addEventListener('change', ()=>{
+      const v = parseFloat(twIn.value);
+      if(v && v>0) state.totalWords = Math.round(v*10000);
+      else { state.totalWords = null; }
+      persist(); render();
+    });
+  }
   initDRS();
   bindGlossary();
   bindPendingGlossary();
@@ -2283,6 +2300,13 @@ function bindView(){
   const btnCO = $('#btnConfirmOutline'); if(btnCO) btnCO.onclick = ()=>{ state.outlineConfirmed=true; persist(); render(); };
   const btnRO = $('#btnReOutline'); if(btnRO) btnRO.onclick = ()=>{ state.outline=null; state.outlineConfirmed=false; state.chapters=[]; persist(); render(); };
   const btnGA = $('#btnGenAllChapters'); if(btnGA) btnGA.onclick = genAllChapters;
+  const btnGOne = $('#btnGenOneChapter');
+  if(btnGOne) btnGOne.onclick = async ()=>{
+    // 生成最新一章：定位第一个尚无正文的章节
+    const idx = state.chapters.findIndex(c => !(c.content && String(c.content).trim()));
+    if(idx < 0){ toast('所有章节均已生成，无需单章生成'); return; }
+    await genOneChapter(idx, btnGOne, {});
+  };
 
   // 标题管理器：点击当前名改名；点小三角展开/收起曾用名
   const tmCur = $('#tmCur'); if(tmCur) tmCur.onclick = ()=>{
@@ -2498,6 +2522,9 @@ function recipePicker(){
   // 体量小结：未勾选任何一侧时用默认文字提示
   const sz = selSize();
   const szLabel = sz.kind==='word' ? `单章 ${fmtRange(sz.range)} 字` : `全书 ${fmtRange(sz.range)} 章`;
+  // 总字数门控：最前先填“全书大约总字数（万）”，填了才展开范式与体量
+  const twOn = (state.totalWords && +state.totalWords>0);
+  const twWan = twOn ? String(Math.round(+state.totalWords/10000)) : '';
   // 卡片渲染（dim 为维度名，selKeys 判断选中，toggle 是点击后是否多选）
   const card = (it, field, isSel, extra) => `
     <button type="button" class="recipe ${isSel?'active':''}" data-${field}="${esc(it.id)}">
@@ -2513,23 +2540,13 @@ function recipePicker(){
       <div class="poly-head"><span class="poly-ic">${icon}</span><b>${title}</b><span class="poly-rule">${rule}</span></div>
       <div class="poly-grid">${cardsHtml}</div>
     </div>`;
-  return `<div class="card recipe-card poly-card">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px">
-      <h3 style="margin:0;font-size:15px">📚 写作范式（结构 · 节奏 · 质量）</h3>
-      <span class="pill tag-ok">${selRh ? '节奏：'+selRh.name : '默认节奏：黄金网文'}</span>
-    </div>
-    <div class="poly-combo">
-      <span class="pc-lbl">当前组合</span>
-      <span class="pc-item">结构：${labelSt}</span>
-      <span class="pc-item">节奏：${labelRh}</span>
-      <span class="pc-item">质量：${labelQ}</span>
-      <span class="pc-item">体量：${szLabel}</span>
-    </div>
+  // 门控：未填总字数时，范式与体量折叠，仅展示待设提示
+  const core = twOn ? `
     ${dim('结构骨架','🏗️','单选 · 可选其一', STRUCTURES.map(it=>card(it,'structure', it.id===rs.structure)).join(''))}
     ${dim('节奏风格','⚡','单选 · 可选其一（默认黄金网文）', RHYTHMS.map(it=>card(it,'rhythm', it.id===rs.rhythm)).join(''))}
     ${dim('质量机制','🛡️','可多选 · 可不选', QUALITIES.map(it=>card(it,'quality', hasQuality(it.id))).join(''))}
     <div class="poly-size">
-      <div class="poly-head"><span class="poly-ic">📏</span><b>体量设定</b><span class="poly-rule">先勾选一项 · 再滑动调区间 · 二选一</span></div>
+      <div class="poly-head"><span class="poly-ic">📏</span><b>体量设定</b><span class="poly-rule">先勾选一项 · 再滑动调区间 · 二选一（全书总字数 ${totalWan()} 万字）</span></div>
       <div class="size-grid">
         ${sizeSlider('word', '每章字数（字）', 1000, 12000, 100,
           state.wordRange ? state.wordRange : null,
@@ -2541,7 +2558,26 @@ function recipePicker(){
       <p class="size-hint" id="sizeHint">${sizeHintText()}</p>
     </div>
     ${pendingGlossaryPanel()}
-    <p class="muted" style="margin:8px 0 0">至少选择结构、节奏、质量其中一项即可生文；体量需先用 ☑ 勾选一项才能调整滑条。介绍默认折叠，选中后自动展开。</p>
+    <p class="muted" style="margin:8px 0 0">至少选择结构、节奏、质量其中一项即可生文；体量需先用 ☑ 勾选一项才能调整滑条。介绍默认折叠，选中后自动展开。</p>`
+    : `<div class="tw-lock"><span class="tw-lock-ic">🔒</span><span>待填入全书总字数后，此处才展开“写作范式”与“体量设定”。</span></div>`;
+  return `<div class="card recipe-card poly-card">
+    <div class="tw-panel">
+      <div class="poly-head"><span class="poly-ic">📐</span><b>全书总字数</b><span class="poly-rule">写正文前先定总目标 · 填数字（单位：万）</span></div>
+      <div class="tw-row">
+        <input type="number" id="totalWordsIn" class="tw-in" min="1" step="1" inputmode="numeric" placeholder="如 30" value="${twWan}" ${twOn?'':'data-first'} />
+        <span class="tw-unit">万字</span>
+        ${twOn ? `<span class="pill tag-ok">目标 ${totalWan()} 万字</span>` : ''}
+      </div>
+      <p class="size-hint" id="twHint">${twOn ? '总字数已设定，下方范式与体量将据此自动推导。' : '全书的“大约总字数”（写成约 3 万 ~ 60 万皆可）。此项必填，填完才解锁下方设置。'}</p>
+    </div>
+    <div class="poly-combo">
+      <span class="pc-lbl">当前组合</span>
+      <span class="pc-item">结构：${labelSt}</span>
+      <span class="pc-item">节奏：${labelRh}</span>
+      <span class="pc-item">质量：${labelQ}</span>
+      <span class="pc-item">体量：${szLabel}</span>
+    </div>
+    ${core}
   </div>`;
 }
 
@@ -2726,9 +2762,10 @@ function buildChapterUser(i, opt={}){
   // 万物词典一致性基准（建议5）：全文服从，不得自造新名（v8 统一走 chapterGlossaryBlock）
   const gloss = chapterGlossaryBlock();
   const head = `故事标题：${o.title}\n一句话梗概：${o.logline}\n章节：${titles}${gloss}`;
-  // 重生成/首次都带上一章中文内容到末尾，保证承接；可选带下一章概要（重生成时注入）
+  // 重生成/首次都带上一章中文内容到末尾，保证承接；可选带下一章概要（仅当重生成且下一章已有内容才注入）
   let tail = `本章标题：${state.chapters[i].title}\n本章概要：${o.chapters[i].summary}${longChapterContext(i)}${prev?('\n上一章结尾：'+prev.slice(-200)+'…'):'\n（这是第一章）'}`;
-  if(opt.regenerating && i < o.chapters.length-1){
+  const nextHasContent = i < o.chapters.length-1 && state.chapters[i+1] && state.chapters[i+1].content && String(state.chapters[i+1].content).trim();
+  if(opt.regenerating && nextHasContent){
     tail += `\n下一章概要（请预留衔接，但不要剧透下一章情节）：${o.chapters[i+1].summary||''}`;
   }
   // 人工干预要求（建议3·此轮）：重生成时遵循用户指定的改动方向
@@ -2845,7 +2882,7 @@ async function genTwoChapters(pairStart){
   // 一致性词典（v8 统一走 chapterGlossaryBlock）
   const gloss = chapterGlossaryBlock();
   // 批量字数说明（v8c）：两章各自落在所选区间，合计上限为单章上限 ×2。作为独立块追加在写作任务之后，使体量约束在批量场景更明确。
-  const batchSizeNote = `\n【每章篇幅体量】两章分别都应落在 ${fmtRange(selSize().range)} 字区间内；两章合计不超过该区间上限的 2 倍（即 ${fmtRange(selSize().range)} × 2）。前略后详、张弛可控，但每章本身不得超出单章上限太多。`;
+  const batchSizeNote = `\n【每章篇幅体量】两章各自都应落在 ${fmtRange(selSize().range)} 字区间内，两章尽量均衡，不可一章过短、一章过长（合计不超过该区间上限的 2 倍，即 ${fmtRange(selSize().range)} × 2）。`;
   const prevEnd = pairStart>0 ? state.chapters[pairStart-1].content.slice(-200) : '';
   const user = `${head}${gloss}
 \n【写作任务】请连续写作以下两章正文，章间要紧扣衔接、人名地名人物关系保持一致，各自维持单章既定体量与章末钩子。\n
@@ -2861,6 +2898,14 @@ ${prevEnd?('上一章结尾：'+prevEnd+'…'):''}
   // 建议2/3：两章必须都正确切出才落库，否则抛错交给批次停批，绝不静默错填（杜绝“两章挤进一格”）
   if(!pair[0] || !pair[1] || !pair[0].trim() || !pair[1].trim()){
     throw new Error('模型未按【第N章】分别输出两章正文，未落库。可重试本批。');
+  }
+  // 建议2（v8d）：篇幅合理性校验——若某章远低于所选字数下限（< 下限的 45%），多半是模型把两章内容塞给了另一章，
+  // 判定为可疑并抛错停批，交由用户重试，而不是静默产出一章过短的长短失衡结果。
+  const ink = selSize().range.min;   // 所选单章字数下限
+  const sizA = String(pair[0]).replace(/\s/g,'').length, sizB = String(pair[1]).replace(/\s/g,'').length;
+  const short = Math.min(sizA, sizB), long = Math.max(sizA, sizB);
+  if(long > 0 && short < ink * 0.45 && long > short * 3){
+    throw new Error(`两章篇幅失衡（第${pairStart+1}章 ${sizA} 字 / 第${pairStart+2}章 ${sizB} 字），可能被模型错切，未落库。可重试本批。`);
   }
   // 质检搬入批量 2 章（v8b）：对两章分别执行所勾选的质量机制；第二章质检时以打磨后的第一章作为“前章承接”。
   // 每章各自的 user 用 buildChapterUser 重建，保证质检的“前章结尾/下一章概要”上下文正确。

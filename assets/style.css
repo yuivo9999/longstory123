@@ -227,6 +227,15 @@ label.field>span{display:block;font-size:12px;color:var(--sub);margin-bottom:6px
 .poly-grid .recipe.active .r-check{border-color:var(--accent);background:var(--accent)}
 /* 体量设定 */
 .poly-size{margin-top:6px;padding-top:14px;border-top:1px dashed var(--line)}
+/* 全书总字数门控面板 */
+.tw-panel{margin-bottom:4px;padding:12px;border:1px solid var(--accent);border-radius:10px;background:color-mix(in srgb,var(--accent) 7%, var(--panel2))}
+.tw-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px}
+input.tw-in{flex:0 1 150px;width:150px;padding:10px 12px;font-size:16px;font-weight:700;text-align:center}
+.tw-unit{font-size:14px;color:var(--sub);font-weight:600}
+.tw-lock{display:flex;align-items:center;gap:8px;padding:22px 14px;border:1px dashed var(--line);border-radius:10px;color:var(--muted);font-size:13px;justify-content:center}
+.tw-lock-ic{font-size:18px}
+input.tw-in[data-first]{border-color:var(--accent);box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 40%, transparent)}
+input.tw-in[data-first]::placeholder{color:color-mix(in srgb,var(--accent) 70%, var(--muted));font-weight:600}
 .size-grid{display:flex;flex-direction:column;gap:12px;margin-top:8px}
 .size-block{display:flex;flex-direction:column;gap:6px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--panel2);transition:border-color .15s, box-shadow .15s}
 .size-block.on{border-color:var(--accent);box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 40%, transparent)}
