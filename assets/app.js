@@ -772,12 +772,19 @@ function outlineSizeNote(){
   if(sz.kind === 'word') return `全书目标约 30 万字；单章篇幅落在 ${fmtRange(sz.range)} 字，据此全书约 ${cnt} 章。`;
   return `全书目标约 30 万字 / ${fmtRange(sz.range)} 章，据此每章约 ${cnt} 字。`;
 }
+/* 万物词典统一要求块：无论选哪种结构都追加到大纲提示词，保证模型输出 glossary（建议7/决策8/9）
+ * 用独立的“追加 JSON 字段”写法，兼容各结构各自的 schema，无需改每个结构模板。 */
+const GLOSSARY_SYS = `\n\n【glossary 万物词典（必须一并输出）】请在返回的 JSON 顶层再追加一个 glossary 字段，作为全文保持一致性的权威基准：
+"glossary":{"characters":[{"name":"人物姓名","relation":"与该人相关人物及关系","trait":"性格/外貌要点"}],"places":[{"name":"地名/场景名","type":"类型","note":"设定要点"}],"propernouns":[{"name":"专名/专属设定术语","note":"含义与拼写唯一约定"}]}
+必须列出本故事涉及的全部重要人物（含配角）、关键地域地名与专属设定术语；**全书正文一律只使用本词典中的人名/地名/专名，禁止自造或混用其他拼写**。人物 relation 写清角色间关系，trait 归纳稳定性格与外貌以便后续各章保持一致；数量依故事体量，人物 3-15 名、地名 2-10 处、专名 2-8 个均可。`;
+
 function buildOutlineSys(){
   const st = selStructure(), rh = selRhythm();
   const parts = [];
   parts.push(st ? st.outlineSys : PROMPTS.longOutlineSys);
   if(rh && rh.outlineNote) parts.push('\n【节奏风格 · '+rh.name+'】\n'+rh.outlineNote);
   parts.push('\n【篇幅体量】\n'+outlineSizeNote());
+  parts.push(GLOSSARY_SYS);   // 每个结构都统一要求词典
   return parts.join('\n\n');
 }
 // 体量提示（拼入章节正文提示词，控制单章容量）
@@ -1785,13 +1792,27 @@ function bindView(){
 
   // 章节编辑/重生成/确认/阅读（动态）
   renderChapters();
-  $$('textarea[data-ch]').forEach(ta=> ta.oninput = ()=>{ const i=+ta.dataset.ch; state.chapters[i].content = ta.value; persist(); updateChapterWc(i, ta.value); updateWcTotal(); });
-  $$('[data-regen]').forEach(b=> b.onclick = (e)=> genOneChapter(+b.dataset.regen, b));
-  $$('[data-toggle]').forEach(b=> b.onclick = ()=>{ const i=+b.dataset.toggle; state.chapters[i].confirmed=!state.chapters[i].confirmed; persist(); render(); });
-  $$('[data-read]').forEach(b=> b.onclick = ()=> openReader(+b.dataset.read));
-  // 长篇：章节折叠开关（建议1）；分页切换（建议3）
-  $$('[data-fold]').forEach(h=> h.onclick = ()=>{ const i=+h.dataset.fold; const body=h.closest('.ch-card').querySelector('.ch-body'); const ico=h.querySelector('.ch-fold-ico'); const on = body.classList.toggle('folded'); h.setAttribute('aria-expanded', String(!on)); if(ico) ico.textContent = on?'▸':'▾'; });
-  $$('[data-page]').forEach(p=> p.onclick = ()=> { chPage = +p.dataset.page; renderChapters(); });
+  // 用事件委托处理章节区内部点击：分页/折叠会重建部分按钮，委托在 #chaptersWrap 上保证始终生效（Bug2 修复）
+  const chaptersDelegate = (e)=>{
+    const t = e.target.closest('[data-regen],[data-toggle],[data-read],[data-fold],[data-page]');
+    if(!t) return;
+    if(t.hasAttribute('data-regen')){ genOneChapter(+t.dataset.regen, t); }
+    else if(t.hasAttribute('data-toggle')){ const i=+t.dataset.toggle; state.chapters[i].confirmed=!state.chapters[i].confirmed; persist(); render(); }
+    else if(t.hasAttribute('data-read')){ openReader(+t.dataset.read); }
+    else if(t.hasAttribute('data-fold')){ const i=+t.dataset.fold; const body=t.closest('.ch-card').querySelector('.ch-body'); const ico=t.querySelector('.ch-fold-ico'); const on = body.classList.toggle('folded'); t.setAttribute('aria-expanded', String(!on)); if(ico) ico.textContent = on?'▸':'▾'; }
+    else if(t.hasAttribute('data-page')){ chPage = +t.dataset.page; renderChapters(); }
+  };
+  const cw = $('#chaptersWrap');
+  if(cw && !cw.dataset.delegated){
+    cw.dataset.delegated = '1';           // 只绑定一次，跨次 render 复用
+    cw.addEventListener('click', chaptersDelegate);
+    // textarea 输入也委托，分页重建后仍生效（Bug2 连带修复）
+    cw.addEventListener('input', (e)=>{
+      const ta = e.target.closest('textarea[data-ch]'); if(!ta) return;
+      const i = +ta.dataset.ch; state.chapters[i].content = ta.value;
+      persist(); updateChapterWc(i, ta.value); updateWcTotal();
+    });
+  }
   // 分镜时长手改：实时联动章段头与全局统计
   $$('[data-dur]').forEach(inp=> inp.oninput = ()=>{
     const i = +inp.dataset.dur;
