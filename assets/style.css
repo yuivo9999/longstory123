@@ -641,3 +641,10 @@ body.reader-lock{overflow:hidden}
 .btn.small{font-size:12px;padding:5px 9px;font-weight:600}
 .btn.del{color:var(--warn)}
 .btn.del:hover{background:color-mix(in srgb, #ff5a5a 14%, transparent)}
+
+/* 只读导出内容框：保持只读（不可编辑），但手机端也要可长按选中并复制片段 */
+textarea[readonly]{
+  -webkit-user-select:text; user-select:text;
+  -webkit-touch-callout:none;
+}
+textarea[readonly]::selection{ background:color-mix(in srgb, var(--accent2) 45%, transparent); }

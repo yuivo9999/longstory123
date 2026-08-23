@@ -11,7 +11,7 @@ const KEY_CFG = 'fyp_cfg';
 const KEY_STATE = 'fyp_state';   // 旧版单项目 key（仅用于首次迁移）
 const KEY_LIB = 'fyp_lib';       // 新版多项目历史库
 const KEY_GLIB = 'fyp_glib';     // v8 词典库（跨作品的多套可复用词典，独立于项目轨道）
-const MAX_PROJECTS = 10;         // 历史项目上限
+const MAX_PROJECTS = 50;         // 历史项目上限
 let lib = { curId: null, items: [] }; // {curId, items:[{id, idea, outline, ..., step, title, logline, updatedAt}]}
 let gglib = [];                  // v8 词典库：[{id, name, note, savedAt, g:{characters,places,propernouns}}]
 
@@ -217,7 +217,7 @@ function restartCascade(){
 }
 
 /* =========================================================
- * 多项目历史库：fyp_state（单项目）→ fyp_lib（最多 10 个项目）
+ * 多项目历史库：fyp_state（单项目）→ fyp_lib（最多 50 个项目）
  * ========================================================= */
 function makeId(){ return 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
 
@@ -1877,6 +1877,17 @@ function bindReader(){
   }
   const tocClose = $('#tocClose');
   if(tocClose && toc) tocClose.onclick = (e)=>{ e.stopPropagation(); toc.classList.add('hidden'); if(tocBtn) tocBtn.classList.remove('on'); };
+  // 目录展开时，点击面板其它区域（正文/顶栏空白处）自动收起，无需再点 ✕
+  const panel = ov.querySelector('.reader-panel');
+  if(panel && toc && tocBtn){
+    panel.addEventListener('click', (e)=>{
+      if(toc.classList.contains('hidden')) return;      // 目录已收起，无需处理
+      if(e.target.closest('#readerToc')) return;        // 点目录内部不收起
+      if(e.target.closest('#readerTocBtn')) return;     // 点目录开关不收起（交由自身 toggle）
+      toc.classList.add('hidden');
+      tocBtn.classList.remove('on');
+    });
+  }
   // 目录项点击跳转
   const list = $('#tocList');
   if(list && toc) list.onclick = (e)=>{
@@ -2225,17 +2236,26 @@ function longExportView(){
   // 清理已失效的勾选（章节被重生成等）
   expSel = expSel.filter(i=> state.chapters[i] && state.chapters[i].content && String(state.chapters[i].content).trim());
   const title = state.outline?.title || '未命名长篇小说';
+  const md = buildLongMarkdown();
+  // 资产包（story 大纲 + 章节梗概 + 章节全文）前置，与普通模式 viewExport 同款；原长篇选择/格式导出后置
   return `
     <div class="card">
-      <h3>📦 导出长篇 · ${esc(title)}</h3>
+      <h3>📦 导出资产包 · ${esc(title)}</h3>
+      <p class="sub">汇总故事大纲 / 章节梗概 / 章节全文，复制后粘贴到文档，或下载 .md。</p>
+      <div class="btn-row">
+        <button id="lnCopyAll" class="btn primary">📋 复制全部</button>
+        <button id="lnDownload" class="btn ghost">⬇️ 下载 .md</button>
+      </div>
+    </div>
+    <div class="card"><textarea id="lnExportArea" style="min-height:300px" readonly>${esc(md)}</textarea></div>
+    <div class="card">
+      <h3>📦 导出成书（选章节 + 三种格式）</h3>
       <p class="sub">勾选要导出的章节（单章 / 多章 / 全部）。不勾选直接点导出将默认导出全部已写章节。支持三种格式：<b>TXT</b> 纯文本、<b>EPUB</b> 电子书、<b>DOCX</b> 文档。</p>
       <div class="btn-row">
         <button id="expSelAll" class="btn ghost">☑️ 全选已写</button>
         <button id="expSelNone" class="btn ghost">⬜ 清空</button>
         <span class="muted" id="expCount">已选 ${expSel.length} / 已写 ${written} 章（共 ${state.chapters.length} 章）</span>
       </div>
-    </div>
-    <div class="card">
       <div class="exp-ch-list">
         ${state.chapters.map((c,i)=>{
           const ok = c.content && String(c.content).trim();
@@ -2254,6 +2274,19 @@ function longExportView(){
       </div>
       <p id="exportStatus" class="status"></p>
     </div>`;
+}
+// 长篇导出「资产包」内容：故事大纲 + 逐章梗概 + 章节全文（与普通 buildMarkdown 的结构对齐，取长篇字段）
+function buildLongMarkdown(){
+  const o = state.outline;
+  let md = `# ${o?.title||'未命名长篇小说'}\n\n`;
+  md += `## 一、故事大纲\n**梗概**：${o?.logline||''}\n\n`;
+  (o?.chapters||[]).forEach((c,i)=> md += `${i+1}. **${c.title||''}** — ${c.summary||''}\n`);
+  md += `\n## 二、章节正文\n`;
+  state.chapters.forEach((c,i)=>{
+    if(!c.content || !String(c.content).trim()) return;   // 未写章节不落入正文
+    md += `\n### 第${i+1}章 ${cleanChapterTitle(c.title)||''}\n${String(c.content).trim()}\n`;
+  });
+  return md;
 }
 function activeChapters(){
   let idx = expSel.filter(i=> state.chapters[i] && state.chapters[i].content && String(state.chapters[i].content).trim()).sort((a,b)=>a-b);
@@ -2514,6 +2547,9 @@ function bindView(){
   const btnDL = $('#btnDownload'); if(btnDL) btnDL.onclick = ()=> download(`影视资产包_${state.outline?.title||'story'}.md`, buildMarkdown());
   // 长篇：多选章节 + 三种格式导出
   if(isLong()){
+    // 资产包（与普通模式同款）：复制全部 / 下载 .md
+    const lnCA = $('#lnCopyAll'); if(lnCA) lnCA.onclick = ()=> copyText(buildLongMarkdown());
+    const lnDL = $('#lnDownload'); if(lnDL) lnDL.onclick = ()=> download(`长篇资产包_${state.outline?.title||'story'}.md`, buildLongMarkdown());
     $$('#view [data-expch]').forEach(cb=> cb.onchange = ()=>{
       const i = +cb.dataset.expch;
       if(cb.checked){ if(!expSel.includes(i)) expSel.push(i); } else expSel = expSel.filter(x=>x!==i);
@@ -3464,7 +3500,7 @@ function switchProject(id){
   toast(`已切换到「${cur ? (cur.title||'未命名作品') : '空白项目'}」`);
 }
 function newProject(mode){
-  // 上限：满 10 弹 confirm 是否删除最旧以新建
+  // 上限：满 MAX_PROJECTS 弹 confirm 是否删除最旧以新建
   if(lib.items.length >= MAX_PROJECTS){
     const oldest = [...lib.items].sort((a,b)=> (a.updatedAt||0) - (b.updatedAt||0))[0];
     if(oldest && !confirm(`历史已达 ${MAX_PROJECTS} 个上限，是否删除最旧的「${oldest.title||'未命名作品'}」以新建？`)){
