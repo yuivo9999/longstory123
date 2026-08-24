@@ -449,6 +449,15 @@ function busy(btn, on, label){
 /* =========================================================
  * 提示词模板（中文，面向国内 + 即梦）
  * ========================================================= */
+/* 主线条四格 JSON 片段（主线必有、副暗汇合有则带、无则空、绝不硬造）。
+ * 集中定义为常量，供 6 个结构范式的内联 outlineSys 引用，使「选中结构」时 structure 的 schema
+ * 完全由 st.outlineSys 一处描述，消除此前 STRUCTURE_MAIN_SYS 与 st.outlineSys 各写一遍 mainLine/subLines/hiddenLine/pivotPlan
+ * 的重复描述（S1）。未选中结构时改由 STRUCTURE_MAIN_SYS 兜底提供这份主线条骨架。 */
+const MAIN_LINE_BLOCK = `"mainLine":"全书唯一主线/核心走向（必有：这本到底讲什么）",
+  "subLines":["副线1：内容","副线2：内容"],  // 有则带；若故事确实没有副线就空数组或省略，绝不硬造
+  "hiddenLine":"暗线内容（如何埋设、何时揭晓）",  // 有则带；若没有暗线就空字符串或省略，绝不硬造
+  "pivotPlan":"汇合/大逆转所在章（点式，如 第20章三方对峙）"  // 有则带；无则该字段省略`;
+
 const PROMPTS = {
   outlineSys: `你是一位专业编剧与故事架构师，擅长短剧/短视频叙事。根据用户的一句或几句话构想，设计一部适合改编为短视频的故事。
 请严格只输出如下 JSON（不要任何解释、不要 markdown 代码块）：
@@ -559,14 +568,6 @@ function pickRandomIdea(){
   return IDEA_SAMPLES[i].text;
 }
 
-/* 主线条四格 JSON 片段（主线必有、副暗汇合有则带、无则空、绝不硬造）。
- * 集中定义为常量，供 6 个结构范式的内联 outlineSys 引用，使「选中结构」时 structure 的 schema
- * 完全由 st.outlineSys 一处描述，消除此前 STRUCTURE_MAIN_SYS 与 st.outlineSys 各写一遍 mainLine/subLines/hiddenLine/pivotPlan
- * 的重复描述（S1）。未选中结构时改由 STRUCTURE_MAIN_SYS 兜底提供这份主线条骨架。 */
-const MAIN_LINE_BLOCK = `"mainLine":"全书唯一主线/核心走向（必有：这本到底讲什么）",
-  "subLines":["副线1：内容","副线2：内容"],  // 有则带；若故事确实没有副线就空数组或省略，绝不硬造
-  "hiddenLine":"暗线内容（如何埋设、何时揭晓）",  // 有则带；若没有暗线就空字符串或省略，绝不硬造
-  "pivotPlan":"汇合/大逆转所在章（点式，如 第20章三方对峙）"  // 有则带；无则该字段省略`;
 
 const STRUCTURES = [
   { id:'mesh', name:'多线网状交织', tag:'大师结构', short:'网状多线', src:'经典 · 网文 / 《红楼梦》体系',
@@ -1416,12 +1417,11 @@ function viewStory(){
     <div class="card">
       <h3>① 输入故事构想</h3>
       <p class="sub">${homeSub}</p>
-      ${ isLong() ? recipePicker() : '' }
-      ${ isLong() ? '' : specPickerHtml() }
       <div class="idea-row">
         <textarea id="ideaInput" placeholder="${esc(currentIdeaPhrase())}">${esc(state.idea)}</textarea>
         <button id="btnRerollIdea" class="btn ghost idea-reroll" title="换个示例">🎲</button>
       </div>
+      ${ isLong() ? recipePicker() : specPickerHtml() }
       <div class="btn-row">
         <button id="btnGenOutline" class="btn primary block">${isLong()?'📚 生成长篇大纲':'✨ 生成故事大纲'}</button>
       </div>
@@ -4050,8 +4050,7 @@ function init(){
   }
   // 底部导航
   $$('.tab').forEach(t=> t.onclick = ()=>{ currentStep = +t.dataset.step; render(); window.scrollTo(0,0); });
-  // 进入时若无 Key，自动弹设置
-  if(!resolveActiveSpec().apiKey) setTimeout(openSettings, 300);
+  // 首次进入直接渲染主界面（不再自动弹设置；用户可随时点右上角 ☰ 配置 API Key）
   render();
 }
 document.addEventListener('DOMContentLoaded', init);
