@@ -971,6 +971,19 @@ const GLOSSARY_SYS = `\n\n【glossary 万物词典（必须一并输出）】请
 · relation 关系 = 她/他和谁是什么关联：血缘/姻亲/友伴/主仆，必须带"谁的"才成立——「林晚的妹妹」「她的仆人」「朋友：陈默」；禁止把身份词（捕快/市长/船女）写进 relation；
 人物条目中不设"职能/角色定位"字段。trait 归纳稳定性格以便后续各章保持一致。`;
 
+// v10.1 userIntent 创作意图提炼块：生成大纲时由同一轮 AI 顺带把用户构想中的「硬性要求」提炼成
+// 结构化清单，写正文时恒定注入（最高优先），保证用户原始意志在大纲之后不丢失。
+// 判别标准五条铁律：只收用户明确说的 / 不替用户新增 / 大纲已体现的不重复 / 宁缺毋滥 3~8 条 / 冲突以 userIntent 为准。
+const USER_INTENT_SYS = `\n\n【userIntent 创作意图（必须一并输出）】请在返回的 JSON 顶层再追加一个 userIntent 字段（字符串数组），
+把用户构想中"必须贯彻的硬性要求"提炼出来，作为正文阶段最高优先遵循的创作红线：
+"userIntent":["一句话要求1","一句话要求2"]
+提炼标准（严格遵循）：
+1. 只收录用户明确表达的硬性要求：结局方向、人物命运、禁止事项（如"不得血腥"）、必须出现的元素/场景、风格基调；
+2. 不替用户新增要求；用户没说的，一律不收；
+3. 已在大纲（logline/structure/chapters/glossary）中充分体现的内容不必重复收录，只收"丢了就会违背用户意志"的；
+4. 每条一句话、直白具体（含"必须/不得/禁止"等措辞），3~8 条为宜；确实没有硬性要求时输出空数组 [];
+5. 若与大纲/结构设计冲突，以 userIntent 为准（用户意志优先）。`;
+
 // v8c 词典增量补全：从已生成章节正文中提取「现有词典未收录」的新人物/新地名/新专名，去重后并入词典。
 // 供批量生成章节后的自动补全与词典卡片的「📥 提取新增」共用；人物字段对齐词典契约（age/gender 必填）。
 const GLOSSARY_EXTRACT_SYS = `你是长篇小说设定整理助手。给定【本章正文】与【现有词典】，提取正文中出现但现有词典【未收录】的新人物、新地名、新专名。
@@ -1059,6 +1072,7 @@ function buildOutlineSys(){
   // ⑤-2 未选结构时：要求 AI 自由分组输出 chapterPlan（按主题/起承转合），作为"全部章节写作安排"的呈现。
   if(!st) parts.push(CHAPTER_PLAN_FREE_SYS);
   parts.push(outlineGlossaryInject(state.pendingGlossary));   // ⑥ v8 双轨：有导引用权威块，无导入保持原「请自造词典」块
+  parts.push(USER_INTENT_SYS);                                  // ⑦ v10.1 创作意图提炼块：与词典同为追加字段契约
   return parts.join('\n\n');
 }
 // 遵从度 → 喂给 AI 的要求（v8：与 adherenceHint 的语义一一对应，供模型判断遵循程度）
@@ -1097,7 +1111,13 @@ function storyContentBlock(){
   const o = state.outline;
   if(!o) return '';
   const lines = [];
-  // 顺序：故事梗概（大纲）→ 长篇结构设计。先懂全书讲什么，再懂怎么组织。
+  // v10.1 创作意图（最高优先）：置于最前，与大纲/结构冲突时以创作意图为准（提炼与注入两端声明一致）。
+  const ui = Array.isArray(o.userIntent) ? o.userIntent.filter(Boolean) : [];
+  if(ui.length){
+    lines.push('【创作意图 · 用户硬性要求（最高优先：与大纲/结构冲突时以此为准）】');
+    ui.forEach((t,i)=> lines.push(`${i+1}. ${t}`));
+  }
+  // 顺序：创作意图 → 故事梗概（大纲）→ 长篇结构设计。先懂红线，再懂全书讲什么，再懂怎么组织。
   // 注：不再含逐章梗概——大纲阶段只产出章节标题，正文与梗概在写正文阶段独立生成，
   //    故此处不向 AI 提供任何逐章梗概，避免以梗概为蓝本扩写正文。
   lines.push('【一、故事梗概】'+(o.logline||'（无）'));
@@ -1607,6 +1627,8 @@ function viewStory(){
   // 大纲已生成
   const o = state.outline;
   let html = `
+    ${ origIdeaCard() }
+    ${ isLong() ? userIntentCard() : '' }
     ${ recipeSummaryBar() }
     <div class="card">
       <div class="card-head-row">
@@ -1643,6 +1665,111 @@ function viewStory(){
       ` }
     </div>`;
   return html;
+}
+
+// v10.2 原始构想只读卡：故事页最顶部展示生成大纲时的用户构想原文（快照 outline.userIdea，
+// 缺省回退当前 state.idea）。只读不可编辑、可复制；默认收缩，点击展开。纯前端、无 AI 参与。
+function origIdeaCard(){
+  const o = state.outline;
+  const idea = (o && typeof o.userIdea === 'string' && o.userIdea.trim())
+    ? o.userIdea : (state.idea || '');
+  return `<div class="card orig-card">
+    <div class="orig-head" role="button" tabindex="0" data-orig-toggle title="展开/收起">
+      <span class="orig-t">📝 原始构想</span>
+      <span class="orig-fold">▸</span>
+    </div>
+    <div class="orig-body" hidden>
+      <textarea readonly class="orig-text" spellcheck="false">${esc(idea || '（无构想记录）')}</textarea>
+      <div class="orig-actions">
+        <button type="button" class="btn ghost gs-tool" data-orig-copy>📋 复制</button>
+        <span class="muted orig-note">只读展示，不可编辑；修改构想需重新生成大纲才会更新此快照。</span>
+      </div>
+    </div>
+  </div>`;
+}
+
+// v10.1 创作意图卡片：展示 AI 从用户构想中提炼的硬性要求（outline.userIntent），可编辑/增删/清空。
+// 写正文时恒定注入且优先级最高；与大纲/结构冲突时以创作意图为准。
+function userIntentCard(){
+  const o = state.outline;
+  const ui = (o && Array.isArray(o.userIntent)) ? o.userIntent : [];
+  const items = ui.map((t,i)=>`
+    <div class="ui-item" data-ui-idx="${i}">
+      <span class="ui-no">${i+1}</span>
+      <input type="text" class="ui-input" data-ui-set="${i}" data-orig="${esc(t)}" value="${esc(t)}" placeholder="一句话硬性要求（如：结局主角必须牺牲）" />
+      <button type="button" class="ui-del" data-ui-del="${i}" title="删除该条">✕</button>
+    </div>`).join('');
+  const empty = !items;
+  return `<div class="card ui-card">
+    <div class="ui-head">
+      <h3 style="margin:0">📌 创作意图（用户硬性要求）</h3>
+      <span class="ui-tools">
+        <button type="button" class="btn ghost gs-tool" data-ui-add title="手动添加一条创作意图">＋ 添加</button>
+        ${empty?'':`<button type="button" class="btn ghost gs-tool" data-ui-clear title="清空全部创作意图">清空</button>`}
+      </span>
+    </div>
+    ${empty
+      ? `<p class="sub">当前无创作意图。生成大纲时 AI 会自动提炼你构想中的硬性要求（也可手动添加）；写正文时恒定注入，优先级最高。</p>`
+      : `<div class="ui-list">${items}</div>
+         <p class="muted" style="margin:6px 0 0">写正文时恒定注入，优先级最高；与大纲/结构冲突时以创作意图为准。修改后保存，后续新生成章节生效。</p>`}
+  </div>`;
+}
+// v10.1 创作意图卡片绑定：编辑失焦即存；删除/添加/清空即时生效（与词典编辑风格一致）
+function bindUserIntent(){
+  const o = state.outline;
+  if(!o) return;
+  if(!Array.isArray(o.userIntent)) o.userIntent = [];
+  const ui = o.userIntent;
+  // 失焦即存
+  $$('[data-ui-set]').forEach(inp=>{
+    inp.onchange = ()=>{
+      const i = +inp.dataset.uiSet;
+      const oldVal = inp.dataset.orig, newVal = inp.value;
+      if(newVal === oldVal) return;
+      ui[i] = newVal;
+      inp.dataset.orig = newVal;
+      persist();
+      toast('创作意图已更新，后续新生成章节生效（已生成章节可手动重生成）');
+    };
+  });
+  // 删除单条
+  $$('[data-ui-del]').forEach(b=> b.onclick = ()=>{
+    ui.splice(+b.dataset.uiDel, 1);
+    persist(); render();
+    toast('已删除该条创作意图');
+  });
+  // 添加一条（空行待填）
+  const addBtn = $('[data-ui-add]');
+  if(addBtn) addBtn.onclick = ()=>{
+    ui.push('');
+    persist(); render();
+    const inp = document.querySelector('[data-ui-set="'+(ui.length-1)+'"]');
+    if(inp) inp.focus();
+  };
+  // 清空
+  const clearBtn = $('[data-ui-clear]');
+  if(clearBtn) clearBtn.onclick = ()=>{
+    if(!confirm('清空全部创作意图？')) return;
+    ui.length = 0;
+    persist(); render();
+    toast('创作意图已清空');
+  };
+}
+// v10.2 原始构想只读卡绑定：展开/收缩切换 + 复制（clipboard API → execCommand 兜底，覆盖 file:// / http 环境）
+function bindOrigIdea(){
+  const og = $('[data-orig-toggle]');
+  if(og) og.onclick = ()=>{
+    const body = $('.orig-body'); if(!body) return;
+    const on = !body.hidden;
+    body.hidden = on;
+    const fold = og.querySelector('.orig-fold');
+    if(fold) fold.textContent = on ? '▸' : '▾';
+  };
+  const cpy = $('[data-orig-copy]');
+  if(cpy) cpy.onclick = ()=>{
+    const ta = $('.orig-text'); if(!ta) return;
+    copyText(ta.value);   // 复用全局 copyText：clipboard API → execCommand 兜底，自带 toast
+  };
 }
 
 // 万物词典「设定表」卡片：展示人物/地名/专名，用户可更正错名（决策9）
@@ -2965,6 +3092,8 @@ function bindView(){
     });
   }
   bindGlossary();
+  bindUserIntent();   // v10.1 创作意图卡片绑定
+  bindOrigIdea();     // v10.2 原始构想只读卡绑定
   bindPendingGlossary();
   // 故事页内联规范选择器
   $$('.spec-opt').forEach(b=> b.onclick = ()=>{ selectSpec(b.dataset.spec); });
@@ -3159,6 +3288,10 @@ async function genOutline(){
     if(!o.glossary || (!o.glossary.characters && !o.glossary.places && !o.glossary.propernouns)){
       o.glossary = { characters:[], places:[], propernouns:[] };
     }
+    // v10.1 创作意图兜底：AI 未输出 / 非数组时给空数组，UI 与正文注入均按空态处理
+    if(!Array.isArray(o.userIntent)) o.userIntent = [];
+    // v10.2 原始构想快照：与大纲同生命周期，供「原始构想」只读区展示（不随后续修改构想而漂移）
+    o.userIdea = state.idea;
     // v8 双轨合并：若构想阶段挂载过辅轨词典，按遵从度把它与新作大纲词典合并为权威词典，再清空辅轨槽位
     let mergeNote = '';
     if(state.pendingGlossary && sourceHasGlossary(state.pendingGlossary)){
