@@ -18,7 +18,7 @@ let gglib = [];                  // v8 词典库：[{id, name, note, savedAt, g:
 const state = {
   mode: 'shortfilm',    // 'shortfilm' 短片 / 'longnovel' 经典长篇小说
   recipe: 'mesh',       // (兼容旧字段) 旧式单一范式 id；新项目用 recipeSet
-  recipeSet: { structure:'mesh', rhythm:'web', quality:[] }, // 长篇三维写作范式：结构(单选)+节奏(单选)+质量(可多选)
+  recipeSet: { structure:null, rhythm:null, quality:[] }, // 长篇三维写作范式：结构(单选)+节奏(单选)+质量(可多选)；默认全部不选，由 AI 按构想发挥
   wordRange: null,      // (兼容遗留) 不再作为长篇必填；保留字段避免旧快照破坏
   chapterRange: null,   // (兼容遗留) 同上
   totalWords: null,     // (兼容遗留) 同上
@@ -212,7 +212,7 @@ function projectSnapshot(){
   return {
     mode: state.mode || 'shortfilm',
     recipe: state.recipe || 'mesh',
-    recipeSet: state.recipeSet || { structure:'mesh', rhythm:'web', quality:[] },
+    recipeSet: state.recipeSet || { structure:null, rhythm:null, quality:[] },
     wordRange: state.wordRange || null,
     chapterRange: state.chapterRange || null,
     totalWords: state.totalWords || null,
@@ -270,7 +270,7 @@ function applyProject(p){
 function clearState(){
   state.mode = 'shortfilm';
   state.recipe = 'mesh';
-  state.recipeSet = { structure:'mesh', rhythm:'web', quality:[] };
+  state.recipeSet = { structure:null, rhythm:null, quality:[] };
   state.wordRange = null; state.chapterRange = null; state.totalWords = null; state.chapterCount = null;
   state.idea = ''; state.outline = null; state.coverPrompt = ''; state.coverWithTitle = false; state.outlineConfirmed = false;
   state.pendingGlossary = null; state.glossAdherence = 60; state.glossAllowFill = false; state.gsCollapsed = true;
@@ -280,19 +280,17 @@ function clearState(){
 }
 // 兼容旧版单一范式 → 三维 recipeSet
 function migrateRecipeSet(set, legacyRecipe){
-  if(set && (set.structure || set.rhythm || (Array.isArray(set.quality) && set.quality.length) || (set.structure===null && set.rhythm===null))){
-    const out = {
+  // 新格式三维：set 存在即按新格式处理（structure/rhythm 为 null 也是合法新格式值，表示未选）
+  if(set && typeof set === 'object'){
+    return {
       structure: (typeof set.structure === 'string' && STRUCTURE_IDS.includes(set.structure)) ? set.structure : null,
       rhythm: (typeof set.rhythm === 'string' && RHYTHM_IDS.includes(set.rhythm)) ? set.rhythm : null,
       quality: Array.isArray(set.quality) ? set.quality.filter(q=> QUALITY_IDS.includes(q)) : []
     };
-    // 修正结构维度内部互斥：若同时出现多个结构，只保留第一个
-    if(STRUCTURE_IDS.indexOf(out.structure) > -1) out.structure = out.structure;
-    return out;
   }
   // 旧 recipe 单一 id 迁移映射
   const legacyMap = { mesh:{structure:'mesh',rhythm:null,quality:[]}, layered:{structure:'layered',rhythm:null,quality:[]}, dual:{structure:'mesh',rhythm:null,quality:['dual']}, web:{structure:null,rhythm:'web',quality:[]}, web100:{structure:null,rhythm:'web',quality:[]}, causal:{structure:'causal',rhythm:null,quality:[]} };
-  return legacyMap[legacyRecipe] || { structure:'mesh', rhythm:null, quality:[] };
+  return legacyMap[legacyRecipe] || { structure:null, rhythm:null, quality:[] };
 }
 function saveLib(){
   localStorage.setItem(KEY_LIB, JSON.stringify(lib));
@@ -506,12 +504,12 @@ const PROMPTS = {
 
   longOutlineSys: `你是一位能驾驭超长篇的著名小说架构师。根据用户的一句话或几句构想，设计一部经典的【长篇小说】。
 你不能用三幕流水的短剧套路来搭长篇，而要用真正的长篇小说结构美学来设计骨架。请按如下 JSON 结构输出（不要任何解释、不要 markdown 代码块；可在此基础上按下方追加块补充 glossary 等其它顶层字段）：
-{"title":"小说名","logline":"一句话梗概（含核心冲突与深层命题）","structure":{ ${MAIN_LINE_BLOCK} },"chapters":[{"title":"第1章标题","summary":"该章核心事件与转折，1-2句","line":"该章推进哪条线/埋哪个伏笔/节奏起伏"}]}
-structure 字段已在上方 JSON 中内联定义主线条四格（mainLine 必有 / 副暗汇合有则带 / 绝不硬造）；其中的 chapterPlan（全部章节按线索分组的写作安排）由下方【长篇结构设计 · 章节计划】块补充，一章不落。每章 title 有钩子感，summary 写清人物动机、情节推进与本批应埋伏笔；line 标注该章归属与节奏走向，使整体节奏有跌宕起伏的事件密度控制，而非平铺。
+{"title":"小说名","logline":"一句话梗概（含核心冲突与深层命题）","structure":{ ${MAIN_LINE_BLOCK} },"chapters":[{"title":"第1章标题（有钩子感）"}]}
+structure 字段已在上方 JSON 中内联定义主线条四格（mainLine 必有 / 副暗汇合有则带 / 绝不硬造）；其中的 chapterPlan（全部章节按线索分组的写作安排）由下方【长篇结构设计 · 章节计划】块补充，一章不落。每章 title 有钩子感，体现节奏走向；**chapters 只需逐章列出标题，禁止输出任何逐章梗概、内容预告、章末钩子或阶段目标**——每章的正文与梗概将在后续写正文阶段独立生成，不在大纲阶段预写。
 `,
 
   longChapterSys: `你是一位中文长篇小说的资深写手。根据「整体结构」「故事大纲」与「前文衔接来源」（本章标题 + 上一章完整正文）写出本章完整正文，做到章章服务整体架构、严格承接前文真实情节，绝不悬空发散。
-要求：以前文完整正文为准推进本章，保持人物/伏笔/时间线/专名的连续性，同时照顾全章结构位置——本线、伏笔、明暗线呼应；细腻的环境与心理描写、生动对话、符合人物弧光；节奏张弛有度（本章若是情绪高潮或转折则加压，若是过渡则蓄力）；章末留悬念或钩子，为后续章节/伏笔回落埋线；只输出正文，不要标题、不要"本章完/未完待续"之类片尾标注、不要任何解释。`,
+要求：以前文完整正文为准推进本章，保持人物/伏笔/时间线/专名的连续性，同时照顾全章结构位置——本线、伏笔、明暗线呼应；细腻的环境与心理描写、生动对话、符合人物弧光；节奏张弛有度（本章若是情绪高潮或转折则加压，若是过渡则蓄力）；章末留悬念或钩子，为后续章节/伏笔回落埋线；只输出正文，不要标题、不要"本章完/未完待续"之类片尾标注、不要任何解释。正文写完后另起一行，输出 【本章梗概】 + 本章核心事件 1-2 句（不含剧透式预告，仅概括本章实际发生的内容；供后续回填导出清单；该行不属于正文）。`,
 
   editorSys: `你是一位挑剔而专业的长篇小说编辑。请对「给定的一章初稿」做三维审查，并输出 JSON 评分与本轮审稿意见。
 三个维度：角色一致性（人物性格/弧光是否符合设定）、剧情逻辑（因果是否合理、是否违背前文/时间线）、世界观一致（设定/能力/专名是否统一、是否出现硬伤）。
@@ -580,10 +578,10 @@ const STRUCTURES = [
   { id:'causal', name:'单线因果式', tag:'经典打怪', short:'单线因果', src:'经典 · 取经路结构',
     outlineSys: `你是擅长编排经典长篇结构的资深小说架构师。根据用户构想设计一部长篇小说。
 请按如下 JSON 结构输出（不要解释、不要 markdown 代码块；可在此基础上按下方追加块补充 glossary 等其它顶层字段）：
-{"title":"小说名","logline":"一句话梗概","structure":{ ${MAIN_LINE_BLOCK} },"chapters":[{"title":"章标题","summary":"本章核心事件与因果推进，1-2句","hook":"本章结尾因果钩子/悬念"}]}
-要求：遵循「单线因果式」经典结构（如《西游记》取经路）——一根主线贯穿始终，"因为所以"一环扣一环，打完一关进入下一关，前因后果清晰、易读性强；主线明确推进、尽量不铺开多线；章章之间有明确因果链，前一章结果成为后一章起因；整体呈引入→闯关/成长→高潮→收束的清晰线路；每章 summary 写清本章推进的关卡/事件与原因结果，hook 写清衔接下章的因果钩子。structure 中的 chapterPlan（全部章节按关卡分组的写作安排）由下方【长篇结构设计 · 章节计划】块补充，一章不落。`,
-    chapterSys: `你是中文长篇小说的资深写手。根据「本章概要」与「章末钩子」写出本章完整正文，做到因果衔接、章章推进。
-要求：遵循"因为所以"的单线因果推进——承接上一章的结果，作为本章起因，本章结束又为下一章留下因果钩子；主线单一清晰、少插枝节；有细腻的环境与心理描写、生动对话、鲜明的人物弧光与成长；节奏张弛有度；章末务必切在钩子上；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。`,
+{"title":"小说名","logline":"一句话梗概","structure":{ ${MAIN_LINE_BLOCK} },"chapters":[{"title":"章标题"}]}
+要求：遵循「单线因果式」经典结构（如《西游记》取经路）——一根主线贯穿始终，"因为所以"一环扣一环，打完一关进入下一关，前因后果清晰、易读性强；主线明确推进、尽量不铺开多线；章章之间有明确因果链，前一章结果成为后一章起因；整体呈引入→闯关/成长→高潮→收束的清晰线路；每章 title 有钩子感；**chapters 只需逐章列出标题，禁止输出任何逐章梗概、内容预告或章末钩子**——每章正文与梗概将在写正文阶段独立生成。structure 中的 chapterPlan（全部章节按关卡分组的写作安排）由下方【长篇结构设计 · 章节计划】块补充，一章不落。`,
+    chapterSys: `你是中文长篇小说的资深写手。根据本章标题、前文承接与结构定位写出本章完整正文，做到因果衔接、章章推进。
+要求：遵循"因为所以"的单线因果推进——承接上一章的结果，作为本章起因，本章结束又为下一章留下因果钩子；主线单一清晰、少插枝节；有细腻的环境与心理描写、生动对话、鲜明的人物弧光与成长；节奏张弛有度；章末务必切在钩子上；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。正文写完后另起一行，输出 【本章梗概】 + 本章核心事件 1-2 句（仅概括本章实际发生的内容，供回填导出清单；该行不属于正文）。`,
     desc:'经典「单线因果式」结构（如《西游记》取经路）：一根主线贯穿、"因为所以"一环扣一环、打完一关进下一关，主线清晰易读。',
     mech:'所有章节沿一根主线串成因果链：上一章结果是本章起因、本章结果接下一章，打怪闯关式推进。',
     fit:'常规冒险/成长爽文、连载稳定、怕写崩的稳健型作品；追求易读、主线清晰、读者不迷路。',
@@ -591,10 +589,10 @@ const STRUCTURES = [
   { id:'layered', name:'分层递归展开', tag:'Long-Novel-GPT', short:'分层递归', src:'开源 · Long-Novel-GPT',
     outlineSys: `你是能驾驭超长篇的著名小说架构师。按【卷→部→章】分层递归地设计一部长篇小说。
 请按如下 JSON 结构输出（不要解释、不要 markdown 代码块；可在此基础上按下方追加块补充 glossary 等其它顶层字段）：
-{"title":"小说名","logline":"一句话梗概","structure":{ ${MAIN_LINE_BLOCK} },"volumes":[{"name":"第X卷卷名","theme":"本卷主题与情绪基调","chapters":[{"title":"章标题","summary":"本章核心事件与转折，1-2句","goal":"本章阶段性目标/推进什么"}]}]}
-要求：整体分 2-4 卷，各卷有清晰主题与情绪递进；每卷内章节数合理；章章承担阶段性目标（引入/冲突/转折/高潮/收束），卷与书之间存在因果链；标题有钩子感。structure 主线条四格（mainLine 必有、副暗汇合有则带）由上方 JSON 定义，全书章节安排由 volumes（卷→章）承载。`,
-    chapterSys: `你是中文长篇小说的资深写手。根据「本卷主题」「本章目标」与「本章概要」写出本章完整正文，做到章章承接上卷、为后续蓄力。
-要求：围绕“本章目标”推进（该引入就引入、该冲突就冲突、该转折就转折），承接上一卷已建立的人物与世界设定、不推倒重来；有细腻环境与心理描写、生动对话、人物弧光；章末留钩子或悬念；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。`,
+{"title":"小说名","logline":"一句话梗概","structure":{ ${MAIN_LINE_BLOCK} },"volumes":[{"name":"第X卷卷名","theme":"本卷主题与情绪基调","chapters":[{"title":"章标题"}]}]}
+要求：整体分 2-4 卷，各卷有清晰主题与情绪递进；每卷内章节数合理；章节标题有钩子感，卷与书之间存在因果链；**volumes 内章节只需列出标题，禁止输出任何逐章梗概、内容预告或阶段目标**——每章正文与梗概将在写正文阶段独立生成。structure 主线条四格（mainLine 必有、副暗汇合有则带）由上方 JSON 定义，全书章节安排由 volumes（卷→章）承载。`,
+    chapterSys: `你是中文长篇小说的资深写手。根据本章标题、前文承接与结构定位写出本章完整正文，做到章章承接上卷、为后续蓄力。
+要求：围绕本章在卷内的位置推进（该引入就引入、该冲突就冲突、该转折就转折），承接上一卷已建立的人物与世界设定、不推倒重来；有细腻环境与心理描写、生动对话、人物弧光；章末留钩子或悬念；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。正文写完后另起一行，输出 【本章梗概】 + 本章核心事件 1-2 句（仅概括本章实际发生的内容，供回填导出清单；该行不属于正文）。`,
     desc:'借鉴 Long-Novel-GPT / AI_Gen_Novel 的“卷→部→章→节”分层递归：先生成全局卷章框架，再逐卷逐章填充目标。',
     mech:'自上而下先生成全局卷章框架（卷→部→章），再逐卷逐章填充阶段性目标，层级清晰、容量可控。',
     fit:'目标明确、分卷清晰、需要高可维护性的超长篇；世界观宏大、章节海量想保持不乱的类型文。',
@@ -602,10 +600,10 @@ const STRUCTURES = [
   { id:'hero', name:'英雄之旅', tag:'Hero\'s Journey', short:'英雄之旅', src:'开源 · NovelForger',
     outlineSys: `你是深谙「英雄之旅」结构美学的著名小说架构师。根据用户构想设计一部长篇小说。
 请按如下 JSON 结构输出（不要解释、不要 markdown 代码块；可在此基础上按下方追加块补充 glossary 等其它顶层字段）：
-{"title":"小说名","logline":"一句话梗概","structure":{"mode":"英雄之旅","designReason":"为何采用此倒逼成长框架","stageChapters":{"平凡世界":["章标题",...],"召唤":["章标题",...],"拒绝":["章标题",...],"导师":["章标题",...],"跨过门槛":["章标题",...],"试炼/盟友/敌人":["章标题",...],"深渊":["章标题",...],"一搏":["章标题",...],"回报":["章标题",...],"归来":["章标题",...],"变更":["章标题",...]}, ${MAIN_LINE_BLOCK}},"chapters":[{"title":"章标题","summary":"本章核心事件与英雄阶段，1-2句","hook":"本章结尾钩子/悬念"}]}
-要求：遵循经典「英雄之旅」十二阶段（平凡世界→召唤→拒绝→导师→跨过门槛→试炼/盟友/敌人→深渊→一搏→回报→归来→变更），倒逼主角成长弧光；阶段不必逐一对应单独一章，可按体量合并或拆分，但整体要完整走完成长路径；每章 summary 写清该章的英雄阶段与推进，hook 写清章末钩子。`,
-    chapterSys: `你是中文长篇小说的资深写手。根据「本章概要」与「章末钩子」写出本章完整正文，做到章章推动英雄的成长弧光。
-要求：围绕本章所处的「英雄之旅」阶段推进角色弧光——该试炼就试炼、该受挫就受挫、该升华就升华；主角每次抉择都要有代价、有成长痕迹；细腻的环境与心理描写、生动对话；章末留钩子或悬念；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。`,
+{"title":"小说名","logline":"一句话梗概","structure":{"mode":"英雄之旅","designReason":"为何采用此倒逼成长框架","stageChapters":{"平凡世界":["章标题",...],"召唤":["章标题",...],"拒绝":["章标题",...],"导师":["章标题",...],"跨过门槛":["章标题",...],"试炼/盟友/敌人":["章标题",...],"深渊":["章标题",...],"一搏":["章标题",...],"回报":["章标题",...],"归来":["章标题",...],"变更":["章标题",...]}, ${MAIN_LINE_BLOCK}},"chapters":[{"title":"章标题"}]}
+要求：遵循经典「英雄之旅」十二阶段（平凡世界→召唤→拒绝→导师→跨过门槛→试炼/盟友/敌人→深渊→一搏→回报→归来→变更），倒逼主角成长弧光；阶段不必逐一对应单独一章，可按体量合并或拆分，但整体要完整走完成长路径；每章 title 有钩子感；**chapters 只需逐章列出标题，禁止输出任何逐章梗概、内容预告或章末钩子**——每章正文与梗概将在写正文阶段独立生成。`,
+    chapterSys: `你是中文长篇小说的资深写手。根据本章标题、前文承接与结构定位写出本章完整正文，做到章章推动英雄的成长弧光。
+要求：围绕本章所处的「英雄之旅」阶段推进角色弧光——该试炼就试炼、该受挫就受挫、该升华就升华；主角每次抉择都要有代价、有成长痕迹；细腻的环境与心理描写、生动对话；章末留钩子或悬念；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。正文写完后另起一行，输出 【本章梗概】 + 本章核心事件 1-2 句（仅概括本章实际发生的内容，供回填导出清单；该行不属于正文）。`,
     desc:'借鉴 Hero\'s Journey（《千面英雄》，NovelForger 支持）：12 阶段倒逼主角成长弧光，适合成长正气类长篇。',
     mech:'把全书章节映射到英雄之旅十二阶段（平凡世界→召唤→拒绝→导师→跨过门槛→试炼/盟友/敌人→深渊→一搏→回报→归来→变更），让成长弧光结构可预期。',
     fit:'主角成长型、冒险/奇幻类；希望有清晰#成长曲线#与情感爆发点的长篇。',
@@ -613,10 +611,10 @@ const STRUCTURES = [
   { id:'savecat', name:'节拍表', tag:'Save the Cat', short:'节拍表', src:'业界 · Save the Cat',
     outlineSys: `你是深谙「节拍表」结构美学的著名小说架构师。根据用户构想设计一部长篇小说。
 请按如下 JSON 结构输出（不要解释、不要 markdown 代码块；可在此基础上按下方追加块补充 glossary 等其它顶层字段）：
-{"title":"小说名","logline":"一句话梗概","structure":{"mode":"Save the Cat 节拍表","designReason":"如何用 15 拍控制节奏","beats":{"开场画面":["章标题",...],"催化剂":["章标题",...],"争执":["章标题",...],"进入第二幕":["章标题",...],"B故事":["章标题",...],"中点":["章标题",...],"坏人逼近":["章标题",...],"一切尽失":["章标题",...],"黑暗时刻":["章标题",...],"进入第三幕":["章标题",...],"终局":["章标题",...],"最终画面":["章标题",...]}, ${MAIN_LINE_BLOCK}},"chapters":[{"title":"章标题","summary":"本章核心事件与节拍，1-2句","hook":"本章结尾钩子/悬念"}]}
-要求：遵循 Save the Cat 的 15 节拍（开场→催化剂→争执→B故事→中点→一切尽失→终局→最终画面等），把全书章节分配到各节拍上，节奏可预估；每章 summary 写清本章所属节拍与推进，hook 写清章末钩子。`,
-    chapterSys: `你是中文长篇小说的资深写手。根据「本章概要」与「章末钩子」写出本章完整正文，做到章章贴合 Save the Cat 节拍曲线。
-要求：围绕本章所处的「节拍」推进节奏（平原蓄力、催化剂提速、黑暗时刻骤降、终局引爆等），情绪张力随节拍起伏；细腻的心理与场景描写、生动对话、人物弧光；章末留钩子或悬念；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。`,
+{"title":"小说名","logline":"一句话梗概","structure":{"mode":"Save the Cat 节拍表","designReason":"如何用 15 拍控制节奏","beats":{"开场画面":["章标题",...],"催化剂":["章标题",...],"争执":["章标题",...],"进入第二幕":["章标题",...],"B故事":["章标题",...],"中点":["章标题",...],"坏人逼近":["章标题",...],"一切尽失":["章标题",...],"黑暗时刻":["章标题",...],"进入第三幕":["章标题",...],"终局":["章标题",...],"最终画面":["章标题",...]}, ${MAIN_LINE_BLOCK}},"chapters":[{"title":"章标题"}]}
+要求：遵循 Save the Cat 的 15 节拍（开场→催化剂→争执→B故事→中点→一切尽失→终局→最终画面等），把全书章节分配到各节拍上，节奏可预估；每章 title 有钩子感；**chapters 只需逐章列出标题，禁止输出任何逐章梗概、内容预告或章末钩子**——每章正文与梗概将在写正文阶段独立生成。`,
+    chapterSys: `你是中文长篇小说的资深写手。根据本章标题、前文承接与结构定位写出本章完整正文，做到章章贴合 Save the Cat 节拍曲线。
+要求：围绕本章所处的「节拍」推进节奏（平原蓄力、催化剂提速、黑暗时刻骤降、终局引爆等），情绪张力随节拍起伏；细腻的心理与场景描写、生动对话、人物弧光；章末留钩子或悬念；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。正文写完后另起一行，输出 【本章梗概】 + 本章核心事件 1-2 句（仅概括本章实际发生的内容，供回填导出清单；该行不属于正文）。`,
     desc:'借鉴 Save the Cat 15 节拍法：三幕展开为 15 个可预估节拍点，适合商业向、节奏可控的长篇。',
     mech:'用 15 个固定节拍（开场/催化剂/争执/中点/一切尽失/终局…）标注全书情绪曲线，节奏可计算、可预估。',
     fit:'商业类型文、需要稳定节奏与“可预估追读”的连载作品；编剧思维、强钩子驱动的长篇。',
@@ -624,10 +622,10 @@ const STRUCTURES = [
   { id:'seven', name:'七点结构', tag:'Seven-Point', short:'七点结构', src:'开源 · NovelForger',
     outlineSys: `你是深谙「七点结构」的著名小说架构师。根据用户构想设计一部长篇小说。
 请按如下 JSON 结构输出（不要解释、不要 markdown 代码块；可在此基础上按下方追加块补充 glossary 等其它顶层字段）：
-{"title":"小说名","logline":"一句话梗概","structure":{"mode":"七点结构","designReason":"七个锚点如何控制转折","points":{"Hook钩子":["章标题",...],"PlotTurn1一转折":["章标题",...],"Pinch1中点施压":["章标题",...],"Midpoint中点":["章标题",...],"Pinch2压力加码":["章标题",...],"PlotTurn2二转折":["章标题",...],"Resolution解局":["章标题",...]}, ${MAIN_LINE_BLOCK}},"chapters":[{"title":"章标题","summary":"本章核心事件与转折锚点，1-2句","hook":"本章结尾钩子/悬念"}]}
-要求：遵循七点结构（Hook→Plot Turn 1→Pinch 1→Midpoint→Pinch 2→Plot Turn 2→Resolution），用七个锚点控制全书转折节奏；每章 summary 写清该章所在锚点与推进，hook 写清章末钩子。`,
-    chapterSys: `你是中文长篇小说的资深写手。根据「本章概要」与「章末钩子」写出本章完整正文，做到章章朝七个锚点有序逼近。
-要求：围绕本章所在锚点推进（前段蓄力、Two Plot 转折、Pinch 施压、Midpoint 承转），每章都向“下一个转折点”收拢、不生枝节；细腻的心理与场景描写、生动对话、人物弧光；章末留钩子或悬念；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。`,
+{"title":"小说名","logline":"一句话梗概","structure":{"mode":"七点结构","designReason":"七个锚点如何控制转折","points":{"Hook钩子":["章标题",...],"PlotTurn1一转折":["章标题",...],"Pinch1中点施压":["章标题",...],"Midpoint中点":["章标题",...],"Pinch2压力加码":["章标题",...],"PlotTurn2二转折":["章标题",...],"Resolution解局":["章标题",...]}, ${MAIN_LINE_BLOCK}},"chapters":[{"title":"章标题"}]}
+要求：遵循七点结构（Hook→Plot Turn 1→Pinch 1→Midpoint→Pinch 2→Plot Turn 2→Resolution），用七个锚点控制全书转折节奏；每章 title 有钩子感；**chapters 只需逐章列出标题，禁止输出任何逐章梗概、内容预告或章末钩子**——每章正文与梗概将在写正文阶段独立生成。`,
+    chapterSys: `你是中文长篇小说的资深写手。根据本章标题、前文承接与结构定位写出本章完整正文，做到章章朝七个锚点有序逼近。
+要求：围绕本章所在锚点推进（前段蓄力、Two Plot 转折、Pinch 施压、Midpoint 承转），每章都向“下一个转折点”收拢、不生枝节；细腻的心理与场景描写、生动对话、人物弧光；章末留钩子或悬念；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。正文写完后另起一行，输出 【本章梗概】 + 本章核心事件 1-2 句（仅概括本章实际发生的内容，供回填导出清单；该行不属于正文）。`,
     desc:'借鉴 Seven-Point Structure（NovelForger 支持）：Hook→转折→施压→中点→加码→再转折→解局，七个锚点控转折。',
     mech:'以七个固定锚点（Hook/PlotTurn/Pinch/Midpoint/Pinch/PlotTurn/Resolution）规划全书转折，前紧后强。',
     fit:'中短到中长篇、转折重戏剧性、希望#转折节奏#清晰的作品。',
@@ -636,49 +634,49 @@ const STRUCTURES = [
 
 const RHYTHMS = [
   { id:'web', name:'黄金网文', tag:'爽点密集', short:'黄金网文', src:'经典 · 网文爆款体系',
-    outlineNote:'节奏遵循黄金网文强节奏——开篇尽快抛核心冲突与悬念（金手指/秘密）；因果链清晰、角色抉择有代价、实力或关系阶梯递进；情绪节奏有张有弛（爽点-压抑-爆发交替）；每章 summary 写清本集“爽点”与推进，hook 写清章末强钩子。',
+    outlineNote:'节奏遵循黄金网文强节奏——开篇尽快抛核心冲突与悬念（金手指/秘密）；因果链清晰、角色抉择有代价、实力或关系阶梯递进；情绪节奏有张有弛（爽点-压抑-爆发交替）；章节标题有钩子感；逐章梗概在写正文阶段独立生成。',
     chapterNote:'严格遵循黄金网文强节奏——开篇(前1-2段)尽快进入事件或情绪；以对话与行动推动剧情、少冗长环境描写；本章须兑现一个"爽点/进展"，并为下章留强钩子（悬念/反转/危机）；因果清晰、有记忆点的人设；章末务必切在钩子上。',
     desc:'当前商业网文最有效的节奏配方，核心是“爽点管理”：全程用小高潮喂给读者，持续满足与追更。',
     mech:'开篇抛冲突悬念；因果清晰、抉择有代价、实力/关系阶梯递进；情绪爽点-压抑-爆发交替；章末必留强钩子。',
     fit:'升级流、逆袭、热血爽文等重代入感连载；读者重爽感、重追更。',
     effect:'留存与追更率高、最懂市场；代价是易套路化，需靠人物与爽点创新破局。' },
   { id:'repress', name:'压抑反转流', tag:'现实虐文', short:'压抑反转', src:'现实 · 黑暗向节奏',
-    outlineNote:'节奏为压抑反转流——回报延迟、挫折长期，主角不会立刻打脸、苦难不马上消解；情绪是隐忍煎熬、积蓄良久才释放；困境层层叠加、主角反复受挫；每章 summary 写清本集被压抑的张力与潜在的伏笔，hook 写清迟来的反转或加剧的困境。',
+    outlineNote:'节奏为压抑反转流——回报延迟、挫折长期，主角不会立刻打脸、苦难不马上消解；情绪是隐忍煎熬、积蓄良久才释放；困境层层叠加、主角反复受挫；章节标题有钩子感；逐章梗概在写正文阶段独立生成。',
     chapterNote:'遵循压抑反转流——本段情绪以隐忍煎熬为主，不立刻给胜利与奖励；困境层层叠加、主角反复受挫；把发泄点压到很后，部分努力可以没有回报；章末压在反转来临前或苦难加剧处，勾着读者等释放。',
     desc:'与爽文相反：回报延迟、挫折长期、反转来得晚，部分努力无回报；情绪隐忍煎熬、积蓄良久才释放。',
     mech:'困境层层叠加、主角反复受挫、不会立刻打脸；冲突发生后不立刻给胜利，反转往往很晚、甚至部分努力无回报。',
     fit:'社会向、悬疑、悲剧、历史写实网文；追求真实沉重的情感冲击而非即时爽感。',
     effect:'压抑到极点的释放更有力量、人物弧光深；但需控节奏，避免“虐而无解”劝退读者。' },
   { id:'slice', name:'慢生活流', tag:'种田日常', short:'慢生活', src:'现实 · 治愈向节奏',
-    outlineNote:'节奏为慢生活流——低外部冲突、少大起大落，冲突是细碎生活矛盾；剧情推进极慢，聚焦人物感受、生活细节、人际关系；爽点来自安宁烟火与人物陪伴，非升级逆袭；每章 summary 写清本集的日常事件与人物关系变化。',
+    outlineNote:'节奏为慢生活流——低外部冲突、少大起大落，冲突是细碎生活矛盾；剧情推进极慢，聚焦人物感受、生活细节、人际关系；爽点来自安宁烟火与人物陪伴，非升级逆袭；章节标题有钩子感；逐章梗概在写正文阶段独立生成。',
     chapterNote:'遵循慢生活流——聚焦日常生活与人物相处，不追求强冲突；剧情推进慢、冲突多为细碎小事；细腻刻画感官与情绪、烟火气与陪伴感；爽点来自安宁与温暖，而非打脸逆袭。',
     desc:'种田/日常/治愈：低外部冲突、少大起大落，冲突是细碎生活矛盾；推进极慢，聚焦感受、细节、关系。',
     mech:'以日常与生活矛盾代替强冲突，推进极慢；爽点来自安宁烟火与人物陪伴。',
     fit:'种田、日常、治愈、慢热的温馨长篇；读者追求沉浸与陪伴而非刺激。',
     effect:'氛团队入手温柔治愈、黏性高、抗弃文；代价是无强钩子、追读节奏需靠情感维系。' },
   { id:'mystery', name:'悬疑解谜流', tag:'悬念悬置', short:'悬疑解谜', src:'正统 · 悬疑推理节奏',
-    outlineNote:'节奏为悬疑解谜流——冲突不快速解决，故意压住答案、延迟兑现；不断抛谜团线索、危机接踵但不揭真相；旧问题搁置、释放留到中后期；每章 summary 写清本集抛出的谜团/线索与悬置的张力，hook 埋最小的启示或新谜面。',
+    outlineNote:'节奏为悬疑解谜流——冲突不快速解决，故意压住答案、延迟兑现；不断抛谜团线索、危机接踵但不揭真相；旧问题搁置、释放留到中后期；章节标题有钩子感；逐章梗概在写正文阶段独立生成。',
     chapterNote:'遵循悬疑解谜流——答案要压住，冲突不要立刻收束；不断抛谜团与线索，危机接踵但不揭真相；旧问题先搁置；本章结尾留悬念，勾着读者解谜。',
     desc:'悬念悬置：冲突不快速解决、故意压住答案、延迟兑现；不断抛谜团线索、危机接踵但不揭真相。',
     mech:'正统悬疑节奏是“悬置＞即时解决”：放下钩子、转开视角、旧问题搁置、释放拖到中后期。',
     fit:'悬疑、推理、解谜、谍战类长篇；读者重“猜中/揭晓”的智力快感。',
     effect:'抓人、让人放不下、揭晓时爆点强；代价是伏笔回收要求高，烂尾风险大。' },
   { id:'epic', name:'群像史诗节奏', tag:'宏大史诗', short:'群像史诗', src:'历史 · 宏大奇幻节奏',
-    outlineNote:'节奏为群像史诗——不以单一主角得失为节奏开关，视角在多人间切换；主角会失败、配角命运独立；大事件周期长、一卷几十章才完成一次大起落；每章 summary 写清多线中本章的视角人物与推进。',
+    outlineNote:'节奏为群像史诗——不以单一主角得失为节奏开关，视角在多人间切换；主角会失败、配角命运独立；大事件周期长、一卷几十章才完成一次大起落；章节标题有钩子感；逐章梗概在写正文阶段独立生成。',
     chapterNote:'遵循群像史诗——视角在多人间切换，不以单一主角成败为节奏开关；主角也会失败、配角命运独立；大事件跨度长、不追求每章小爽点；多线并进、交织成时代洪流。',
     desc:'历史/宏大奇幻：不以单一主角得失为节奏开关，视角在多人间切换、配角命运独立、大事件周期长。',
     mech:'大事件以卷为单位起落，视角多线切换，主角可失败、配角命运独立，格局宏大。',
     fit:'历史演义、宏大奇幻、权谋群像类长篇；读者重世界构建与时代感。',
     effect:'格局与史诗感强、人物群像丰满、可承载大世界；代价是个体代入感弱、节奏偏慢。' },
   { id:'fatal', name:'悲剧宿命流', tag:'命运悲剧', short:'悲剧宿命', src:'文学 · 悲剧节奏',
-    outlineNote:'节奏为悲剧宿命——努力≠胜利、结局被命运预先约束；抗争不一定换来圆满，一次次抗争爬升迎短暂光亮再跌落；情绪很少彻底宣泄、留有怅然；每章 summary 写清本集一次次挣扎与短暂的希望、以及不可抗的推力。',
+    outlineNote:'节奏为悲剧宿命——努力≠胜利、结局被命运预先约束；抗争不一定换来圆满，一次次抗争爬升迎短暂光亮再跌落；情绪很少彻底宣泄、留有怅然；章节标题有钩子感；逐章梗概在写正文阶段独立生成。',
     chapterNote:'遵循悲剧宿命——抗争不一定换来圆满，努力可能徒劳；爬升后迎短暂光亮再跌落；情绪很少彻底宣泄、刻意留怅然与无力感，让悲剧宿命感贯穿。',
     desc:'努力≠胜利、结局被命运预先约束：抗争不一定圆满，一次次爬升迎短暂光亮再跌落；情绪少有宣泄、留怅然。',
     mech:'以“命运不可抗”为底色，抗争服务于悲剧张力而非胜利；情绪罕有彻底宣泄。',
     fit:'悲剧、宿命、史诗型沉重作品；读者重情绪厚重感与命运叩问。',
     effect:'情感厚重、后劲足、文学性强；代价是致郁、不适配追求爽感的读者。' },
   { id:'inward', name:'文艺向内流', tag:'心理向内', short:'文艺向内', src:'文学 · 心理向节奏',
-    outlineNote:'节奏为文艺向内——节奏由内心驱动，外部事件只是载体；冲突多发生在心里，剧情推进慢、大事件少，重点是人物纠结、自我认知与情感变化；每章 summary 写清本集人物内心变化与情感转折。',
+    outlineNote:'节奏为文艺向内——节奏由内心驱动，外部事件只是载体；冲突多发生在心里，剧情推进慢、大事件少，重点是人物纠结、自我认知与情感变化；章节标题有钩子感；逐章梗概在写正文阶段独立生成。',
     chapterNote:'遵循文艺向内——节奏由人物内心驱动，外部事件仅是载体；冲突多在心理层面；推进慢、大事件少；着力刻画纠结、自我认知与情感变化、文笔细腻。',
     desc:'情绪/心理向：节奏由内心驱动，外部事件是载体；冲突多在心里，推进慢、大事件少，重纠结与自我认知。',
     mech:'以内心冲突代替外部事件驱动叙事，细腻刻画人物情绪与认知变化。',
@@ -920,8 +918,8 @@ function outlineSizeNote(){
   * 但"全部章节安排"仍由 CHAPTER_PLAN_FREE_SYS 以自由分组的形式轻量补充到 structure.chapterPlan。 */
 const OUTLINE_GEN_SYS = `你是一位能驾驭超长篇的著名小说架构师。根据用户的一句话或几句构想，设计一部长篇小说的大纲骨架。
 请按如下 JSON 结构输出（不要任何解释、不要 markdown 代码块；可在此基础上按下方追加块补充 glossary、structure 等其它顶层字段）：
-{"title":"小说名","logline":"一句话梗概（含核心冲突与深层命题）","chapters":[{"title":"第1章标题（有钩子感）","summary":"该章核心事件与转折，1-2句"}]}
-每章 title 有钩子感，summary 写清人物动机、情节推进与本章应埋伏笔。全书章节数以上方【篇幅体量】为准，章节数必须与之完全一致。`;
+{"title":"小说名","logline":"一句话梗概（含核心冲突与深层命题）","chapters":[{"title":"第1章标题（有钩子感）"}]}
+每章 title 有钩子感；**chapters 只需逐章列出标题，禁止输出任何逐章梗概、内容预告、章末钩子或阶段目标**——每章的正文与梗概将在后续写正文阶段独立生成，不在大纲阶段预写。全书章节数以上方【篇幅体量】为准，章节数必须与之完全一致。`;
 
 const GLOSSARY_SYS = `\n\n【glossary 万物词典（必须一并输出）】请在返回的 JSON 顶层再追加一个 glossary 字段，作为全文保持一致性的权威基准：
 "glossary":{"characters":[{"name":"人物姓名","relation":"与该人相关人物及关系","trait":"性格/外貌要点"}],"places":[{"name":"地名/场景名","type":"类型","note":"设定要点"}],"propernouns":[{"name":"专名/专属设定术语","note":"含义与拼写唯一约定"}]}
@@ -1035,7 +1033,9 @@ function storyContentBlock(){
   const o = state.outline;
   if(!o) return '';
   const lines = [];
-  // 顺序：故事梗概（大纲）→ 长篇结构设计 → 全部逐章梗概。先懂全书讲什么，再懂怎么组织，最后落到每章内容。
+  // 顺序：故事梗概（大纲）→ 长篇结构设计。先懂全书讲什么，再懂怎么组织。
+  // 注：不再含逐章梗概——大纲阶段只产出章节标题，正文与梗概在写正文阶段独立生成，
+  //    故此处不向 AI 提供任何逐章梗概，避免以梗概为蓝本扩写正文。
   lines.push('【一、故事梗概】'+(o.logline||'（无）'));
   const s = o.structure;
   const hasChs = (o.chapters||[]).length > 0;
@@ -1044,16 +1044,6 @@ function storyContentBlock(){
     lines.push('【二、长篇结构设计】');
     const block = structurePlanBlock(o);   // 统一结构块（主线→副/暗/汇合(若有)→全章节计划），与卡片/AI 注入一致
     lines.push(block || '（无）');
-  }
-  const chs = (o.chapters||[]);
-  if(chs.length){
-    lines.push('【三、章节梗概】');
-    // 章节定位契约（v10·§4.4）：逐章梗概统一为「第 N 章《标题》：梗概」，与标题窗口/上一章/本章任务记法一致。
-    chs.forEach((c,i)=>{
-      const t = (c && c.title) ? c.title : `第${i+1}章`;
-      const s = (c && c.summary) ? c.summary : (c && c.goal) ? c.goal : '';
-      lines.push(`第 ${i+1} 章《${t}》${s?('：'+s):''}`);
-    });
   }
   return lines.join('\n');
 }
@@ -2127,10 +2117,10 @@ function openReader(i){
   const ov = $('#readerOverlay'); if(!ov) return;
   $('#readerTitle').textContent = `第${toCnNum(i+1)}章 · ${cleanChapterTitle(c.title)}`;
   const paras = String(c.content||'').split(/\n+/).map(p=>p.trim()).filter(Boolean);
-  // 无正文时：展示大纲概要，让「空章也可预览剧情定位」
+  // 无正文时：展示本章梗概（写正文时 AI 回填），让「空章也可预览剧情定位」
   let fallback = `<p class="muted">（本章尚未生成正文）</p>`;
-  const sum = (state.outline && state.outline.chapters && state.outline.chapters[i] && state.outline.chapters[i].summary) || '';
-  if(sum) fallback = `<p class="muted">📋 大纲概要：${esc(sum)}</p>
+  const sum = (state.chapters && state.chapters[i] && state.chapters[i].summary) || '';
+  if(sum) fallback = `<p class="muted">📋 本章梗概：${esc(sum)}</p>
     <p class="muted" style="margin-top:6px">生成正文后将在此展示全文。可用下方「重生成」或「一键批量生成」补写。</p>`;
   $('#readerBody').innerHTML = paras.length ? paras.map(p=>`<p>${esc(p)}</p>`).join('') : fallback;
   // 构建目录并定位当前章
@@ -2564,7 +2554,11 @@ function buildLongMarkdown(){
   const o = state.outline;
   let md = `# ${o?.title||'未命名长篇小说'}\n\n`;
   md += `## 一、故事大纲\n**梗概**：${o?.logline||''}\n\n`;
-  (o?.chapters||[]).forEach((c,i)=> md += `${i+1}. **${c.title||''}** — ${c.summary||''}\n`);
+  (o?.chapters||[]).forEach((c,i)=>{
+    // 逐章梗概来自写正文时 AI 回填的 state.chapters[i].summary（大纲阶段不预生成梗概）
+    const chSum = (state.chapters[i] && state.chapters[i].summary) ? state.chapters[i].summary : '（生成章节后自动回填）';
+    md += `${i+1}. **${c.title||''}** — ${chSum}\n`;
+  });
   md += `\n## 二、章节正文\n`;
   // 长篇：仅列出已写章；大纲刚生成、尚未写正文时给占位提示，大纲/梗概仍可先行导出
   const writtenChs = state.chapters.filter(c=> c.content && String(c.content).trim());
@@ -2967,7 +2961,7 @@ async function genOutline(){
       mergeNote = ` · 词典已并入（沿用 ${m.kept} · 新增 ${m.added}${m.rec?` · 覆盖 ${m.rec}`:''}）`;
       state.pendingGlossary = null; state.glossAllowFill = false;
     }
-    state.chapters = o.chapters.map(c=>({title:c.title, content:'', confirmed:false}));
+    state.chapters = o.chapters.map(c=>({title:c.title, content:'', summary:'', confirmed:false}));
     persist(); render();
     toast('大纲已生成'+mergeNote);
   }catch(e){
@@ -2985,7 +2979,7 @@ function longChapterContext(i){
   if(st && st.id === 'layered'){
     const c = o.chapters[i];
     if(c && c.volume){
-      ctx += `\n\n【本卷定位】\n所属卷：${c.volume}\n本卷主题与情绪基调：${c.volumeTheme||''}\n本章目标：${c.goal||o.chapters[i].summary||''}`;
+      ctx += `\n\n【本卷定位】\n所属卷：${c.volume}\n本卷主题与情绪基调：${c.volumeTheme||''}`;
     }
   }
   // 结构设计：只要大纲携带 structure（含兜底）就注入【整体结构】，与统一契约一致
@@ -3079,7 +3073,7 @@ function recipePicker(){
     ${dim('节奏风格','⚡','单选 · 可选其一（默认黄金网文）', RHYTHMS.map(it=>card(it,'rhythm', it.id===rs.rhythm)).join(''))}
     ${qualityToggleHtml()}
     ${pendingGlossaryPanel()}
-    <p class="muted" style="margin:8px 0 0">至少选择结构、节奏、质量其中一项即可生成；章节数已在「全书章节数」填定。介绍默认折叠，选中后自动展开。</p>`
+    <p class="muted" style="margin:8px 0 0">结构、节奏、质量均可选可不选；全部不选时 AI 将按构想自由发挥。章节数已在「全书章节数」填定。介绍默认折叠，选中后自动展开。</p>`
     : `<div class="tw-lock"><span class="tw-lock-ic">🔒</span><span>待填写全书章节数后，此处才展开“写作范式”设定。</span></div>`;
   return `<div class="card recipe-card poly-card">
     <div class="tw-panel">
@@ -3205,13 +3199,26 @@ function structureCard(o){
 // 写一条章节正文（依所勾选质量机制 post-processing：dual 双审 / selfref 自省 / plothole 伏笔洞检测）
 // 省 token 策略：正文与初审均带上 max_tokens 上限；各机制一律「段落级重写」而非整章重写，
 // 并共享一个整体重写预算，避免三种机制叠加把输出放大数倍。
+// 按「【本章梗概】」标记拆分 AI 输出：标记前为正文，标记后为本章梗概；无标记则全部视为正文（梗概留空）。
+function splitChapterOutput(txt){
+  const raw = String(txt||'');
+  const m = raw.match(/\n?\s*【本章梗概】\s*[:：]?\s*/);
+  if(!m) return { content: raw.trim(), summary: '' };
+  const content = raw.slice(0, m.index).trim();
+  const summary = raw.slice(m.index + m[0].length).trim();
+  return { content, summary };
+}
 async function writeOneChapterContent(i, user, onPhase, onStream){
   const mt = chapterMaxTokens();
   onPhase = onPhase || (()=>{});
   // onPhase 阶段上报；onStream 若提供则开启流式边收边显示（成本0，实时进度），否则一次性返回全文
   onPhase('撰写本章正文…');
   let txt = await callDeepSeek(longChapterSys(), user, {maxTokens: mt, onStream});
-  return applyChapterQuality(txt, user, mt, onPhase);
+  // 拆分「正文 + 本章梗概」：AI 按契约在正文末尾输出【本章梗概】行；正文与梗概分离后，
+  // 梗概回填 state.chapters[i].summary（供导出清单等使用），质检只针对正文部分执行。
+  const sp = splitChapterOutput(txt);
+  if(state.chapters[i]) state.chapters[i].summary = sp.summary;
+  return applyChapterQuality(sp.content, user, mt, onPhase);
 }
 // 对单章正文执行统一「两段式自动质检」：草扫(scanDraft)判定有无硬伤 + 精修(rewriteSegment)只改错误段落。
 // 取代旧的三种质量范式（dual 双审 / selfref 自省 / plothole 伏笔洞），一套规则、无错即过、零无效输出（按 安排token.md §10-§15）。
@@ -3318,7 +3325,7 @@ ${prev?('\n【前文衔接（上一章真实正文，用于承接，只增不改
   tail += longChapterContext(i);   // 章节定位（卷/阶段/整体结构）：单章与批量逐章统一注入，保持定位一致
   const nextHasContent = i < o.chapters.length-1 && state.chapters[i+1] && state.chapters[i+1].content && String(state.chapters[i+1].content).trim();
   if(opt.regenerating && nextHasContent){
-    tail += `\n下一章概要（请预留衔接，但不要剧透下一章情节）：${o.chapters[i+1].summary||''}`;
+    tail += `\n下一章标题（请预留衔接，但不要剧透下一章情节）：${o.chapters[i+1].title||''}`;
   }
   // 人工干预要求（建议3·此轮）：重生成时遵循用户指定的改动方向
   if(opt.advice){
@@ -3623,7 +3630,7 @@ async function genStoryboard(){
       const ch = state.chapters[i];
       const oc = (state.outline&&state.outline.chapters&&state.outline.chapters[i])||{};
       const content = ch.content||'';
-      const user = `【本章】第${i+1}章 ${ch.title||oc.title||''}\n本章概要：${oc.summary||''}\n本章正文：\n${content.slice(0,1500)}${content.length>1500?'…':''}\n\n${base}`;
+      const user = `【本章】第${i+1}章 ${ch.title||oc.title||''}\n本章概要：${ch.summary||''}\n本章正文：\n${content.slice(0,1500)}${content.length>1500?'…':''}\n\n${base}`;
       try{
         const txt = await callDeepSeek(PROMPTS.storyboardSys, user);
         const j = parseJson(txt);
