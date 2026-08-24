@@ -19,9 +19,10 @@ const state = {
   mode: 'shortfilm',    // 'shortfilm' 短片 / 'longnovel' 经典长篇小说
   recipe: 'mesh',       // (兼容旧字段) 旧式单一范式 id；新项目用 recipeSet
   recipeSet: { structure:'mesh', rhythm:'web', quality:[] }, // 长篇三维写作范式：结构(单选)+节奏(单选)+质量(可多选)
-  wordRange: null,      // 用户填的单章字数区间 {min,max}；与 chapterRange 互斥
-  chapterRange: null,   // 用户填的全书章节区间 {min,max}；与 wordRange 互斥
-  totalWords: null,     // 用户最前选定的「全书大约总字数」（原始整数字，UI 以【万】输入；null=未设）
+  wordRange: null,      // (兼容遗留) 不再作为长篇必填；保留字段避免旧快照破坏
+  chapterRange: null,   // (兼容遗留) 同上
+  totalWords: null,     // (兼容遗留) 同上
+  chapterCount: null,   // 全书章节数量（整数 1-200，生成大纲前唯一必填数字；null=未设）
   idea: '',
   coverPrompt: '',      // 整部小说封面提示词（场景页生成 / 长篇模式用）
   coverWithTitle: false,// 封面提示词是否包含「汉字书名」（false=纯画面无文字）
@@ -176,26 +177,11 @@ function currentIsDeepSeek(){
 
 /* ---------- 主题切换（单页内深色 / 3D 黑板 / 热血 FC） ---------- */
 const THEMES = ['dark','light','blackboard','mecha','cyber','guofeng'];
-let bbLoaded = false;
-function ensureBlackboard(){
-  if(bbLoaded) return Promise.resolve();
-  return new Promise((res)=>{
-    const s = document.createElement('script');
-    s.src = 'assets/blackboard3d.js';
-    s.onload = ()=>{ bbLoaded = true; res(); };
-    s.onerror = ()=>{ res(); }; // 失败也不阻塞，内容仍可用
-    document.head.appendChild(s);
-  });
-}
 function applyTheme(theme){
   if(THEMES.indexOf(theme) < 0) theme = 'dark';
   document.documentElement.setAttribute('data-theme', theme);
   const c = getCfg(); c.theme = theme; saveCfg(c);
-  if(theme === 'blackboard'){
-    ensureBlackboard().then(()=>{ if(window.Blackboard3D) window.Blackboard3D.start(); });
-  }else if(window.Blackboard3D){
-    window.Blackboard3D.stop();
-  }
+  // 黑板主题为纯 CSS 实现（不再依赖 blackboard3d.js / three.js），此处无需任何 JS 初始化
   // 机甲主题顶部胶囊导航显隐
   const mtn = $('#mechaTopNav');
   if(mtn) mtn.classList.toggle('hidden', theme !== 'mecha');
@@ -210,7 +196,7 @@ function applyTheme(theme){
   updateWcTotal(); // 主题切换后刷新内嵌总字数
 }
 function restartCascade(){
-  // 3D 黑板主题下，每次切换步骤重放“拉下新黑板”动画
+  // 黑板主题下，每次切换步骤重放“拉下新黑板”级联动画（纯 CSS）
   if(document.documentElement.getAttribute('data-theme') !== 'blackboard') return;
   const v = $('#view'); if(!v) return;
   v.style.animation = 'none'; void v.offsetWidth; v.style.animation = '';
@@ -230,6 +216,7 @@ function projectSnapshot(){
     wordRange: state.wordRange || null,
     chapterRange: state.chapterRange || null,
     totalWords: state.totalWords || null,
+    chapterCount: (state.chapterCount && +state.chapterCount>0) ? +state.chapterCount : null,
     idea: state.idea,
     coverPrompt: state.coverPrompt,
     coverWithTitle: state.coverWithTitle,
@@ -260,6 +247,7 @@ function applyProject(p){
   state.wordRange = (p.wordRange && p.wordRange.min && p.wordRange.max) ? {min:+p.wordRange.min, max:+p.wordRange.max} : (p.chapterRange ? null : null);
   state.chapterRange = (p.chapterRange && p.chapterRange.min && p.chapterRange.max) ? {min:+p.chapterRange.min, max:+p.chapterRange.max} : null;
   state.totalWords = (p.totalWords && +p.totalWords>0) ? +p.totalWords : null;
+  state.chapterCount = (p.chapterCount && +p.chapterCount>0) ? +p.chapterCount : null;
   state.idea = p.idea || '';
   state.coverPrompt = p.coverPrompt || '';
   state.coverWithTitle = !!p.coverWithTitle;
@@ -283,7 +271,7 @@ function clearState(){
   state.mode = 'shortfilm';
   state.recipe = 'mesh';
   state.recipeSet = { structure:'mesh', rhythm:'web', quality:[] };
-  state.wordRange = null; state.chapterRange = null; state.totalWords = null;
+  state.wordRange = null; state.chapterRange = null; state.totalWords = null; state.chapterCount = null;
   state.idea = ''; state.outline = null; state.coverPrompt = ''; state.coverWithTitle = false; state.outlineConfirmed = false;
   state.pendingGlossary = null; state.glossAdherence = 60; state.glossAllowFill = false; state.gsCollapsed = true;
   state.autoQC = true;   // 自动质检默认开
@@ -507,11 +495,11 @@ const PROMPTS = {
   coverSys: `你是一位资深书籍装帧设计师与插画师。根据用户提供的小说标题与故事梗概，为这部小说的【封面图】产出一条可粘贴到「即梦(Dreamina)」的中文出图提示词【纯画面版，不含任何文字】。
 要求：画面要抓住小说核心意象与情绪（世界观/主角困境/关键场景），构图强烈、光影戏剧化、色彩有记忆点；为封面预留的书法/书名排布位置要留出充足留白（如顶部或居中留白区），方便排版方后期加字；长度 150-280 字；结尾可附风格关键词（如"电影级打光、史诗感、高对比、厚涂插画"）；**严禁生成任何文字/标题/字幕/笔画**，画面里不要出现可辨认的汉字或拼音字母；只输出提示词正文，不要解释、不要 markdown 代码块。`,
 
-  longOutlineSys: `你是一位能驾驭超长篇的著名小说架构师。根据用户的一句话或几句构想，设计一部经典的【长篇小说】，最终成品体量以用户指定的总字数目标为准。
-你不能用三幕流水的短剧套路来搭长篇，而要用真正的长篇小说结构美学来设计骨架。请严格只输出如下 JSON（不要任何解释、不要 markdown 代码块）：
-{"title":"小说名","logline":"一句话梗概（含核心冲突与深层命题）","structure":{"mode":"结构模式","designReason":"为何选此结构、其精妙之处","mainLine":"主线：贯穿始终的核心冲突","subLines":["副线1：具体内容","副线2：具体内容"],"hiddenLine":"暗线：先埋设后揭晓的隐藏真相","pivotChapter":"多线汇合/大逆转所在章号(如 24)","threeFix":"三定：定时间轴 / 定汇合点 / 定主次(哪条线是主轴)"},"glossary":{"characters":[{"name":"人物姓名","identity":"身份地位","role":"在故事中的职能/作用","relation":"与该人相关人物及关系","trait":"性格/外貌/说话特征要点"}],"places":[{"name":"地名/场景名","type":"类型(城/宗门/村镇等)","note":"设定要点与作用"}],"propernouns":[{"name":"专名/专属设定术语","note":"含义与拼写唯一约定"}]},"chapters":[{"title":"第1章标题","summary":"该章核心事件与转折，1-2句","line":"该章推进哪条线/埋哪个伏笔/节奏起伏"}]}
-选择结构模式时，默认优先采用【多线交织或网状交织】（次选单线因果、板块拼贴或闭环循环），并补齐 mainLine / subLines / hiddenLine 三条以上的叙事线索；多线必须做到"三定"：定时间轴、定汇合点（在哪一章几条线收束汇合）、定主次（以一条线为轴，其余服务它），否则会散架。暗线要从早期章节就埋设，直到结局呼应揭晓。每章 title 有钩子感，summary 写清人物动机、情节推进与本批应埋伏笔；line 标注该章归属的线索与节奏（如"主线推进/暗线植入/支线完成/情绪张力升高"），使整体节奏有跌宕起伏的事件密度控制，而非平铺。
-【glossary 万物词典要求】glossary 是全文保持一致性的权威基准：必须列出本故事涉及的全部重要人物（含配角）、地域地名、专属设定术语；**全书正文一律只使用本词典中的人名/地名/专名，禁止自造或混用其他拼写**。人物 relation 写清角色间关系，trait 归纳其稳定性格与外貌要点以便后续各章保持一致。数量依故事体量，人物 3-15 名、地名 2-10 处、专名 2-8 个均可，务必覆盖后续章节会反复出现的核心要素。`,
+  longOutlineSys: `你是一位能驾驭超长篇的著名小说架构师。根据用户的一句话或几句构想，设计一部经典的【长篇小说】。
+你不能用三幕流水的短剧套路来搭长篇，而要用真正的长篇小说结构美学来设计骨架。请按如下 JSON 结构输出（不要任何解释、不要 markdown 代码块；可在此基础上按下方追加块补充 glossary 等其它顶层字段）：
+{"title":"小说名","logline":"一句话梗概（含核心冲突与深层命题）","structure":{ ${MAIN_LINE_BLOCK} },"chapters":[{"title":"第1章标题","summary":"该章核心事件与转折，1-2句","line":"该章推进哪条线/埋哪个伏笔/节奏起伏"}]}
+structure 字段已在上方 JSON 中内联定义主线条四格（mainLine 必有 / 副暗汇合有则带 / 绝不硬造）；其中的 chapterPlan（全部章节按线索分组的写作安排）由下方【长篇结构设计 · 章节计划】块补充，一章不落。每章 title 有钩子感，summary 写清人物动机、情节推进与本批应埋伏笔；line 标注该章归属与节奏走向，使整体节奏有跌宕起伏的事件密度控制，而非平铺。
+`,
 
   longChapterSys: `你是一位中文长篇小说的资深写手。根据「整体结构」「故事大纲」与「前文衔接来源」（本章标题 + 上一章完整正文）写出本章完整正文，做到章章服务整体架构、严格承接前文真实情节，绝不悬空发散。
 要求：以前文完整正文为准推进本章，保持人物/伏笔/时间线/专名的连续性，同时照顾全章结构位置——本线、伏笔、明暗线呼应；细腻的环境与心理描写、生动对话、符合人物弧光；节奏张弛有度（本章若是情绪高潮或转折则加压，若是过渡则蓄力）；章末留悬念或钩子，为后续章节/伏笔回落埋线；只输出正文，不要标题、不要"本章完/未完待续"之类片尾标注、不要任何解释。`,
@@ -571,9 +559,17 @@ function pickRandomIdea(){
   return IDEA_SAMPLES[i].text;
 }
 
+/* 主线条四格 JSON 片段（主线必有、副暗汇合有则带、无则空、绝不硬造）。
+ * 集中定义为常量，供 6 个结构范式的内联 outlineSys 引用，使「选中结构」时 structure 的 schema
+ * 完全由 st.outlineSys 一处描述，消除此前 STRUCTURE_MAIN_SYS 与 st.outlineSys 各写一遍 mainLine/subLines/hiddenLine/pivotPlan
+ * 的重复描述（S1）。未选中结构时改由 STRUCTURE_MAIN_SYS 兜底提供这份主线条骨架。 */
+const MAIN_LINE_BLOCK = `"mainLine":"全书唯一主线/核心走向（必有：这本到底讲什么）",
+  "subLines":["副线1：内容","副线2：内容"],  // 有则带；若故事确实没有副线就空数组或省略，绝不硬造
+  "hiddenLine":"暗线内容（如何埋设、何时揭晓）",  // 有则带；若没有暗线就空字符串或省略，绝不硬造
+  "pivotPlan":"汇合/大逆转所在章（点式，如 第20章三方对峙）"  // 有则带；无则该字段省略`;
+
 const STRUCTURES = [
   { id:'mesh', name:'多线网状交织', tag:'大师结构', short:'网状多线', src:'经典 · 网文 / 《红楼梦》体系',
-    useStructure:true, structure:true,
     outlineSys: PROMPTS.longOutlineSys,
     chapterSys: PROMPTS.longChapterSys,
     desc:'借鉴《红楼梦》式网状多线：多条主线 + 副线 + 暗线同时推进并在汇合章收束，暗线早期埋设、结局揭晓。',
@@ -581,11 +577,10 @@ const STRUCTURES = [
     fit:'宏大世界观、群像、多势力角力的长篇；人物关系网复杂、多条伏笔同时推进的作品。',
     effect:'信息密度高、可读性强，是大师级长篇常用骨架；代价是需要强的一致性自检，否则易散架、坑填不完。' },
   { id:'causal', name:'单线因果式', tag:'经典打怪', short:'单线因果', src:'经典 · 取经路结构',
-    useStructure:false, structure:false,
     outlineSys: `你是擅长编排经典长篇结构的资深小说架构师。根据用户构想设计一部长篇小说。
-请严格只输出如下 JSON（不要解释、不要 markdown 代码块）：
-{"title":"小说名","logline":"一句话梗概","chapters":[{"title":"章标题","summary":"本章核心事件与因果推进，1-2句","hook":"本章结尾因果钩子/悬念"}]}
-要求：遵循「单线因果式」经典结构（如《西游记》取经路）——一根主线贯穿始终，"因为所以"一环扣一环，打完一关进入下一关，前因后果清晰、易读性强；主线明确推进、尽量不铺开多线；章章之间有明确因果链，前一章结果成为后一章起因；整体呈引入→闯关/成长→高潮→收束的清晰线路；每章 summary 写清本章推进的关卡/事件与原因结果，hook 写清衔接下章的因果钩子。`,
+请按如下 JSON 结构输出（不要解释、不要 markdown 代码块；可在此基础上按下方追加块补充 glossary 等其它顶层字段）：
+{"title":"小说名","logline":"一句话梗概","structure":{ ${MAIN_LINE_BLOCK} },"chapters":[{"title":"章标题","summary":"本章核心事件与因果推进，1-2句","hook":"本章结尾因果钩子/悬念"}]}
+要求：遵循「单线因果式」经典结构（如《西游记》取经路）——一根主线贯穿始终，"因为所以"一环扣一环，打完一关进入下一关，前因后果清晰、易读性强；主线明确推进、尽量不铺开多线；章章之间有明确因果链，前一章结果成为后一章起因；整体呈引入→闯关/成长→高潮→收束的清晰线路；每章 summary 写清本章推进的关卡/事件与原因结果，hook 写清衔接下章的因果钩子。structure 中的 chapterPlan（全部章节按关卡分组的写作安排）由下方【长篇结构设计 · 章节计划】块补充，一章不落。`,
     chapterSys: `你是中文长篇小说的资深写手。根据「本章概要」与「章末钩子」写出本章完整正文，做到因果衔接、章章推进。
 要求：遵循"因为所以"的单线因果推进——承接上一章的结果，作为本章起因，本章结束又为下一章留下因果钩子；主线单一清晰、少插枝节；有细腻的环境与心理描写、生动对话、鲜明的人物弧光与成长；节奏张弛有度；章末务必切在钩子上；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。`,
     desc:'经典「单线因果式」结构（如《西游记》取经路）：一根主线贯穿、"因为所以"一环扣一环、打完一关进下一关，主线清晰易读。',
@@ -593,11 +588,10 @@ const STRUCTURES = [
     fit:'常规冒险/成长爽文、连载稳定、怕写崩的稳健型作品；追求易读、主线清晰、读者不迷路。',
     effect:'易读性强、追更顺滑、写作承载力稳定；代价是难容纳复杂副线，多线并存时会受限。' },
   { id:'layered', name:'分层递归展开', tag:'Long-Novel-GPT', short:'分层递归', src:'开源 · Long-Novel-GPT',
-    useStructure:false, structure:false,
     outlineSys: `你是能驾驭超长篇的著名小说架构师。按【卷→部→章】分层递归地设计一部长篇小说。
-请严格只输出如下 JSON（不要解释、不要 markdown 代码块）：
-{"title":"小说名","logline":"一句话梗概","volumes":[{"name":"第X卷卷名","theme":"本卷主题与情绪基调","chapters":[{"title":"章标题","summary":"本章核心事件与转折，1-2句","goal":"本章阶段性目标/推进什么"}]}]}
-要求：整体分 2-4 卷，各卷有清晰主题与情绪递进；每卷内章节数合理；章章承担阶段性目标（引入/冲突/转折/高潮/收束），卷与书之间存在因果链；标题有钩子感。`,
+请按如下 JSON 结构输出（不要解释、不要 markdown 代码块；可在此基础上按下方追加块补充 glossary 等其它顶层字段）：
+{"title":"小说名","logline":"一句话梗概","structure":{ ${MAIN_LINE_BLOCK} },"volumes":[{"name":"第X卷卷名","theme":"本卷主题与情绪基调","chapters":[{"title":"章标题","summary":"本章核心事件与转折，1-2句","goal":"本章阶段性目标/推进什么"}]}]}
+要求：整体分 2-4 卷，各卷有清晰主题与情绪递进；每卷内章节数合理；章章承担阶段性目标（引入/冲突/转折/高潮/收束），卷与书之间存在因果链；标题有钩子感。structure 主线条四格（mainLine 必有、副暗汇合有则带）由上方 JSON 定义，全书章节安排由 volumes（卷→章）承载。`,
     chapterSys: `你是中文长篇小说的资深写手。根据「本卷主题」「本章目标」与「本章概要」写出本章完整正文，做到章章承接上卷、为后续蓄力。
 要求：围绕“本章目标”推进（该引入就引入、该冲突就冲突、该转折就转折），承接上一卷已建立的人物与世界设定、不推倒重来；有细腻环境与心理描写、生动对话、人物弧光；章末留钩子或悬念；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。`,
     desc:'借鉴 Long-Novel-GPT / AI_Gen_Novel 的“卷→部→章→节”分层递归：先生成全局卷章框架，再逐卷逐章填充目标。',
@@ -605,22 +599,20 @@ const STRUCTURES = [
     fit:'目标明确、分卷清晰、需要高可维护性的超长篇；世界观宏大、章节海量想保持不乱的类型文。',
     effect:'结构层级严谨、每卷有独立主题与情绪递进，长期连载不易崩；代价是卷间衔接与全局呼应更费设计。' },
   { id:'hero', name:'英雄之旅', tag:'Hero\'s Journey', short:'英雄之旅', src:'开源 · NovelForger',
-    useStructure:false, structure:true,
     outlineSys: `你是深谙「英雄之旅」结构美学的著名小说架构师。根据用户构想设计一部长篇小说。
-请严格只输出如下 JSON（不要解释、不要 markdown 代码块）：
-{"title":"小说名","logline":"一句话梗概","structure":{"mode":"英雄之旅","designReason":"为何采用此倒逼成长框架","stageChapters":{"平凡世界":["章标题",...],"召唤":["章标题",...],"拒绝召唤":["章标题",...],"跨过门槛":["章标题",...],"试炼盟友敌人":["章标题",...],"深渊一搏":["章标题",...],"回报":["章标题",...],"归来":["章标题",...],"变更之王":["章标题",...]}},"chapters":[{"title":"章标题","summary":"本章核心事件与英雄阶段，1-2句","hook":"本章结尾钩子/悬念"}]}
+请按如下 JSON 结构输出（不要解释、不要 markdown 代码块；可在此基础上按下方追加块补充 glossary 等其它顶层字段）：
+{"title":"小说名","logline":"一句话梗概","structure":{"mode":"英雄之旅","designReason":"为何采用此倒逼成长框架","stageChapters":{"平凡世界":["章标题",...],"召唤":["章标题",...],"拒绝":["章标题",...],"导师":["章标题",...],"跨过门槛":["章标题",...],"试炼/盟友/敌人":["章标题",...],"深渊":["章标题",...],"一搏":["章标题",...],"回报":["章标题",...],"归来":["章标题",...],"变更":["章标题",...]}, ${MAIN_LINE_BLOCK}},"chapters":[{"title":"章标题","summary":"本章核心事件与英雄阶段，1-2句","hook":"本章结尾钩子/悬念"}]}
 要求：遵循经典「英雄之旅」十二阶段（平凡世界→召唤→拒绝→导师→跨过门槛→试炼/盟友/敌人→深渊→一搏→回报→归来→变更），倒逼主角成长弧光；阶段不必逐一对应单独一章，可按体量合并或拆分，但整体要完整走完成长路径；每章 summary 写清该章的英雄阶段与推进，hook 写清章末钩子。`,
     chapterSys: `你是中文长篇小说的资深写手。根据「本章概要」与「章末钩子」写出本章完整正文，做到章章推动英雄的成长弧光。
 要求：围绕本章所处的「英雄之旅」阶段推进角色弧光——该试炼就试炼、该受挫就受挫、该升华就升华；主角每次抉择都要有代价、有成长痕迹；细腻的环境与心理描写、生动对话；章末留钩子或悬念；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。`,
     desc:'借鉴 Hero\'s Journey（《千面英雄》，NovelForger 支持）：12 阶段倒逼主角成长弧光，适合成长正气类长篇。',
-    mech:'把全书章节映射到英雄之旅十二阶段（平凡世界→召唤→跨过门槛→深渊→一搏→归来），让成长弧光结构可预期。',
+    mech:'把全书章节映射到英雄之旅十二阶段（平凡世界→召唤→拒绝→导师→跨过门槛→试炼/盟友/敌人→深渊→一搏→回报→归来→变更），让成长弧光结构可预期。',
     fit:'主角成长型、冒险/奇幻类；希望有清晰#成长曲线#与情感爆发点的长篇。',
     effect:'主角弧光完整、情感起伏有据可依、商业辨识度高；代价是套用若生硬会显得套路化。' },
   { id:'savecat', name:'节拍表', tag:'Save the Cat', short:'节拍表', src:'业界 · Save the Cat',
-    useStructure:false, structure:true,
     outlineSys: `你是深谙「节拍表」结构美学的著名小说架构师。根据用户构想设计一部长篇小说。
-请严格只输出如下 JSON（不要解释、不要 markdown 代码块）：
-{"title":"小说名","logline":"一句话梗概","structure":{"mode":"Save the Cat 节拍表","designReason":"如何用 15 拍控制节奏","beats":{"开场画面":["章标题",...],"催化剂":["章标题",...],"争执":["章标题",...],"进入第二幕":["章标题",...],"B故事":["章标题",...],"中点":["章标题",...],"坏人逼近":["章标题",...],"一切尽失":["章标题",...],"黑暗时刻":["章标题",...],"进入第三幕":["章标题",...],"终局":["章标题",...],"最终画面":["章标题",...]}},"chapters":[{"title":"章标题","summary":"本章核心事件与节拍，1-2句","hook":"本章结尾钩子/悬念"}]}
+请按如下 JSON 结构输出（不要解释、不要 markdown 代码块；可在此基础上按下方追加块补充 glossary 等其它顶层字段）：
+{"title":"小说名","logline":"一句话梗概","structure":{"mode":"Save the Cat 节拍表","designReason":"如何用 15 拍控制节奏","beats":{"开场画面":["章标题",...],"催化剂":["章标题",...],"争执":["章标题",...],"进入第二幕":["章标题",...],"B故事":["章标题",...],"中点":["章标题",...],"坏人逼近":["章标题",...],"一切尽失":["章标题",...],"黑暗时刻":["章标题",...],"进入第三幕":["章标题",...],"终局":["章标题",...],"最终画面":["章标题",...]}, ${MAIN_LINE_BLOCK}},"chapters":[{"title":"章标题","summary":"本章核心事件与节拍，1-2句","hook":"本章结尾钩子/悬念"}]}
 要求：遵循 Save the Cat 的 15 节拍（开场→催化剂→争执→B故事→中点→一切尽失→终局→最终画面等），把全书章节分配到各节拍上，节奏可预估；每章 summary 写清本章所属节拍与推进，hook 写清章末钩子。`,
     chapterSys: `你是中文长篇小说的资深写手。根据「本章概要」与「章末钩子」写出本章完整正文，做到章章贴合 Save the Cat 节拍曲线。
 要求：围绕本章所处的「节拍」推进节奏（平原蓄力、催化剂提速、黑暗时刻骤降、终局引爆等），情绪张力随节拍起伏；细腻的心理与场景描写、生动对话、人物弧光；章末留钩子或悬念；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。`,
@@ -629,10 +621,9 @@ const STRUCTURES = [
     fit:'商业类型文、需要稳定节奏与“可预估追读”的连载作品；编剧思维、强钩子驱动的长篇。',
     effect:'节奏可预估、爽点位置明确、改编友好；代价是拍点分配若机械会产生套路感。' },
   { id:'seven', name:'七点结构', tag:'Seven-Point', short:'七点结构', src:'开源 · NovelForger',
-    useStructure:false, structure:true,
     outlineSys: `你是深谙「七点结构」的著名小说架构师。根据用户构想设计一部长篇小说。
-请严格只输出如下 JSON（不要解释、不要 markdown 代码块）：
-{"title":"小说名","logline":"一句话梗概","structure":{"mode":"七点结构","designReason":"七个锚点如何控制转折","points":{"Hook钩子":["章标题",...],"PlotTurn1一转折":["章标题",...],"Pinch1中点施压":["章标题",...],"Midpoint中点":["章标题",...],"Pinch2压力加码":["章标题",...],"PlotTurn2二转折":["章标题",...],"Resolution解局":["章标题",...]}},"chapters":[{"title":"章标题","summary":"本章核心事件与转折锚点，1-2句","hook":"本章结尾钩子/悬念"}]}
+请按如下 JSON 结构输出（不要解释、不要 markdown 代码块；可在此基础上按下方追加块补充 glossary 等其它顶层字段）：
+{"title":"小说名","logline":"一句话梗概","structure":{"mode":"七点结构","designReason":"七个锚点如何控制转折","points":{"Hook钩子":["章标题",...],"PlotTurn1一转折":["章标题",...],"Pinch1中点施压":["章标题",...],"Midpoint中点":["章标题",...],"Pinch2压力加码":["章标题",...],"PlotTurn2二转折":["章标题",...],"Resolution解局":["章标题",...]}, ${MAIN_LINE_BLOCK}},"chapters":[{"title":"章标题","summary":"本章核心事件与转折锚点，1-2句","hook":"本章结尾钩子/悬念"}]}
 要求：遵循七点结构（Hook→Plot Turn 1→Pinch 1→Midpoint→Pinch 2→Plot Turn 2→Resolution），用七个锚点控制全书转折节奏；每章 summary 写清该章所在锚点与推进，hook 写清章末钩子。`,
     chapterSys: `你是中文长篇小说的资深写手。根据「本章概要」与「章末钩子」写出本章完整正文，做到章章朝七个锚点有序逼近。
 要求：围绕本章所在锚点推进（前段蓄力、Two Plot 转折、Pinch 施压、Midpoint 承转），每章都向“下一个转折点”收拢、不生枝节；细腻的心理与场景描写、生动对话、人物弧光；章末留钩子或悬念；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。`,
@@ -739,6 +730,17 @@ function selSize(){
   return { kind:'word', range: SIZE_DEFAULT };
 }
 const fmtRange = r => `${r.min}-${r.max}`;
+// 全书章节数量：用户给定（1-200 整数）；未设返回 null。
+function chapterCountVal(){
+  const v = +state.chapterCount;
+  if(Number.isInteger(v) && v>=1 && v<=200) return v;
+  return null;
+}
+// 生成大纲前唯一必填数字：本章节数量一句提示
+function chapterCountHint(){
+  const v = chapterCountVal();
+  return v ? `全书 ${v} 章` : '请填写全书章节数（1-200，必填）';
+}
 // 全书总字数基准：优先用用户在「最前」设定的 totalWords，未设时回退 30 万
 function totalWordsBase(){ return (state.totalWords && +state.totalWords>0) ? +state.totalWords : 300000; }
 const totalWan = () => (totalWordsBase()/10000).toLocaleString('en-US');
@@ -833,13 +835,9 @@ function pickSize(side){
 }
 
 // 按所选体量推导「单章正文的 max_tokens 上限」，防止模型偶发超长输出推高成本
-// 中文字符与 token 大体按 1:1 估算，加 1.6 倍缓冲并夹在安全区间内
+// 不再按字数设定：章节数只定章数，正文长度由模型自然把握，这里给一个安全的通用上限（约 8000 字缓冲）
 function chapterMaxTokens(){
-  const sz = selSize();
-  let base;
-  if(sz.kind==='word') base = sz.range.max;
-  else base = Math.round(totalWordsBase() / ((sz.range.min + sz.range.max) / 2));
-  return Math.min(20000, Math.max(600, Math.ceil(base * 1.6)));
+  return Math.min(20000, Math.max(600, Math.ceil(8000 * 1.6)));
 }
 // 段落去重（落库前安全网）：把正文按空行切成段落，若有相邻两段相似度 ≥0.8（80% 以上重叠），
 // 则按“谁更像原稿/更长”保留其一、丢弃重复的那段，避免单章因多次段落级重写而出现整段重复。
@@ -909,46 +907,99 @@ function applyPatches(draft, patches){
   return out;
 }
 
-// 体量提示（拼入大纲提示词）
+// 体量提示（拼入大纲提示词）：只给固定章节数，不给任何字数限制
 function outlineSizeNote(){
-  const sz = selSize();
-  const cnt = estCounterpart(sz);
-  if(sz.kind === 'word') return `全书目标约 ${totalWan()} 万字；单章篇幅落在 ${fmtRange(sz.range)} 字，据此全书约 ${cnt} 章。`;
-  return `全书目标约 ${totalWan()} 万字 / ${fmtRange(sz.range)} 章，据此每章约 ${cnt} 字。`;
+  const n = chapterCountVal();
+  return `全书共 ${n} 章（已由用户定死）。请严格生成恰好 ${n} 个章节，章号从 1 到 ${n} 连续，每章给出标题与梗概，不得增加也不得减少章节。全程不限制任何字数（不设单章字数、不设全书字数），按内容需要自然成稿。`;
 }
 /* 万物词典统一要求块：无论选哪种结构都追加到大纲提示词，保证模型输出 glossary（建议7/决策8/9）
- * 用独立的“追加 JSON 字段”写法，兼容各结构各自的 schema，无需改每个结构模板。 */
+ * glossary 等顶层字段仍以“下方追加块”形式补充（S2）；而各结构的主线条四格已内联进各自的 outlineSys（S1，见 MAIN_LINE_BLOCK）。 */
+/* 基础大纲 JSON 契约（仅是大纲内容，与『结构』彻底无关）：用户未选任何结构范式时，作为独立的大纲内容块注入，
+  * 只定 title/logline/chapters 的形态。不含任何"多线/三定"等结构偏好——结构未选则不推主线条/副暗线等结构命令；
+  * 但"全部章节安排"仍由 CHAPTER_PLAN_FREE_SYS 以自由分组的形式轻量补充到 structure.chapterPlan。 */
+const OUTLINE_GEN_SYS = `你是一位能驾驭超长篇的著名小说架构师。根据用户的一句话或几句构想，设计一部长篇小说的大纲骨架。
+请按如下 JSON 结构输出（不要任何解释、不要 markdown 代码块；可在此基础上按下方追加块补充 glossary、structure 等其它顶层字段）：
+{"title":"小说名","logline":"一句话梗概（含核心冲突与深层命题）","chapters":[{"title":"第1章标题（有钩子感）","summary":"该章核心事件与转折，1-2句"}]}
+每章 title 有钩子感，summary 写清人物动机、情节推进与本章应埋伏笔。全书章节数以上方【篇幅体量】为准，章节数必须与之完全一致。`;
+
 const GLOSSARY_SYS = `\n\n【glossary 万物词典（必须一并输出）】请在返回的 JSON 顶层再追加一个 glossary 字段，作为全文保持一致性的权威基准：
 "glossary":{"characters":[{"name":"人物姓名","relation":"与该人相关人物及关系","trait":"性格/外貌要点"}],"places":[{"name":"地名/场景名","type":"类型","note":"设定要点"}],"propernouns":[{"name":"专名/专属设定术语","note":"含义与拼写唯一约定"}]}
-必须列出本故事涉及的全部重要人物（含配角）、关键地域地名与专属设定术语；**全书正文一律只使用本词典中的人名/地名/专名，禁止自造或混用其他拼写**。人物 relation 写清角色间关系，trait 归纳稳定性格与外貌以便后续各章保持一致；数量依故事体量，人物 3-15 名、地名 2-10 处、专名 2-8 个均可。`;
+必须列出本故事涉及的全部重要人物（含配角）、关键地域地名与专属设定术语；**全书正文一律只使用本词典中的人名/地名/专名，禁止自造或混用其他拼写**。人物 relation 写清角色间关系，trait 归纳稳定性格与外貌以便后续各章保持一致。`;
 
-/** 统一「结构任务块」：所有长篇范式在大纲生成时都必须按此契约输出 structure。
- *  顺序即认知：① 定全书主线（必有）→ ② 定副线/暗线/汇合（有则带、无则空，不硬造）→ ③ 排全章节计划（必有，一章不落）。
- *  维度名由当前所选范式决定（节拍/英雄阶段/七点锚点/线索/关卡/卷），但性质统一——每章都归入某维、一章不落。 */
-const STRUCTURE_PLAN_SYS = `\n\n【长篇结构设计 · 统一任务块（所有范式都必须一并输出，与所选范式不冲突）】
-请在上述 JSON 顶层的 "structure" 字段中，按下面**唯一**一份契约输出，绝不允许与所选范式产生两种互斥结构：
+/** 未选结构时的「章节安排」提示：仅要求 AI 输出 structure.chapterPlan，把全部章节按主题/起承转合自由分组、一章不落；
+ *  不强制主线/副线/暗线（未选结构时用户本就不要求结构骨架）。集中定义为独立常量，便于以后调整分组口径。 */
+const CHAPTER_PLAN_FREE_SYS = `\n\n【章节安排（未选结构时）】请在返回 JSON 的 "structure" 字段中补一个 "chapterPlan"：
+"structure":{"chapterPlan":{  // 维度名 → 章标题列表；全书每一章都归入某个维度，一章不落、最后一章也要归组
+  "维度名1":["章标题","章标题"],
+  "维度名2":["章标题"]
+}}
+维度名由你按故事内容自由拟定（例如按主题、按起承转合、按人物视角、按事件板块），不必套用任何固定范式；每章都归入某维度、一章不落即可。`;
+
+/** 统一「结构任务块 · 主线条 · 兜底」：仅当用户【未选中任何结构范式】时才推。
+ *  S1 之后，选中结构时主线条四格已内联进各 st.outlineSys（见 MAIN_LINE_BLOCK），故此处不再重复推送、避免同一 structure 被两处描述；
+ *  仅未选结构时作为轻量主线条骨架要求，让 AI 产出 mainLine/subLines/hiddenLine/pivotPlan（主线必有、副暗汇合有则带、无则空，绝不硬造）。 */
+const STRUCTURE_MAIN_SYS = `\n\n【长篇结构设计 · 主线条（未选结构范式时，请一并输出，作为轻量结构骨架）】
+请在返回 JSON 顶层的 "structure" 字段中，按下面契约输出一份基础情节骨架：
 "structure":{
   "mainLine":"全书唯一主线/核心走向（必有：这本到底讲什么）",
   "subLines":["副线1：内容","副线2：内容"],  // 有则带；若故事确实没有副线就空数组或省略，绝不硬造
   "hiddenLine":"暗线内容（如何埋设、何时揭晓）",  // 有则带；若没有暗线就空字符串或省略，绝不硬造
-  "pivotPlan":"汇合/大逆转所在章（点式，如 第20章三方对峙）",  // 有则带；无则该字段省略
+  "pivotPlan":"汇合/大逆转所在章（点式，如 第20章三方对峙）"  // 有则带；无则该字段省略
+}
+请完成：① 定全书唯一主线/走向（必填：这本到底讲什么）→ ② 若故事确有副线/暗线/汇合才补，没有就空着、别硬造。
+绝不为了"凑三线"而编造不存在的副线暗线；汇合只在确实有多条线交织时才点出。`;
+
+/** 统一「结构任务块 · 章节计划」：仅【无结构专属章节映射】的范式（网状多线 mesh / 单线因果 causal）才输出。
+ *  英雄之旅→stageChapters、节拍表→beats、七点→points、分层→volumes 由各自专属字段承载章节映射，故不在此重复要求。 */
+const STRUCTURE_PLAN_SYS = `\n\n【长篇结构设计 · 章节计划（仅网状多线 / 单线因果等"无专属章节映射"的结构才一并输出）】
+如果所选范式没有自带"阶段 / 节拍 / 锚点 / 卷"式的章节映射字段，请在上述 JSON 的 "structure" 中补一个 "chapterPlan" 字段：
+"structure":{
   "chapterPlan":{  // ★必有：维度名 → 章标题列表；书中每一章都要被归入某个维度，一章不落、最后一章也要归组
     "维度名1":["章标题","章标题"],
     "维度名2":["章标题"]
   }
 }
-请严格按顺序完成 3 件事：① 定全书唯一主线/走向 → ② 若故事确有副线/暗线/汇合才补，没有就空着、别硬造 → ③ 把全部章节逐一安排进对应维度、一章不落。
-我只要求一份结构，不会让你同时满足两种互斥结构，也绝不为"凑三线"而编造不存在的副线暗线。
-（维度的名称以当前结构范式的叫法为准：节拍范式用各拍名、英雄之旅用各阶段名、七点用各锚点名、多线用各线索名、单线用各关卡、分层用各卷名——但反映的都是"章节→维度"的分组。）`;
+维度名按所选范式叫法（网状多线用各线索名、单线因果用各关卡名），反映的都是"章节→维度"的分组，每一章都归入某维度、一章不落。`;
+
+// 结构是否自带"章节→维度"的专属映射字段（英雄之旅 stageChapters / 节拍表 beats / 七点 points / 分层 volumes）。
+// 选这类结构时，章节安排用专属字段承载，不再要求统一 chapterPlan，避免两份互斥 schema 同时注入。
+function stHasStageMap(st){ return !!st && ['hero','savecat','seven','layered'].includes(st.id); }
+
+// 取"全部章节安排"呈现数据：优先结构专属章节映射（stageChapters/beats/points），回退统一 chapterPlan。返回 {map} 或 null。
+// 分层 volume 单独处理；此函数供 structureCard / structurePlanBlock 共用，便于以后扩展新结构字段。
+function structureChapterPlan(s, o){
+  if(s && s.stageChapters && typeof s.stageChapters==='object' && Object.keys(s.stageChapters).length) return { map: s.stageChapters };
+  if(s && s.beats && typeof s.beats==='object' && Object.keys(s.beats).length) return { map: s.beats };
+  if(s && s.points && typeof s.points==='object' && Object.keys(s.points).length) return { map: s.points };
+  if(s && s.chapterPlan && typeof s.chapterPlan==='object' && Object.keys(s.chapterPlan).length) return { map: s.chapterPlan };
+  return null;
+}
 
 function buildOutlineSys(){
   const st = selStructure(), rh = selRhythm();
   const parts = [];
-  parts.push(st ? st.outlineSys : PROMPTS.longOutlineSys);
-  parts.push(STRUCTURE_PLAN_SYS);                                   // 统一结构任务块（所有长篇范式共用，仅维度起名不同）
-  if(rh && rh.outlineNote) parts.push('\n【节奏风格 · '+rh.name+'】\n'+rh.outlineNote);
+  // 顺序：①篇幅体量(章节数)最先 → ②节奏(选中才推) → ③结构(选中才推) → ④主线条任务块(仅未选结构推·兜底) → ⑤基础大纲契约 OUTLINE_GEN_SYS(未选结构才推·兜底) → ⑥v8 词典块。
+  // 用户提示词作为 user 消息已在最前；章节数先告知；节奏先于结构——先定风格基调/调性，结构骨架再落在统一节奏里。
+  // ① 篇幅体量（含用户定死的章节数）：最先，让后续所有结构安排都基于已知的 N 章
   parts.push('\n【篇幅体量】\n'+outlineSizeNote());
-  parts.push(outlineGlossaryInject(state.pendingGlossary));   // v8 双轨：有导引用权威块，无导入保持原「请自造词典」块
+  // ② 节奏槽位：范式「选中才推」。先定风格基调/调性，让后续结构安排统一在同一节奏里。
+  if(rh && rh.outlineNote) parts.push('\n【节奏风格 · '+rh.name+'】\n'+rh.outlineNote);
+  // ③ 结构槽位：范式「选中才推」。选中结构时推其专属大纲生成命令（含大纲+结构，主线条四格已内联在 st.outlineSys 中）；
+  //    ★未选结构时此槽位为空、不推任何结构命令给 AI（结构与节奏一致：未选则不注入结构），由 AI 按用户提示词自然发挥。
+  if(st) parts.push(st.outlineSys);
+  // ④ 统一「主线条」任务块：仅未选结构时推（兜底）。
+  //    选中结构时主线条四格已由 st.outlineSys 内联提供（S1，见 MAIN_LINE_BLOCK），此处不再重复推送，避免同一 structure 被两处描述；
+  //    未选结构时作为唯一轻量结构骨架要求，让 AI 产出主线/副暗/汇合（有则带、无则空，绝不硬造）。
+  if(!st) parts.push(STRUCTURE_MAIN_SYS);
+  // 统一「章节计划」任务块：仅无专属章节映射的范式（网状多线/单线因果）才推，避免与英雄之旅/节拍表/七点/分层的专属字段重复。
+  if(st && !stHasStageMap(st)) parts.push(STRUCTURE_PLAN_SYS);
+  // ⑤ 基础大纲契约 OUTLINE_GEN_SYS（title/logline/chapters 的 JSON 契约）：置于词典之前。
+  //    互斥原则：选中结构时该契约已由 st.outlineSys 独家承担（大纲契约+结构一体），故不重复推，避免两套 schema 同时注入；
+  //    仅未选结构时推，作为稳定产出大纲骨架的兜底。
+  if(!st) parts.push(OUTLINE_GEN_SYS);
+  // ⑤-2 未选结构时：要求 AI 自由分组输出 chapterPlan（按主题/起承转合），作为"全部章节写作安排"的呈现。
+  if(!st) parts.push(CHAPTER_PLAN_FREE_SYS);
+  parts.push(outlineGlossaryInject(state.pendingGlossary));   // ⑥ v8 双轨：有导引用权威块，无导入保持原「请自造词典」块
   return parts.join('\n\n');
 }
 // 遵从度 → 喂给 AI 的要求（v8：与 adherenceHint 的语义一一对应，供模型判断遵循程度）
@@ -1018,26 +1069,25 @@ function structurePlanBlock(o){
   if(s.subLines && s.subLines.length) lines.push('副线：'+(s.subLines||[]).join('；'));
   if(s.hiddenLine) lines.push('暗线：'+s.hiddenLine);
   if(s.pivotPlan) lines.push('汇合/大逆转：'+s.pivotPlan);
-  // chapterPlan：优先读结构自带；没有则用 o.chapters 兜底，保证"必有、一章不落"
-  let cp = s.chapterPlan;
-  if(!cp || typeof cp !== 'object' || !Object.keys(cp).length){
-    const chs = o.chapters || [];
-    if(chs.length){
-      const fallback = {};
-      const key = (chs[0] && chs[0].volume) ? '全卷章节' : '全章规划';
-      fallback[key] = chs.map((c,i)=> (c&&c.title) || ('第'+(i+1)+'章'));
-      cp = fallback;
-    }
-  }
-  if(cp && typeof cp === 'object'){
+  // 全章节计划：优先结构专属章节映射，回退 chapterPlan；分层卷结构单独成行。
+  const plan = structureChapterPlan(s, o);
+  if(plan){
     lines.push('全章节计划：');
-    const keys = Object.keys(cp);
-    if(keys.length){
-      keys.forEach(k=>{
-        const arr = Array.isArray(cp[k]) ? cp[k] : [cp[k]];
-        if(arr.length) lines.push('·（'+k+'）'+arr.join('、'));
-      });
-    }
+    Object.keys(plan.map).forEach(k=>{
+      const arr = Array.isArray(plan.map[k]) ? plan.map[k] : [plan.map[k]];
+      if(arr.length) lines.push('·（'+k+'）'+arr.join('、'));
+    });
+  } else if((o.chapters||[]).length){
+    lines.push('全章节计划：');
+    lines.push('·（全章规划）'+ (o.chapters||[]).map(c=>c&&c.title).filter(Boolean).join('、'));
+  }
+  // 分层递归卷结构
+  if(o.volumes && o.volumes.length){
+    lines.push('卷结构：');
+    o.volumes.forEach(v=>{
+      const chs = (v.chapters||[]).map(c=>c&&c.title).filter(Boolean);
+      if(chs.length) lines.push('·（'+(v.name||'卷')+'）'+chs.join('、'));
+    });
   }
   return lines.join('\n');
 }
@@ -1158,12 +1208,11 @@ function openCoveragePanel(){
   ov.addEventListener('click', e=>{ if(e.target===ov) closeCoveragePanel(); });
 }
 function closeCoveragePanel(){ const p=$('#cvPanel'); if(p) p.remove(); }
-// 体量提示（拼入章节正文提示词，控制单章容量）
+// 体量提示（拼入章节正文提示词）：只交代全书章节数与当前章位，不给任何字数限制
 function sizeChapterInjection(){
-  const sz = selSize();
-  const cnt = estCounterpart(sz);
-  if(sz.kind === 'word') return `本章正文应落在 ${fmtRange(sz.range)} 字区间（全书约 ${cnt} 章、总目标约 ${totalWan()} 万字），据此把握本章的容量与叙事节奏。`;
-  return `全书约 ${fmtRange(sz.range)} 章（每章据此约 ${cnt} 字），总目标约 ${totalWan()} 万字，据此把握单章容量与节奏。`;
+  const n = chapterCountVal();
+  const total = n ? `全书共 ${n} 章；` : '';
+  return `${total}本章正文不设字数上限，按剧情需要自然成稿，章与章之间衔接顺畅、节奏自然。`;
 }
 // 更新体量派生提示（页面内）
 function bindSizeHint(){
@@ -1341,8 +1390,8 @@ const CYBER_HOME_GRID = `
 function recipeSummaryBar(){
   if(!isLong()) return '';
   const st = selStructure(), rh = selRhythm();
-  const sz = selSize();
-  const szLabel = sz.kind==='word' ? `单章 ${fmtRange(sz.range)} 字` : `全书 ${fmtRange(sz.range)} 章`;
+  const ccNum = chapterCountVal();
+  const szLabel = ccNum ? `全书 ${ccNum} 章` : '未填章节数';
   const qLabel = state.autoQC ? '自动质检' : '已关闭';
   const labelSt = st ? st.name : (state.recipeSet && (state.recipeSet.structure===null||state.recipeSet.structure===undefined) ? '由 AI 按构想发挥' : '未选');
   const labelRh = rh ? rh.name : (state.recipeSet && state.recipeSet.rhythm===null ? '由 AI 按构想发挥' : '未选');
@@ -1353,7 +1402,7 @@ function recipeSummaryBar(){
       ${pill('结构', labelSt)}
       ${pill('节奏', labelRh)}
       ${pill('质量', qLabel)}
-      ${pill('体量', szLabel)}
+      ${pill('章节数', szLabel)}
     </div>
   </div>`;
 }
@@ -1361,7 +1410,7 @@ function recipeSummaryBar(){
 function viewStory(){
   if(!state.outline){
     const homeSub = isLong()
-      ? `用几句话描述你的长篇构想（世界观、主角、核心冲突都行）。AI 会先扩写成与所选体量匹配的全书大纲，之后按「两章一批」逐步写到约 ${totalWan()} 万字。`
+      ? `用几句话描述你的长篇构想（世界观、主角、核心冲突都行）。AI 会扩写成全书 ${chapterCountHint()} 大纲，之后按「生成章节」逐步写完。`
       : '用几句话描述你的点子（世界观、主角、核心冲突都行）。AI 会扩写成完整故事大纲与章节。';
     return CYBER_HOME_GRID + `
     <div class="card">
@@ -2162,9 +2211,9 @@ function renderLongProgress(){
   const done = state.chapters.filter(c=> c.content && c.content.trim()).length;
   const total = state.chapters.length;
   let chars = 0; state.chapters.forEach(c=> chars += countWords(c.content).total);
-  const sz = selSize();
-  const sizeName = sz.kind==='word' ? `每章约 ${fmtRange(sz.range)} 字` : `全书约 ${fmtRange(sz.range)} 章`;
-  el.innerHTML = `<span class="pill">写作进度：${done}/${total} 章</span> <span class="pill">已写约 ${chars.toLocaleString('en-US')} 字（目标 ${totalWan()} 万字 · ${sizeName}）</span>`;
+  const ccNum = chapterCountVal();
+  const cap = ccNum ? `全书 ${ccNum} 章` : '';
+  el.innerHTML = `<span class="pill">写作进度：${done}/${total} 章</span> <span class="pill">已写约 ${chars.toLocaleString('en-US')} 字${cap ? ' · '+cap : ''}</span>`;
 }
 
 /* ---------- P2 角色 ---------- */
@@ -2704,20 +2753,17 @@ function bindView(){
     state.autoQC = !((typeof state.autoQC === 'boolean') ? state.autoQC : true);
     persist(); render();
   });
-  // 体量二选一：点击 ☑ 勾选该侧（radio，二选一）
-  $$('.size-pick').forEach(b=> b.onclick = ()=>{ pickSize(b.dataset.pick); });
-  // 全书总字数：直接填数字（单位：万）。失焦/回车提交 → 设定或解锁范式与体量
-  const twIn = $('#totalWordsIn');
-  if(twIn){
-    twIn.addEventListener('keydown', e=>{ if(e.key==='Enter') twIn.blur(); });
-    twIn.addEventListener('change', ()=>{
-      const v = parseFloat(twIn.value);
-      if(v && v>0) state.totalWords = Math.round(v*10000);
-      else { state.totalWords = null; }
+  // 全书章节数：直接填整数（1-200 必填）。失焦/回车提交 → 设定或解锁范式
+  const ccIn = $('#totalWordsIn');
+  if(ccIn){
+    ccIn.addEventListener('keydown', e=>{ if(e.key==='Enter') ccIn.blur(); });
+    ccIn.addEventListener('change', ()=>{
+      const v = Math.floor(Number(ccIn.value));
+      if(Number.isInteger(v) && v>=1 && v<=200) state.chapterCount = v;
+      else { state.chapterCount = null; toast('章节数需为 1-200 的整数'); }
       persist(); render();
     });
   }
-  initDRS();
   bindGlossary();
   bindPendingGlossary();
   // 故事页内联规范选择器
@@ -2852,6 +2898,8 @@ async function genOutline(){
   const st = $('#outlineStatus'); st.className='status'; st.textContent='';
   state.idea = $('#ideaInput').value.trim();
   if(!state.idea){ toast('先写几句构想'); busy(btn,false); return; }
+  // 长篇：生成大纲前必须已设定书籍章节数（1-200 必填）
+  if(isLong() && !chapterCountVal()){ toast('请先填写全书章节数（1-200）'); busy(btn,false); return; }
   // 未选结构时的处理：结构标签留空，让 AI 完全按用户提示词自然发挥组织结构，不做随机锁定、不做固定默认
   try{
     const sys = isLong() ? longOutlineSys() : PROMPTS.outlineSys + specSysAddition();
@@ -2866,24 +2914,45 @@ async function genOutline(){
       o._volumes = o.volumes;
     }
     if(!o.chapters || !o.chapters.length) throw new Error('未解析到章节');
-    // 追加规划·长篇始终携带结构设计：任选结构/节奏/未选，都保证 o.structure 存在，且满足统一契约（mainLine + chapterPlan 必有）
-    if(isLong()){
-      if(!o.structure || typeof o.structure !== 'object') o.structure = {};
-      const s = o.structure;
-      if(!s.mainLine) s.mainLine = o.logline || '';
-      // 兜底 chapterPlan：缺时由其章标题一键生成，保证"必有、一章不落"
-      if(!s.chapterPlan || typeof s.chapterPlan !== 'object' || !Object.keys(s.chapterPlan).length){
-        const flat = {};
-        const planKey = (o.chapters && o.chapters[0] && o.chapters[0].volume) ? '全卷章节' : '全章规划';
-        flat[planKey] = (o.chapters||[]).map((c,i)=>{ const t=(c&&c.title)||('第'+(i+1)+'章'); return `${t}`; });
-        s.chapterPlan = flat;
-      }
-      // 铁律：subLines/hiddenLine/pivotPlan 空即为空，不做任何填充
-      if(!s.subLines) s.subLines = [];
-      if(!s.hiddenLine) s.hiddenLine = '';
-      if(!s.pivotPlan) s.pivotPlan = '';
+    // 追加规划·长篇携带结构设计：任选结构/未选，都保证 o.structure 存在。
+    //    - 选中结构：st.outlineSys 已内联主线条四格（S1，见 MAIN_LINE_BLOCK）+ 结构专属章节映射，满足统一契约（副/暗/汇含有则带无则空）
+    //    - 未选结构：STRUCTURE_MAIN_SYS 已要求 AI 产出主线条四格；chapterPlan 由 CHAPTER_PLAN_FREE_SYS 自由分组，失败才兜底，不硬造
+      if(isLong()){
+        const st = selStructure();
+        if(!o.structure || typeof o.structure !== 'object') o.structure = {};
+        const s = o.structure;
+        if(!s.mainLine) s.mainLine = o.logline || '';
+        if(st){
+          // 章节安排兜底：若结构自带专属章节映射（stageChapters/beats/points/volumes），则不强行生成 chapterPlan，
+          //   前端会优先用专属映射呈现；否则（网状多线/单线因果）兜底生成 chapterPlan，保证"全部章节安排"一格不空。
+          const hasStage = s.stageChapters || s.beats || s.points || (o.volumes && o.volumes.length);
+          if(!hasStage){
+            if(!s.chapterPlan || typeof s.chapterPlan !== 'object' || !Object.keys(s.chapterPlan).length){
+              const flat = {};
+              const planKey = (o.chapters && o.chapters[0] && o.chapters[0].volume) ? '全卷章节' : '全章规划';
+              flat[planKey] = (o.chapters||[]).map((c,i)=>{ const t=(c&&c.title)||('第'+(i+1)+'章'); return `${t}`; });
+              s.chapterPlan = flat;
+            }
+          }
+          // 铁律：subLines/hiddenLine/pivotPlan 空即为空，不做任何填充
+          if(!s.subLines) s.subLines = [];
+          if(!s.hiddenLine) s.hiddenLine = '';
+          if(!s.pivotPlan) s.pivotPlan = '';
+        } else {
+          // 未选结构：兜底 chapterPlan（AI 自由分组失败也至少保证"全部章节安排"一格不空）
+          if(!s.chapterPlan || typeof s.chapterPlan !== 'object' || !Object.keys(s.chapterPlan).length){
+            const flat = {};
+            const planKey = (o.chapters && o.chapters[0] && o.chapters[0].volume) ? '全卷章节' : '全章规划';
+            flat[planKey] = (o.chapters||[]).map((c,i)=>{ const t=(c&&c.title)||('第'+(i+1)+'章'); return `${t}`; });
+            s.chapterPlan = flat;
+          }
+          // 轻量结构骨架：主线已由上方兜底为 logline；副/暗/汇合按"有则带无则空"归一，保证渲染契约一致
+          if(!s.subLines) s.subLines = [];
+          if(!s.hiddenLine) s.hiddenLine = '';
+          if(!s.pivotPlan) s.pivotPlan = '';
+        }
       // 结构模式：已选结构则用其名；未选结构则留空（AI 按用户提示词自然发挥，结构标签不做固定默认）
-      if(!s.mode) s.mode = (selStructure() && selStructure().name) || '';
+      if(!s.mode) s.mode = (st && st.name) || '';
     }
     state.outline = o; state.outlineConfirmed=false;
     // 万物词典：新生成大纲默认含 glossary（人物/地名/专名）；旧大纲缺省时给空，UI 提示重生成可启用
@@ -2929,9 +2998,10 @@ function longChapterContext(i){
     if(s.hiddenLine) flat.push('暗线：'+s.hiddenLine);
     if(s.pivotPlan) flat.push('汇合/大逆转：'+s.pivotPlan);
     const curTitle = (o.chapters[i] && o.chapters[i].title) || '';
-    // 定位本章归属维度：优先用 chapterPlan 的分组映射（新契约），找不到则退回全文规划
-    const curGroup = chapterGroupOf(i, s.chapterPlan, curTitle);
-    if(curGroup) flat.push('【本章归属】维度「'+curGroup+'」');
+    // 定位本章归属维度：优先结构专属章节映射（stageChapters/beats/points），回退统一 chapterPlan
+    const planMap = (s && (s.stageChapters || s.beats || s.points || s.chapterPlan)) || null;
+    const curGroup = chapterGroupOf(i, planMap, curTitle);
+    if(curGroup && curGroup !== '（未匹配，按大纲推进即可）') flat.push('【本章归属】维度「'+curGroup+'」');
     flat.push(structurePlanBlock(o));   // 统一的纯文本结构块（主线→副/暗/汇合(若有)→全章节计划）
     ctx += '\n\n【整体结构】\n' + flat.join('\n');
   }
@@ -2983,12 +3053,11 @@ function recipePicker(){
   const labelSt = selSt ? selSt.name : '未选';
   const labelRh = selRh ? selRh.name : '未选';
   const labelQ = state.autoQC ? '自动质检' : '已关闭';
-  // 体量小结：未勾选任何一侧时用默认文字提示
-  const sz = selSize();
-  const szLabel = sz.kind==='word' ? `单章 ${fmtRange(sz.range)} 字` : `全书 ${fmtRange(sz.range)} 章`;
-  // 总字数门控：最前先填“全书大约总字数（万）”，填了才展开范式与体量
-  const twOn = (state.totalWords && +state.totalWords>0);
-  const twWan = twOn ? String(Math.round(+state.totalWords/10000)) : '';
+  // 体量小结：以章节数为准
+  const cc = chapterCountVal();
+  const szLabel = cc ? `全书 ${cc} 章` : '未填章节数';
+  // 章节数是否已就绪（决定范式区是否解锁）
+  const ccOn = !!cc;
   // 卡片渲染（dim 为维度名，selKeys 判断选中，toggle 是点击后是否多选）
   const card = (it, field, isSel, extra) => `
     <button type="button" class="recipe ${isSel?'active':''}" data-${field}="${esc(it.id)}">
@@ -3004,35 +3073,23 @@ function recipePicker(){
       <div class="poly-head"><span class="poly-ic">${icon}</span><b>${title}</b><span class="poly-rule">${rule}</span></div>
       <div class="poly-grid">${cardsHtml}</div>
     </div>`;
-  // 门控：未填总字数时，范式与体量折叠，仅展示待设提示
-  const core = twOn ? `
+  // 章节数必填后，范式区才展开
+  const core = ccOn ? `
     ${dim('结构骨架','🏗️','单选 · 可选其一', STRUCTURES.map(it=>card(it,'structure', it.id===rs.structure)).join(''))}
     ${dim('节奏风格','⚡','单选 · 可选其一（默认黄金网文）', RHYTHMS.map(it=>card(it,'rhythm', it.id===rs.rhythm)).join(''))}
     ${qualityToggleHtml()}
-    <div class="poly-size">
-      <div class="poly-head"><span class="poly-ic">📏</span><b>体量设定</b><span class="poly-rule">先勾选一项 · 再滑动调区间 · 二选一（全书总字数 ${totalWan()} 万字）</span></div>
-      <div class="size-grid">
-        ${sizeSlider('word', '每章字数（字）', 1000, 12000, 100,
-          state.wordRange ? state.wordRange : null,
-          !!(state.wordRange && +state.wordRange.min>0))}
-        ${sizeSlider('chapter', '全书章节（章）', 1, 120, 1,
-          state.chapterRange ? state.chapterRange : null,
-          !!(state.chapterRange && +state.chapterRange.min>0))}
-      </div>
-      <p class="size-hint" id="sizeHint">${sizeHintText()}</p>
-    </div>
     ${pendingGlossaryPanel()}
-    <p class="muted" style="margin:8px 0 0">至少选择结构、节奏、质量其中一项即可生文；体量需先用 ☑ 勾选一项才能调整滑条。介绍默认折叠，选中后自动展开。</p>`
-    : `<div class="tw-lock"><span class="tw-lock-ic">🔒</span><span>待填入全书总字数后，此处才展开“写作范式”与“体量设定”。</span></div>`;
+    <p class="muted" style="margin:8px 0 0">至少选择结构、节奏、质量其中一项即可生成；章节数已在「全书章节数」填定。介绍默认折叠，选中后自动展开。</p>`
+    : `<div class="tw-lock"><span class="tw-lock-ic">🔒</span><span>待填写全书章节数后，此处才展开“写作范式”设定。</span></div>`;
   return `<div class="card recipe-card poly-card">
     <div class="tw-panel">
-      <div class="poly-head"><span class="poly-ic">📐</span><b>全书总字数</b><span class="poly-rule">写正文前先定总目标 · 填数字（单位：万）</span></div>
+      <div class="poly-head"><span class="poly-ic">📐</span><b>全书章节数</b><span class="poly-rule">生成大纲前唯一必填数字 · 填 1-200 的整数</span></div>
       <div class="tw-row">
-        <input type="number" id="totalWordsIn" class="tw-in" min="1" step="1" inputmode="numeric" placeholder="如 30" value="${twWan}" ${twOn?'':'data-first'} />
-        <span class="tw-unit">万字</span>
-        ${twOn ? `<span class="pill tag-ok">目标 ${totalWan()} 万字</span>` : ''}
+        <input type="number" id="totalWordsIn" class="tw-in cc-in" min="1" max="200" step="1" inputmode="numeric" placeholder="如 30" value="${cc||''}" ${ccOn?'':'data-first'} />
+        <span class="tw-unit">章</span>
+        ${ccOn ? `<span class="pill tag-ok">${chapterCountHint()}</span>` : ''}
       </div>
-      <p class="size-hint" id="twHint">${twOn ? '总字数已设定，下方范式与体量将据此自动推导。' : '全书的“大约总字数”（写成约 3 万 ~ 60 万皆可）。此项必填，填完才解锁下方设置。'}</p>
+      <p class="size-hint" id="twHint">${ccOn ? '章节数已设定，下方写作范式据此展开；字数不做任何限制。' : '填写全书章节数（1-200）。此项必填，填完才解锁下方“写作范式”设置。'}</p>
     </div>
     <div class="poly-combo">
       <span class="pc-lbl">当前组合</span>
@@ -3124,25 +3181,21 @@ function structureCard(o){
   push('subLines','副线');
   push('hiddenLine','暗线');
   push('pivotPlan','汇合/大逆转');
-  // 全章节计划：读 chapterPlan（新契约）——维度分组 → 章列表，一章不落
-  let cp = s.chapterPlan;
-  // 兜底：缺 chapterPlan 时用 o.chapters 生成，保证"必有、一章不落"
-  if(!cp || typeof cp !== 'object' || !Object.keys(cp).length){
-    const chs = o.chapters || [];
-    if(chs.length){
-      const fallback = {};
-      const key = (chs[0] && chs[0].volume) ? '全卷章节' : '全章规划';
-      fallback[key] = chs.map((c,i)=> (c&&c.title) || ('第'+(i+1)+'章'));
-      cp = fallback;
-    }
-  }
-  if(cp && typeof cp==='object'){
-    const keys = Object.keys(cp).filter(k=>Array.isArray(cp[k])&&cp[k].length);
-    if(keys.length){
-      keys.forEach(k=> rows.push(`<b>${esc(k)}</b><span>${esc(cp[k].join('、'))}</span>`));
-    } else if((o.chapters||[]).length){
-      rows.push(`<b>全章节计划</b><span>${esc((o.chapters||[]).map(c=>c&&c.title).filter(Boolean).join('、'))}</span>`);
-    }
+  // 全章节安排：优先结构专属章节映射（英雄之旅 stageChapters / 节拍表 beats / 七点 points），回退统一 chapterPlan；分层卷结构作为另一种合法呈现。
+  const plan = structureChapterPlan(s, o);
+  if(plan){
+    Object.keys(plan.map).forEach(k=>{
+      const arr = Array.isArray(plan.map[k]) ? plan.map[k].filter(Boolean) : [];
+      if(arr.length) rows.push(`<b>${esc(k)}</b><span>${esc(arr.join('、'))}</span>`);
+    });
+  } else if(o.volumes && o.volumes.length){
+    // 分层递归：卷结构（o.volumes）作为"全部章节安排"的一种合法形式
+    o.volumes.forEach(v=>{
+      const chs = (v.chapters||[]).map(c=>c&&c.title).filter(Boolean);
+      if(chs.length) rows.push(`<b>卷·${esc(v.name||'第'+(o.volumes.indexOf(v)+1)+'卷')}</b><span>${esc(chs.join('、'))}</span>`);
+    });
+  } else if((o.chapters||[]).length){
+    rows.push(`<b>全章节计划</b><span>${esc((o.chapters||[]).map(c=>c&&c.title).filter(Boolean).join('、'))}</span>`);
   }
   return `<div class="card structure-card">
     <h3>🏗️ 长篇结构设计</h3>
