@@ -18,7 +18,7 @@ let gglib = [];                  // v8 词典库：[{id, name, note, savedAt, g:
 const state = {
   mode: 'shortfilm',    // 'shortfilm' 短片 / 'longnovel' 经典长篇小说
   recipe: 'mesh',       // (兼容旧字段) 旧式单一范式 id；新项目用 recipeSet
-  recipeSet: { structure:null, rhythm:null, quality:[] }, // 长篇三维写作范式：结构(单选)+节奏(单选)+质量(可多选)；默认全部不选，由 AI 按构想发挥
+  recipeSet: { structure:null, rhythm:null, quality:[], titleStyle:[] }, // 长篇三维写作范式：结构(单选)+节奏(单选)+质量(可多选)；默认全部不选，由 AI 按构想发挥
   wordRange: null,      // (兼容遗留) 不再作为长篇必填；保留字段避免旧快照破坏
   chapterRange: null,   // (兼容遗留) 同上
   totalWords: null,     // (兼容遗留) 同上
@@ -31,6 +31,7 @@ const state = {
   pendingGlossary: null, // v8 辅轨槽位：大纲前导入的待用词典 {characters,places,propernouns}，不写进 outline 直至确认
   glossAdherence: 60,   // v8 遵从度（%）：用户控制 AI 遵循词典的程度；默认 60（折中，续作/新作均安全，见规划 Q4）
   glossAllowFill: false, // v8 「允许 AI 补充」开关：低遵从时是否放行 AI 新增实体
+  glossAutoFill: true,   // v8c 词典自动补全（默认开）：批量生成章节后自动提取正文中的新人物/地名/专名并入词典；关则只保留手动「📥 提取新增」
   gsCollapsed: true,    // v8b：万物词典卡片是否整卡收缩（默认收缩，点圆形展开全部）
   autoQC: true,         // 自动质检开关（默认开，用户无需操心）：生成后自动两段式查错修正；关则直接落库
   chapters: [],         // [{title, content, confirmed}]
@@ -212,7 +213,7 @@ function projectSnapshot(){
   return {
     mode: state.mode || 'shortfilm',
     recipe: state.recipe || 'mesh',
-    recipeSet: state.recipeSet || { structure:null, rhythm:null, quality:[] },
+    recipeSet: state.recipeSet || { structure:null, rhythm:null, quality:[], titleStyle:[] },
     wordRange: state.wordRange || null,
     chapterRange: state.chapterRange || null,
     totalWords: state.totalWords || null,
@@ -225,6 +226,7 @@ function projectSnapshot(){
     pendingGlossary: state.pendingGlossary,
     glossAdherence: state.glossAdherence,
     glossAllowFill: state.glossAllowFill,
+    glossAutoFill: state.glossAutoFill,
     gsCollapsed: state.gsCollapsed,
     autoQC: (typeof state.autoQC === 'boolean') ? state.autoQC : true,
     chapters: state.chapters,
@@ -256,6 +258,7 @@ function applyProject(p){
   state.pendingGlossary = p.pendingGlossary || null;
   state.glossAdherence = (typeof p.glossAdherence === 'number') ? p.glossAdherence : 60;
   state.glossAllowFill = !!p.glossAllowFill;
+  state.glossAutoFill = (typeof p.glossAutoFill === 'boolean') ? p.glossAutoFill : true;
   state.gsCollapsed = (typeof p.gsCollapsed === 'boolean') ? p.gsCollapsed : true;
   state.autoQC = (typeof p.autoQC === 'boolean') ? p.autoQC : true;   // 自动质检默认开
   state.chapters = p.chapters || [];
@@ -270,10 +273,10 @@ function applyProject(p){
 function clearState(){
   state.mode = 'shortfilm';
   state.recipe = 'mesh';
-  state.recipeSet = { structure:null, rhythm:null, quality:[] };
+  state.recipeSet = { structure:null, rhythm:null, quality:[], titleStyle:[] };
   state.wordRange = null; state.chapterRange = null; state.totalWords = null; state.chapterCount = null;
   state.idea = ''; state.outline = null; state.coverPrompt = ''; state.coverWithTitle = false; state.outlineConfirmed = false;
-  state.pendingGlossary = null; state.glossAdherence = 60; state.glossAllowFill = false; state.gsCollapsed = true;
+  state.pendingGlossary = null; state.glossAdherence = 60; state.glossAllowFill = false; state.glossAutoFill = true; state.gsCollapsed = true;
   state.autoQC = true;   // 自动质检默认开
   state.chapters = []; state.characters = []; state.scenes = []; state.storyboard = []; state.boardConcepts = []; state.titleHistory = []; state.raw = {};
   currentStep = 1;
@@ -285,7 +288,8 @@ function migrateRecipeSet(set, legacyRecipe){
     return {
       structure: (typeof set.structure === 'string' && STRUCTURE_IDS.includes(set.structure)) ? set.structure : null,
       rhythm: (typeof set.rhythm === 'string' && RHYTHM_IDS.includes(set.rhythm)) ? set.rhythm : null,
-      quality: Array.isArray(set.quality) ? set.quality.filter(q=> QUALITY_IDS.includes(q)) : []
+      quality: Array.isArray(set.quality) ? set.quality.filter(q=> QUALITY_IDS.includes(q)) : [],
+      titleStyle: Array.isArray(set.titleStyle) ? set.titleStyle.filter(id=> TITLE_STYLE_IDS.includes(id)) : []
     };
   }
   // 旧 recipe 单一 id 迁移映射
@@ -706,11 +710,49 @@ const STRUCTURE_IDS = STRUCTURES.map(s=> s.id);
 const RHYTHM_IDS = RHYTHMS.map(r=> r.id);
 const QUALITY_IDS = QUALITIES.map(q=> q.id);
 
+// 章节标题风格（可多选；不选则大纲阶段不注入任何标题要求，标题由 AI 自由发挥）
+const TITLE_STYLES = [
+  { id:'summary',  name:'归纳', tag:'归纳概括', short:'归纳', src:'自定义 · 标题风格',
+    desc:'标题能概括本章核心事件，读者看标题即知本章讲什么。',
+    mech:'要求 AI 以本章核心事件/情节推进为基准拟题，标题与内容强对应。',
+    fit:'追求"目录即导览"、读者快速定位剧情的作品。',
+    effect:'标题信息密度高、便于检索回顾；代价是可能牺牲悬念感。',
+    note:'章节标题须具备归纳作用：能概括本章核心事件，读者看标题即知本章讲什么，忌与内容脱节。' },
+  { id:'point',    name:'画龙点睛', tag:'点题升华', short:'点睛', src:'自定义 · 标题风格',
+    desc:'标题点出本章主题与情感内核，用双关/象征/意境词升华。',
+    mech:'要求 AI 提炼本章情感与主题落点，用一个点睛词或意象完成升华。',
+    fit:'情感向、主题鲜明、追求回味与记忆点的作品。',
+    effect:'标题有回味与张力、记忆点强；代价是需要主题先行、对 AI 提炼要求高。',
+    note:'章节标题须画龙点睛：点出本章主题与情感内核，可用双关、象征或意境词升华，忌平铺直叙。' },
+  { id:'literary', name:'文学语句', tag:'诗化表达', short:'文学', src:'自定义 · 标题风格',
+    desc:'标题用诗化、意象或典故化表达，讲究语言美感与余韵。',
+    mech:'要求 AI 以文学笔法拟题（诗化/意象/典故），拒绝大白话。',
+    fit:'文风典雅、追求整体气质的作品。',
+    effect:'标题有文学美感、辨识度高；代价是可能与"归纳"取向冲突、需把握分寸。',
+    note:'章节标题须有文学语句质感：采用诗化、意象或典故化表达，讲究语言美感与余韵，而非大白话。' },
+  { id:'neat',     name:'字数工整', tag:'字数统一', short:'工整', src:'自定义 · 标题风格',
+    desc:'全书每章标题字数统一，整齐有节奏。',
+    mech:'要求 AI 全书标题保持相同字数（建议 4-6 字，可对仗）。',
+    fit:'追求形式美、目录整齐划一的章回体/古风作品。',
+    effect:'目录整齐、节奏感强；代价是字数约束下拟题难度上升。',
+    note:'章节标题须字数工整：全书每章标题字数统一（建议 4-6 字，可对仗），整体整齐有节奏感。' }
+];
+const TITLE_STYLE_IDS = TITLE_STYLES.map(s=> s.id);
+
 // 当前所选
 function selStructure(){ return state.recipeSet && STRUCTURES.find(s=> s.id === state.recipeSet.structure) || null; }
 function selRhythm(){ return state.recipeSet && RHYTHMS.find(r=> r.id === state.recipeSet.rhythm) || null; }
 function selQualities(){ return (state.recipeSet && Array.isArray(state.recipeSet.quality)) ? state.recipeSet.quality.filter(id=> QUALITY_IDS.includes(id)).map(id=> QUALITIES.find(q=> q.id===id)).filter(Boolean) : []; }
 function hasQuality(id){ return Array.isArray(state.recipeSet && state.recipeSet.quality) && state.recipeSet.quality.includes(id); }
+// 章节标题风格（多选）：返回选中的样式对象数组；未选返回 []
+function selTitleStyles(){ return (state.recipeSet && Array.isArray(state.recipeSet.titleStyle)) ? state.recipeSet.titleStyle.filter(id=> TITLE_STYLE_IDS.includes(id)).map(id=> TITLE_STYLES.find(s=> s.id===id)).filter(Boolean) : []; }
+function hasTitleStyle(id){ return Array.isArray(state.recipeSet && state.recipeSet.titleStyle) && state.recipeSet.titleStyle.includes(id); }
+// 标题风格注入块：选中才生成，未选返回空（不发送任何标题要求，AI 自由发挥）
+function titleStyleNote(){
+  const arr = selTitleStyles();
+  if(!arr.length) return '';
+  return '【章节标题风格（用户指定，必须遵守）】\n' + arr.map(s=>'·'+s.note).join('\n');
+}
 
 // 默认体量：用户填了哪一侧就用哪一侧；都没填回退默认字数区间 3000-5000
 // 归一化：把可能残缺的区间补全（min/max 任一缺省则用对侧/默认补足），保证派生计算不出现 NaN
@@ -922,8 +964,23 @@ const OUTLINE_GEN_SYS = `你是一位能驾驭超长篇的著名小说架构师�
 每章 title 有钩子感；**chapters 只需逐章列出标题，禁止输出任何逐章梗概、内容预告、章末钩子或阶段目标**——每章的正文与梗概将在后续写正文阶段独立生成，不在大纲阶段预写。全书章节数以上方【篇幅体量】为准，章节数必须与之完全一致。`;
 
 const GLOSSARY_SYS = `\n\n【glossary 万物词典（必须一并输出）】请在返回的 JSON 顶层再追加一个 glossary 字段，作为全文保持一致性的权威基准：
-"glossary":{"characters":[{"name":"人物姓名","relation":"与该人相关人物及关系","trait":"性格/外貌要点"}],"places":[{"name":"地名/场景名","type":"类型","note":"设定要点"}],"propernouns":[{"name":"专名/专属设定术语","note":"含义与拼写唯一约定"}]}
-必须列出本故事涉及的全部重要人物（含配角）、关键地域地名与专属设定术语；**全书正文一律只使用本词典中的人名/地名/专名，禁止自造或混用其他拼写**。人物 relation 写清角色间关系，trait 归纳稳定性格与外貌以便后续各章保持一致。`;
+"glossary":{"characters":[{"name":"人物姓名","identity":"身份/职业/社会身份","age":"岁数/年龄","gender":"性别","appearance":"外貌特征","hobby":"爱好/习惯","relation":"与该人的血缘/人际关联（妹妹/姐姐/朋友/仆人等）","trait":"性格要点"}],"places":[{"name":"地名/场景名","type":"类型","note":"设定要点"}],"propernouns":[{"name":"专名/专属设定术语","note":"含义与拼写唯一约定"}]}
+必须列出本故事涉及的全部重要人物（含配角）、关键地域地名与专属设定术语；**全书正文一律只使用本词典中的人名/地名/专名，禁止自造或混用其他拼写**。每名人物**必须**标注 identity（身份/职业/社会身份）、age（岁数/年龄）、gender（性别）、appearance（外貌特征）、hobby（爱好/习惯），正文中人物的身份、年龄、性别、外貌、爱好须与此保持一致。
+【relation 与 identity 务必区分，不可混淆】
+· identity 身份 = 她/他自己是谁：职业/职务/族群/社会地位，可独立成句——「她是捕快」「她是市长」「她是尼罗河努比亚族船女」「她是篮球运动员」；
+· relation 关系 = 她/他和谁是什么关联：血缘/姻亲/友伴/主仆，必须带"谁的"才成立——「林晚的妹妹」「她的仆人」「朋友：陈默」；禁止把身份词（捕快/市长/船女）写进 relation；
+人物条目中不设"职能/角色定位"字段。trait 归纳稳定性格以便后续各章保持一致。`;
+
+// v8c 词典增量补全：从已生成章节正文中提取「现有词典未收录」的新人物/新地名/新专名，去重后并入词典。
+// 供批量生成章节后的自动补全与词典卡片的「📥 提取新增」共用；人物字段对齐词典契约（age/gender 必填）。
+const GLOSSARY_EXTRACT_SYS = `你是长篇小说设定整理助手。给定【本章正文】与【现有词典】，提取正文中出现但现有词典【未收录】的新人物、新地名、新专名。
+请严格只输出如下 JSON（不要解释、不要 markdown 代码块）：
+{"characters":[{"name":"人名","identity":"身份/职业/社会身份","age":"岁数/年龄","gender":"性别","appearance":"外貌特征","hobby":"爱好/习惯","relation":"与该人的血缘/人际关联","trait":"性格要点"}],"places":[{"name":"地名","type":"类型","note":"设定要点"}],"propernouns":[{"name":"专名","note":"含义"}]}
+规则：
+1. 只提取正文中真实出现、且有明确所指（被命名）的实体；纯叙述性泛指不提取。
+2. 必须与现有词典逐名去重：同名条目一律不再输出。
+3. 人物必须标注 identity / age / gender / appearance / hobby；无法确定的用「未知」。提取时同样区分 relation 与 identity：身份词（捕快/市长/船女）归 identity，带"谁的"的人际关联（XX的妹妹/她的仆人）归 relation。
+4. 无明显新实体时输出 {"characters":[],"places":[],"propernouns":[]}。`;
 
 /** 未选结构时的「章节安排」提示：仅要求 AI 输出 structure.chapterPlan，把全部章节按主题/起承转合自由分组、一章不落；
  *  不强制主线/副线/暗线（未选结构时用户本就不要求结构骨架）。集中定义为独立常量，便于以后调整分组口径。 */
@@ -981,6 +1038,9 @@ function buildOutlineSys(){
   // 用户提示词作为 user 消息已在最前；章节数先告知；节奏先于结构——先定风格基调/调性，结构骨架再落在统一节奏里。
   // ① 篇幅体量（含用户定死的章节数）：最先，让后续所有结构安排都基于已知的 N 章
   parts.push('\n【篇幅体量】\n'+outlineSizeNote());
+  // ①-2 标题风格槽位（多选·选中才推）：未选则不发送任何标题要求，AI 自由发挥
+  const ttNote = titleStyleNote();
+  if(ttNote) parts.push('\n'+ttNote);
   // ② 节奏槽位：范式「选中才推」。先定风格基调/调性，让后续结构安排统一在同一节奏里。
   if(rh && rh.outlineNote) parts.push('\n【节奏风格 · '+rh.name+'】\n'+rh.outlineNote);
   // ③ 结构槽位：范式「选中才推」。选中结构时推其专属大纲生成命令（含大纲+结构，主线条四格已内联在 st.outlineSys 中）；
@@ -1013,19 +1073,23 @@ function adherenceSys(a, allowFill){
 // 把导入词典作为一致性底稿回填给模型；无导入时返回默认 GLOSSARY_SYS，主轨完全不受影响。
 function outlineGlossaryInject(g){
   if(!g || !sourceHasGlossary(g)) return GLOSSARY_SYS;
-  const cs=(g.characters||[]).map(c=>`${c.name}${c.relation?`（${c.relation}）`:''}${c.trait?`｜${c.trait}`:''}`).join('； ');
+  const cs=(g.characters||[]).map(c=>{
+    const head=[c.identity||'',(c.age?`${c.age}岁`:''),c.gender||''].filter(Boolean).join('·');
+    const tail=[c.appearance?`外貌:${c.appearance}`:'',c.hobby?`爱好:${c.hobby}`:'',c.relation?`关系:${c.relation}`:'',c.trait?`性格:${c.trait}`:''].filter(Boolean).join('｜');
+    return `${c.name}${(head||tail)?`（${head}${tail?'｜'+tail:''}）`:''}`;
+  }).join('； ');
   const ps=(g.places||[]).map(p=>`${p.name}${p.type?`（${p.type}）`:''}${p.note?`｜${p.note}`:''}`).join('； ');
   const pn=(g.propernouns||[]).map(p=>`${p.name}${p.note?`（${p.note}）`:''}`).join('； ');
   const fill = state.glossAllowFill ? '\n允许并鼓励你在不在底稿中的新设定上自由新增人物/地名/专名。' : '\n除非必要，避免无谓地新增与底稿无关的实体。';
   return `\n\n【复用词典 · 权威一致性底稿（v8）】以下是既有的权威词典，请在返回 JSON 顶层照常追加 glossary 字段，并以本底稿为主集：${adherenceSys(state.glossAdherence, state.glossAllowFill)}
-"glossary":{"characters":[{"name":"人物姓名","relation":"他人关系","trait":"性格/外貌"}],"places":[{"name":"地名","type":"类型","note":"设定"}],"propernouns":[{"name":"专名","note":"含义"}]}
+"glossary":{"characters":[{"name":"人物姓名","identity":"身份/职业/社会身份","age":"岁数/年龄","gender":"性别","appearance":"外貌特征","hobby":"爱好/习惯","relation":"与该人的血缘/人际关联（妹妹/姐姐/朋友/仆人等）","trait":"性格要点"}],"places":[{"name":"地名","type":"类型","note":"设定"}],"propernouns":[{"name":"专名","note":"含义"}]}
 人物：${cs||'（无）'}
 地点：${ps||'（无）'}
 专名：${pn||'（无）'}
-底稿中已有人名/地名/专名一律沿用，不得推倒重造一套；只按本作大纲补充新增条目，新增条目 schema 与该类别保持一致。${fill}`;
+底稿中已有人名/地名/专名一律沿用，不得推倒重造一套；只按本作大纲补充新增条目，新增条目 schema 与该类别保持一致。新增/沿用人物均须区分 relation（血缘/人际关联，带"谁的"，如「林晚的妹妹」「她的仆人」）与 identity（职业/社会身份，可独立成句，如「捕快」「市长」），禁止把身份词写进 relation。${fill}`;
 }
 // v8 阶段3：本体词典块（章节正文共同复用）。取合并后的大纲词典，生成「严格服从」一致性基准。
-// v8b（建议1）：正文也全量带词典详情（人物关系/性格外貌/身份职能、地点类型/说明、专名含义），
+// v8b（建议1）：正文也全量带词典详情（人物关系/身份/外貌/爱好/性格、地点类型/说明、专名含义），
 // 不再做瘦身上限——详情对提高重生成的上下文一致性收益大于其微小 token 开销（约 +300~500 token/章）。
 // 追加规划·词典「内容」块：有序输出「故事梗概 → 逐章梗概 → 长篇结构设计」。
 // 供词典 UI「📄 内容」按钮展示，并注入 chapterGlossaryBlock 让 AI 用词典时读到全局大纲与结构。
@@ -1136,7 +1200,7 @@ function chapterGlossaryBlock(){
   const g = (o && o.glossary) || {};
   if(sourceHasGlossary(g)){
     const rf = glossaryForAI();
-    const cDetail = c => [c.relation?`关系:${c.relation}`:'', c.trait?`性格/外貌:${c.trait}`:'', c.identity?`身份:${c.identity}`:'', c.role?`职能:${c.role}`:''].filter(Boolean).join('；');
+    const cDetail = c => [c.identity?`身份:${c.identity}`:'', c.age?`岁数:${c.age}`:'', c.gender?`性别:${c.gender}`:'', c.appearance?`外貌:${c.appearance}`:'', c.hobby?`爱好:${c.hobby}`:'', c.relation?`关系:${c.relation}`:'', c.trait?`性格:${c.trait}`:''].filter(Boolean).join('；');
     const pDetail = p => [p.type?`类型:${p.type}`:'', p.note?`说明:${p.note}`:''].filter(Boolean).join('；');
     const cs = rf.characters.map(c=> `${c.name}${cDetail(c)?`（${cDetail(c)}）`:''}`).join('、');
     const ps = rf.places.map(p=> `${p.name}${pDetail(p)?`（${pDetail(p)}）`:''}`).join('、');
@@ -1174,6 +1238,125 @@ function checkGlossaryCoverage(){
   scan(g.places, summary.places);
   scan(g.propernouns, summary.props);
   return summary;
+}
+// v8c 词典增量补全——从已生成正文提取「未收录」新实体（人物/地名/专名），字段白名单过滤后返回
+async function extractNewGlossary(bodyTexts){
+  const g = (state.outline && state.outline.glossary) || {};
+  const body = (bodyTexts||[]).filter(Boolean).map(String).join('\n\n').slice(0, 15000);  // 正文截断上限，控 token
+  if(!body.trim()) return {characters:[], places:[], propernouns:[]};
+  const dict = [['characters','人物'],['places','地点'],['propernouns','专名']].map(([k,label])=>{
+    const arr = (g[k]||[]).map(x=>x&&x.name).filter(Boolean);
+    return arr.length ? `${label}：${arr.join('、')}` : `${label}：（无）`;
+  }).join('\n');
+  const user = `【现有词典】\n${dict}\n\n【本章正文】\n${body}`;
+  const txt = await callDeepSeek(GLOSSARY_EXTRACT_SYS, user, {maxTokens: 2000});
+  const j = parseJson(txt) || {};
+  const keepChar = c => { const o = {}; ['name','identity','age','gender','appearance','hobby','relation','trait'].forEach(k=>{ if(c[k]!=null) o[k]=String(c[k]).trim(); }); return o.name ? o : null; };
+  const keepPlace = p => { const o = {}; ['name','type','note'].forEach(k=>{ if(p[k]!=null) o[k]=String(p[k]).trim(); }); return o.name ? o : null; };
+  const keepProp = p => { const o = {}; ['name','note'].forEach(k=>{ if(p[k]!=null) o[k]=String(p[k]).trim(); }); return o.name ? o : null; };
+  return {
+    characters: (Array.isArray(j.characters)?j.characters:[]).map(keepChar).filter(Boolean),
+    places:     (Array.isArray(j.places)?j.places:[]).map(keepPlace).filter(Boolean),
+    propernouns:(Array.isArray(j.propernouns)?j.propernouns:[]).map(keepProp).filter(Boolean)
+  };
+}
+// 把提取结果按 name 去重（同名以现有为准）并入词典；新增条目打 _auto 标记（供清理弹窗默认勾选）。返回 {c,p,k,total}
+function mergeExtractedGlossary(ext){
+  const o = state.outline; if(!o) return {c:0,p:0,k:0,total:0};
+  if(!o.glossary) o.glossary = {characters:[], places:[], propernouns:[]};
+  const gl = o.glossary;
+  const n = {c:0, p:0, k:0};
+  const mergeArr = (cur, add, tag) => {
+    const have = new Set((cur||[]).map(x=>String(x&&x.name||'').trim()).filter(Boolean));
+    (add||[]).forEach(it=>{
+      const nm = String(it.name||'').trim(); if(!nm || have.has(nm)) return;
+      cur.push({ ...it, _auto:true }); have.add(nm); n[tag]++;
+    });
+  };
+  mergeArr(gl.characters, ext.characters, 'c');
+  mergeArr(gl.places, ext.places, 'p');
+  mergeArr(gl.propernouns, ext.propernouns, 'k');
+  n.total = n.c + n.p + n.k;
+  return n;
+}
+// 批量生成章节后的自动补全入口：开关开 + 词典已建立才执行；失败静默不阻塞
+async function autoExtractGlossary(){
+  if(!isLong() || !state.glossAutoFill) return;
+  if(!state.outline || !sourceHasGlossary(state.outline.glossary)) return;
+  const written = state.chapters.filter(c=> c && c.content && String(c.content).trim()).map(c=>c.content);
+  if(!written.length) return;
+  try{
+    const ext = await extractNewGlossary(written);
+    const n = mergeExtractedGlossary(ext);
+    if(n.total > 0){ persist(); toast(`词典已补全：+${n.c} 人物、+${n.p} 地名、+${n.k} 专名`); }
+  }catch(e){ /* 静默失败，不阻塞章节生成 */ }
+}
+// 全部已生成正文中「零出现」的词典条目（可能因重生成覆盖而失效；复用 checkGlossaryCoverage 的统计）
+function scanUnusedGlossary(){
+  const s = checkGlossaryCoverage();
+  const g = (state.outline && state.outline.glossary) || {};
+  const withAuto = (unused, src) => (unused||[]).map(x => {
+    const it = (src||[]).find(y=> String(y&&y.name||'').trim() === x.name);
+    return { name: x.name, _auto: !!(it && it._auto) };
+  });
+  return {
+    characters: withAuto(s.chars.unused, g.characters),
+    places:     withAuto(s.places.unused, g.places),
+    propernouns:withAuto(s.props.unused, g.propernouns)
+  };
+}
+// 手动「📥 提取新增」：对全部已生成正文提取一次（补历史遗漏），与自动补全共用提取/合并逻辑
+async function manualExtractGlossary(){
+  const written = state.chapters.filter(c=> c && c.content && String(c.content).trim()).map(c=>c.content);
+  if(!written.length){ toast('尚无已生成章节正文'); return; }
+  toast('正在提取新增词典条目…');
+  try{
+    const ext = await extractNewGlossary(written);
+    const n = mergeExtractedGlossary(ext);
+    if(n.total > 0){ persist(); render(); toast(`词典已补全：+${n.c} 人物、+${n.p} 地名、+${n.k} 专名`); }
+    else toast('未发现词典未收录的新实体');
+  }catch(e){ toast('提取失败：'+e.message); }
+}
+// v8c 清理弹窗：列出全部已生成正文「零出现」的条目，勾选后确认删除（防误删：自动补全条目默认勾选，原始条目不勾选）
+function openCleanPanel(){
+  const closePanel = ()=>{ const p=$('#cleanPanel'); if(p) p.remove(); };
+  const s = scanUnusedGlossary();
+  const written = state.chapters.filter(c=>c && c.content && String(c.content).trim()).length;
+  const row = (arr, icon) => arr.length ? arr.map(x=>`
+    <label class="gs-hit"><input type="checkbox" class="gs-clean-cb" data-name="${esc(x.name)}" ${x._auto?'checked':''} />
+      <span>${esc(x.name)}</span>${x._auto?'<i class="gs-auto-tag">🆕 自动补全</i>':'<i class="gs-orig-tag">原始条目</i>'}</label>`).join('') : '';
+  const empty = !s.characters.length && !s.places.length && !s.propernouns.length;
+  const ov = document.createElement('div');
+  ov.id='cleanPanel'; ov.className='gs-overlay';
+  ov.innerHTML = `
+    <div class="gs-modal">
+      <div class="gs-modal-head"><b>🧹 清理未使用条目</b><button class="gs-x" data-clean-close>✕</button></div>
+      <div class="gs-modal-sub">已生成 ${written} 章。以下条目在全部已生成正文中均未出现，可能因重生成覆盖而失效；尚未写的章节可能仍会用到，请谨慎勾选。</div>
+      <div class="gs-body">
+        ${empty ? '<p class="muted">✓ 没有需要清理的条目（全部词典条目都已在正文中出现）。</p>' : `
+          ${s.characters.length?`<div class="gs-q">👤 人物</div>${row(s.characters,'👤')}`:''}
+          ${s.places.length?`<div class="gs-q">🏞️ 地名</div>${row(s.places,'🏞️')}`:''}
+          ${s.propernouns.length?`<div class="gs-q">📌 专名</div>${row(s.propernouns,'📌')}`:''}
+        `}
+      </div>
+      ${empty
+        ? `<div class="gs-modal-head" style="justify-content:flex-end;border:none"><button class="btn ghost" data-clean-close>关闭</button></div>`
+        : `<div class="gs-modal-head" style="justify-content:flex-end;border:none"><button class="btn ghost" data-clean-close>取消</button><button class="btn primary" data-clean-do>确认删除勾选项</button></div>`}
+    </div>`;
+  document.body.appendChild(ov);
+  $$('[data-clean-close]').forEach(b=> b.onclick = closePanel);
+  const doBtn = $('[data-clean-do]');
+  if(doBtn) doBtn.onclick = ()=>{
+    const picked = $$('.gs-clean-cb:checked').map(cb=> cb.dataset.name);
+    if(!picked.length){ toast('未勾选任何条目'); return; }
+    const g = state.outline && state.outline.glossary; if(!g){ closePanel(); return; }
+    let c=0,p=0,k=0;
+    g.characters = (g.characters||[]).filter(x=>{ if(picked.includes(String(x&&x.name||'').trim())){ c++; return false; } return true; });
+    g.places     = (g.places||[]).filter(x=>{ if(picked.includes(String(x&&x.name||'').trim())){ p++; return false; } return true; });
+    g.propernouns= (g.propernouns||[]).filter(x=>{ if(picked.includes(String(x&&x.name||'').trim())){ k++; return false; } return true; });
+    persist(); closePanel(); render();
+    toast(`已清理：-${c} 人物、-${p} 地名、-${k} 专名`);
+  };
 }
 // v8 阶段4：覆盖面自检弹窗（列每条条目的出现次数，标出 0 次者）
 function openCoveragePanel(){
@@ -1386,12 +1569,15 @@ function recipeSummaryBar(){
   const qLabel = state.autoQC ? '自动质检' : '已关闭';
   const labelSt = st ? st.name : (state.recipeSet && (state.recipeSet.structure===null||state.recipeSet.structure===undefined) ? '由 AI 按构想发挥' : '未选');
   const labelRh = rh ? rh.name : (state.recipeSet && state.recipeSet.rhythm===null ? '由 AI 按构想发挥' : '未选');
+  const ttArr = selTitleStyles();
+  const labelTt = ttArr.length ? ttArr.map(s=>s.short).join('+') : '';
   const pill = (label, val) => `<span class="rs-item">${label}<b>${esc(val)}</b></span>`;
   return `<div class="card recipe-summary">
     <div class="rs-title">🏗️ 创作范式</div>
     <div class="rs-row">
       ${pill('结构', labelSt)}
       ${pill('节奏', labelRh)}
+      ${labelTt ? pill('标题', labelTt) : ''}
       ${pill('质量', qLabel)}
       ${pill('章节数', szLabel)}
     </div>
@@ -1470,8 +1656,11 @@ function glossaryCardHtml(){
     <button type="button" class="btn ghost gs-tool" data-gs-content>📄 内容</button>
     <button type="button" class="btn ghost gs-tool" data-gs-history>🕘 历史更改</button>
     <button type="button" class="btn ghost gs-tool" data-gs-coverage ${hasBody?'':'hidden'}>📊 覆盖面</button>
+    <button type="button" class="btn ghost gs-tool" data-gs-extract ${hasBody?'':'hidden'} title="从已生成正文提取词典未收录的新人物/地名/专名并入库">📥 提取新增</button>
+    <button type="button" class="btn ghost gs-tool" data-gs-clean ${hasBody?'':'hidden'} title="清理在全部已生成正文中均未出现的条目（如重生成覆盖后失效的旧人物）">🧹 清理未使用</button>
     <button type="button" class="btn ghost gs-tool" data-gs-export>导出 JSON</button>
     <button type="button" class="btn ghost gs-tool" data-gs-import>导入 JSON</button>
+    <label class="gs-autofill" title="批量生成章节后自动提取新实体入词典"><input type="checkbox" data-gs-autofill ${state.glossAutoFill?'checked':''} /> 自动补全</label>
     <input type="file" id="gsImportFile" accept=".json,application/json" hidden />
   </span>`;
   if(empty) return `<div class="card"><h3 class="gs-card-title">📇 设定表 · 万物词典 ${tools}</h3><p class="sub">当前大纲未含万物词典。此词典会在生成大纲时自动确立，作为全书人名/地名/专名的一致性基准；请重生成大纲以启用。</p></div>`;
@@ -1494,8 +1683,8 @@ function glossaryCardHtml(){
       </div>
     </div>`;
   };
-  const kLabel = k => ({name:'名称', relation:'关系', trait:'性格/外貌', identity:'身份', role:'职能', type:'类型', note:'说明'}[k]||k);
-  const chars = (g.characters||[]).map((c,i)=>entry(c,'char',i,['role','identity','relation'],['name','relation','trait','identity','role'])).join('');
+  const kLabel = k => ({name:'名称', identity:'身份', age:'岁数', gender:'性别', appearance:'外貌', hobby:'爱好', relation:'关系', trait:'性格', type:'类型', note:'说明'}[k]||k);
+  const chars = (g.characters||[]).map((c,i)=>entry(c,'char',i,['identity','gender','age'],['name','identity','age','gender','appearance','hobby','relation','trait'])).join('');
   const places = (g.places||[]).map((p,i)=>entry(p,'place',i,['type','note'],['name','type','note'])).join('');
   const props = (g.propernouns||[]).map((p,i)=>entry(p,'proper',i,['note'],['name','note'])).join('');
   const collapsed = !!state.gsCollapsed;
@@ -1526,7 +1715,7 @@ function bindGlossary(){
   if(!state.outline || !state.outline.glossary) return;
   const g = state.outline.glossary;
   const getArr = t => t==='char'?(g.characters||[]):t==='place'?(g.places||[]):(g.propernouns||[]);
-  // 整卡收缩/展开：标题右侧圆形按钮；展开时同时把所有条目展开
+  // 整卡收缩/展开：标题右侧圆形按钮；词条始终保持默认折叠，由用户逐个点击展开
   $$('[data-gs-collapse]').forEach(b=>{
     b.onclick = ()=>{
       state.gsCollapsed = !state.gsCollapsed;
@@ -1536,9 +1725,7 @@ function bindGlossary(){
       if(body){ body.style.display = state.gsCollapsed ? 'none' : ''; }
       b.textContent = state.gsCollapsed ? '＋' : '−';
       b.title = state.gsCollapsed ? '展开全部' : '收缩';
-      if(!state.gsCollapsed){ // 展开时把所有条目也展开
-        card && $$('.gs-entry', card).forEach(en=>{ en.classList.add('open'); const h=en.querySelector('.gs-fold-ico'); if(h) h.textContent='▾'; });
-      } else { // 收缩时把所有条目折叠
+      if(state.gsCollapsed){ // 收缩整卡时把所有词条一并折叠（词条默认折叠：展开整卡时词条保持折叠态，由用户逐个点击展开）
         card && $$('.gs-entry', card).forEach(en=>{ en.classList.remove('open'); const h=en.querySelector('.gs-fold-ico'); if(h) h.textContent='▸'; });
       }
     };
@@ -1577,6 +1764,15 @@ function bindGlossary(){
   });
   // 覆盖面自检（阶段4）：需有正文后才可见
   $$('[data-gs-coverage]').forEach(b=> b.onclick = openCoveragePanel);
+  // v8c 提取新增：手动对全部已生成正文提取词典未收录的新实体
+  $$('[data-gs-extract]').forEach(b=> b.onclick = ()=>{ manualExtractGlossary(); });
+  // v8c 清理未使用：弹窗勾选确认删除全部正文零出现的条目
+  $$('[data-gs-clean]').forEach(b=> b.onclick = openCleanPanel);
+  // v8c 词典自动补全开关（默认开）：批量生成后自动提取；关则仅保留手动按钮
+  $$('[data-gs-autofill]').forEach(b=> b.onchange = ()=>{
+    state.glossAutoFill = b.checked; persist();
+    toast(state.glossAutoFill ? '词典自动补全已开启（批量生成后自动提取新实体）' : '词典自动补全已关闭（仅保留手动「📥 提取新增」）');
+  });
   // 导出词典 JSON（项6）
   $$('[data-gs-export]').forEach(b=> b.onclick = exportGlossaryJson);
   // 导入词典 JSON（项7）
@@ -1856,7 +2052,7 @@ function openGlossaryPanel(info){
   const scan = scanGlossaryImpact(info);
   const hits = scan.hits || [];
 
-  const labels = {name:'名称', relation:'关系', trait:'性格/外貌', identity:'身份', role:'职能', type:'类型', note:'说明'};
+  const labels = {name:'名称', identity:'身份', age:'岁数', gender:'性别', appearance:'外貌', hobby:'爱好', relation:'关系', trait:'性格', type:'类型', note:'说明'};
   const kind = info.isName ? `「${info.oldVal||''}」→「${info.newVal||''}」`
     : `「${itemName}」的「${labels[info.key]||info.key||'详情'}」已修改（正文引用该条目 ${scan.word?('出现自 「'+scan.word+'」'):''}）`;
   const hitHtml = hits.length ? hits.map(h=>`
@@ -2742,6 +2938,16 @@ function bindView(){
     else { state.recipeSet.rhythm = id; }
     persist(); render();
   });
+  // 标题风格（多选）：点击加入/移出 titleStyle 数组；再点已选卡片即取消
+  // 注意 data-* 属性名全小写（HTML 属性大小写不敏感，dataset 驼峰会错位）
+  $$('[data-titlestyle]').forEach(b=> b.onclick = ()=>{
+    const id = b.dataset.titlestyle;
+    state.recipeSet = state.recipeSet || {structure:null,rhythm:null,quality:[],titleStyle:[]};
+    if(!Array.isArray(state.recipeSet.titleStyle)) state.recipeSet.titleStyle = [];
+    if(state.recipeSet.titleStyle.includes(id)) state.recipeSet.titleStyle = state.recipeSet.titleStyle.filter(x=> x!==id);
+    else state.recipeSet.titleStyle.push(id);
+    persist(); render();
+  });
   // 自动质检开关（取代旧「质量机制」多选）：点击切换 开/关
   $$('[data-autogc]').forEach(b=> b.onclick = ()=>{
     state.autoQC = !((typeof state.autoQC === 'boolean') ? state.autoQC : true);
@@ -3047,6 +3253,9 @@ function recipePicker(){
   const labelSt = selSt ? selSt.name : '未选';
   const labelRh = selRh ? selRh.name : '未选';
   const labelQ = state.autoQC ? '自动质检' : '已关闭';
+  // 标题风格（多选）：未选则为空，摘要不显示该行，AI 自由发挥
+  const ttArr = selTitleStyles();
+  const labelTt = ttArr.length ? ttArr.map(s=>s.short).join('+') : '';
   // 体量小结：以章节数为准
   const cc = chapterCountVal();
   const szLabel = cc ? `全书 ${cc} 章` : '未填章节数';
@@ -3071,6 +3280,7 @@ function recipePicker(){
   const core = ccOn ? `
     ${dim('结构骨架','🏗️','单选 · 可选其一', STRUCTURES.map(it=>card(it,'structure', it.id===rs.structure)).join(''))}
     ${dim('节奏风格','⚡','单选 · 可选其一（默认黄金网文）', RHYTHMS.map(it=>card(it,'rhythm', it.id===rs.rhythm)).join(''))}
+    ${dim('标题风格','🏷️','多选 · 不选则标题由 AI 自由发挥', TITLE_STYLES.map(it=>card(it,'titlestyle', hasTitleStyle(it.id))).join(''))}
     ${qualityToggleHtml()}
     ${pendingGlossaryPanel()}
     <p class="muted" style="margin:8px 0 0">结构、节奏、质量均可选可不选；全部不选时 AI 将按构想自由发挥。章节数已在「全书章节数」填定。介绍默认折叠，选中后自动展开。</p>`
@@ -3089,6 +3299,7 @@ function recipePicker(){
       <span class="pc-lbl">当前组合</span>
       <span class="pc-item">结构：${labelSt}</span>
       <span class="pc-item">节奏：${labelRh}</span>
+      ${labelTt ? `<span class="pc-item">标题：${labelTt}</span>` : ''}
       <span class="pc-item">质量：${labelQ}</span>
       <span class="pc-item">体量：${szLabel}</span>
     </div>
@@ -3322,6 +3533,8 @@ function buildChapterUser(i, opt={}){
   const curN = i + 1;
   let tail = `你现在要写第 ${curN} 章《${chap.title}》${i>0?`，紧接第 ${i} 章之后`:''}
 ${prev?('\n【前文衔接（上一章真实正文，用于承接，只增不改）】\n'+prev):'\n（这是第一章，暂无前文直接开头）'}`;
+  // 本章边界（恒定注入，覆盖单章/重生成/批量/多章全部路径）：紧扣本章标题，不提前展开后续章节标题描述的剧情
+  tail += `\n\n【本章边界】本章内容须紧扣本章标题展开、不得偏离；即使上下文中已列出后续章节标题，也不得提前展开或暗示后续章节标题所描述的剧情，后续情节一律留待对应章节再写。`;
   tail += longChapterContext(i);   // 章节定位（卷/阶段/整体结构）：单章与批量逐章统一注入，保持定位一致
   const nextHasContent = i < o.chapters.length-1 && state.chapters[i+1] && state.chapters[i+1].content && String(state.chapters[i+1].content).trim();
   if(opt.regenerating && nextHasContent){
@@ -3425,7 +3638,7 @@ async function genOneChapter(i, btn, opt={}){
     if(st){ st.className='status ok'; st.textContent = `第 ${i+1} 章已生成。`; }
     toast('第'+(i+1)+'章完成');
   }catch(e){ chState[i] = 'error'; patchChapter(i); if(st){ st.className='status err'; st.textContent = '第'+(i+1)+'章生成失败：'+e.message; } toast('第'+(i+1)+'章生成失败：'+e.message); }
-  finally{ state.generating = false; if(btn) busy(btn,false); patchChapter(i); }
+  finally{ state.generating = false; if(btn) busy(btn,false); patchChapter(i); autoExtractGlossary(); }
 }
 
 // 一次写 2 章（v10）：由「一次请求连写两章再切分」改为逐章顺序生成——每章独立一个请求，
@@ -3487,6 +3700,7 @@ async function genManyChapters(count){
   }finally{
     state.generating = false;
     if(btn) busy(btn,false);
+    autoExtractGlossary();   // v8c 词典自动补全：本批成功后提取新实体入库（失败静默）
   }
 }
 
@@ -3545,6 +3759,7 @@ async function genAllChapters(){
   busy(btn,false);
   if(!isLong()) render();            // 短片模式可整页刷新（无折叠/分页负担）
   else { renderChapters(); }         // 长篇仅重绘章节区，保留顶部/大纲不动
+  autoExtractGlossary();             // v8c 词典自动补全：本批成功后提取新实体入库（失败静默）
 }
 
 // 无 UI 阻塞版（供短片循环调用，保留）
