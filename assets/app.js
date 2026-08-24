@@ -922,10 +922,30 @@ const GLOSSARY_SYS = `\n\n【glossary 万物词典（必须一并输出）】请
 "glossary":{"characters":[{"name":"人物姓名","relation":"与该人相关人物及关系","trait":"性格/外貌要点"}],"places":[{"name":"地名/场景名","type":"类型","note":"设定要点"}],"propernouns":[{"name":"专名/专属设定术语","note":"含义与拼写唯一约定"}]}
 必须列出本故事涉及的全部重要人物（含配角）、关键地域地名与专属设定术语；**全书正文一律只使用本词典中的人名/地名/专名，禁止自造或混用其他拼写**。人物 relation 写清角色间关系，trait 归纳稳定性格与外貌以便后续各章保持一致；数量依故事体量，人物 3-15 名、地名 2-10 处、专名 2-8 个均可。`;
 
+/** 统一「结构任务块」：所有长篇范式在大纲生成时都必须按此契约输出 structure。
+ *  顺序即认知：① 定全书主线（必有）→ ② 定副线/暗线/汇合（有则带、无则空，不硬造）→ ③ 排全章节计划（必有，一章不落）。
+ *  维度名由当前所选范式决定（节拍/英雄阶段/七点锚点/线索/关卡/卷），但性质统一——每章都归入某维、一章不落。 */
+const STRUCTURE_PLAN_SYS = `\n\n【长篇结构设计 · 统一任务块（所有范式都必须一并输出，与所选范式不冲突）】
+请在上述 JSON 顶层的 "structure" 字段中，按下面**唯一**一份契约输出，绝不允许与所选范式产生两种互斥结构：
+"structure":{
+  "mainLine":"全书唯一主线/核心走向（必有：这本到底讲什么）",
+  "subLines":["副线1：内容","副线2：内容"],  // 有则带；若故事确实没有副线就空数组或省略，绝不硬造
+  "hiddenLine":"暗线内容（如何埋设、何时揭晓）",  // 有则带；若没有暗线就空字符串或省略，绝不硬造
+  "pivotPlan":"汇合/大逆转所在章（点式，如 第20章三方对峙）",  // 有则带；无则该字段省略
+  "chapterPlan":{  // ★必有：维度名 → 章标题列表；书中每一章都要被归入某个维度，一章不落、最后一章也要归组
+    "维度名1":["章标题","章标题"],
+    "维度名2":["章标题"]
+  }
+}
+请严格按顺序完成 3 件事：① 定全书唯一主线/走向 → ② 若故事确有副线/暗线/汇合才补，没有就空着、别硬造 → ③ 把全部章节逐一安排进对应维度、一章不落。
+我只要求一份结构，不会让你同时满足两种互斥结构，也绝不为"凑三线"而编造不存在的副线暗线。
+（维度的名称以当前结构范式的叫法为准：节拍范式用各拍名、英雄之旅用各阶段名、七点用各锚点名、多线用各线索名、单线用各关卡、分层用各卷名——但反映的都是"章节→维度"的分组。）`;
+
 function buildOutlineSys(){
   const st = selStructure(), rh = selRhythm();
   const parts = [];
   parts.push(st ? st.outlineSys : PROMPTS.longOutlineSys);
+  parts.push(STRUCTURE_PLAN_SYS);                                   // 统一结构任务块（所有长篇范式共用，仅维度起名不同）
   if(rh && rh.outlineNote) parts.push('\n【节奏风格 · '+rh.name+'】\n'+rh.outlineNote);
   parts.push('\n【篇幅体量】\n'+outlineSizeNote());
   parts.push(outlineGlossaryInject(state.pendingGlossary));   // v8 双轨：有导引用权威块，无导入保持原「请自造词典」块
@@ -966,12 +986,12 @@ function storyContentBlock(){
   // 顺序：故事梗概（大纲）→ 长篇结构设计 → 全部逐章梗概。先懂全书讲什么，再懂怎么组织，最后落到每章内容。
   lines.push('【一、故事梗概】'+(o.logline||'（无）'));
   const s = o.structure;
-  if(s && typeof s==='object'){
+  const hasChs = (o.chapters||[]).length > 0;
+  // 有 structure 或有章节时都展示结构设计（前者用真实结构，后者用 chapters 兜底生成）
+  if((s && typeof s==='object') || hasChs){
     lines.push('【二、长篇结构设计】');
-    const push=(k,t,fmt)=>{ const v=s[k]; if(v==null) return; lines.push(`${t}：${Array.isArray(v)?v.join('；'):(fmt?fmt(v):v)}`); };
-    push('mode','结构模式'); push('designReason','设计用意'); push('mainLine','主线');
-    push('subLines','副线'); push('hiddenLine','暗线');
-    push('pivotChapter','汇合/大逆转', v=>`第 ${v} 章附近`); push('threeFix','三定');
+    const block = structurePlanBlock(o);   // 统一结构块（主线→副/暗/汇合(若有)→全章节计划），与卡片/AI 注入一致
+    lines.push(block || '（无）');
   }
   const chs = (o.chapters||[]);
   if(chs.length){
@@ -982,6 +1002,42 @@ function storyContentBlock(){
       const s = (c && c.summary) ? c.summary : (c && c.goal) ? c.goal : '';
       lines.push(`第 ${i+1} 章《${t}》${s?('：'+s):''}`);
     });
+  }
+  return lines.join('\n');
+}
+
+// 统一「长篇结构设计」纯文本块。所有范式共用：主线 → 副线/暗线/汇合（有则带、无则空、不硬造）→ 全章节计划。
+// 被故事页卡片 / 词典「📄内容」区 / 注入 AI 的内容块共同消费，保证三处规则与数据完全一致。
+// 若缺 mainLine/chapterPlan，自动做最小兜底（与 genOutline 的兜底逻辑一致），保证始终有内容。
+function structurePlanBlock(o){
+  if(!o || typeof o !== 'object') return '';
+  const s = (o.structure && typeof o.structure === 'object') ? o.structure : {};
+  const lines = [];
+  const mainLine = s.mainLine || o.logline || '';
+  if(mainLine) lines.push('主线：'+mainLine);
+  if(s.subLines && s.subLines.length) lines.push('副线：'+(s.subLines||[]).join('；'));
+  if(s.hiddenLine) lines.push('暗线：'+s.hiddenLine);
+  if(s.pivotPlan) lines.push('汇合/大逆转：'+s.pivotPlan);
+  // chapterPlan：优先读结构自带；没有则用 o.chapters 兜底，保证"必有、一章不落"
+  let cp = s.chapterPlan;
+  if(!cp || typeof cp !== 'object' || !Object.keys(cp).length){
+    const chs = o.chapters || [];
+    if(chs.length){
+      const fallback = {};
+      const key = (chs[0] && chs[0].volume) ? '全卷章节' : '全章规划';
+      fallback[key] = chs.map((c,i)=> (c&&c.title) || ('第'+(i+1)+'章'));
+      cp = fallback;
+    }
+  }
+  if(cp && typeof cp === 'object'){
+    lines.push('全章节计划：');
+    const keys = Object.keys(cp);
+    if(keys.length){
+      keys.forEach(k=>{
+        const arr = Array.isArray(cp[k]) ? cp[k] : [cp[k]];
+        if(arr.length) lines.push('·（'+k+'）'+arr.join('、'));
+      });
+    }
   }
   return lines.join('\n');
 }
@@ -2773,18 +2829,23 @@ async function genOutline(){
       o._volumes = o.volumes;
     }
     if(!o.chapters || !o.chapters.length) throw new Error('未解析到章节');
-    // 追加规划·长篇始终携带结构设计：任选结构/节奏/未选，都保证 o.structure 存在
-    if(isLong() && (!o.structure || typeof o.structure !== 'object')){
-      const st = selStructure();
-      o.structure = {
-        mode: (st && st.name) || '多线网状交织',
-        designReason:'默认兜底：以多线交织/网状结构组织全书，多线并行、汇合收束，保证长篇不散架。',
-        mainLine: o.logline || '',
-        subLines: [],
-        hiddenLine: '',
-        pivotChapter: '',
-        threeFix:'定时间轴 / 定汇合点 / 定主次'
-      };
+    // 追加规划·长篇始终携带结构设计：任选结构/节奏/未选，都保证 o.structure 存在，且满足统一契约（mainLine + chapterPlan 必有）
+    if(isLong()){
+      if(!o.structure || typeof o.structure !== 'object') o.structure = {};
+      const s = o.structure;
+      if(!s.mainLine) s.mainLine = o.logline || '';
+      // 兜底 chapterPlan：缺时由其章标题一键生成，保证"必有、一章不落"
+      if(!s.chapterPlan || typeof s.chapterPlan !== 'object' || !Object.keys(s.chapterPlan).length){
+        const flat = {};
+        const planKey = (o.chapters && o.chapters[0] && o.chapters[0].volume) ? '全卷章节' : '全章规划';
+        flat[planKey] = (o.chapters||[]).map((c,i)=>{ const t=(c&&c.title)||('第'+(i+1)+'章'); return `${t}`; });
+        s.chapterPlan = flat;
+      }
+      // 铁律：subLines/hiddenLine/pivotPlan 空即为空，不做任何填充
+      if(!s.subLines) s.subLines = [];
+      if(!s.hiddenLine) s.hiddenLine = '';
+      if(!s.pivotPlan) s.pivotPlan = '';
+      if(!s.mode) s.mode = (selStructure() && selStructure().name) || '多线网状交织';
     }
     state.outline = o; state.outlineConfirmed=false;
     // 万物词典：新生成大纲默认含 glossary（人物/地名/专名）；旧大纲缺省时给空，UI 提示重生成可启用
@@ -2820,24 +2881,28 @@ function longChapterContext(i){
       ctx += `\n\n【本卷定位】\n所属卷：${c.volume}\n本卷主题与情绪基调：${c.volumeTheme||''}\n本章目标：${c.goal||o.chapters[i].summary||''}`;
     }
   }
-  // 结构设计：只要大纲携带 structure（含兜底）就注入【整体结构】
+  // 结构设计：只要大纲携带 structure（含兜底）就注入【整体结构】，与统一契约一致
   if(o.structure && typeof o.structure === 'object'){
     const s = o.structure;
     const flat = [];
     if(s.mode) flat.push('结构模式：'+s.mode);
-    if(s.designReason) flat.push('设计用意：'+s.designReason);
     if(s.mainLine) flat.push('主线：'+s.mainLine);
     if(s.subLines && s.subLines.length) flat.push('副线：'+(s.subLines||[]).join('；'));
     if(s.hiddenLine) flat.push('暗线：'+s.hiddenLine);
-    if(s.pivotChapter) flat.push('汇合/大逆转章节：'+s.pivotChapter);
-    if(s.threeFix) flat.push('三定（时间轴/汇合点/主次）：'+s.threeFix);
+    if(s.pivotPlan) flat.push('汇合/大逆转：'+s.pivotPlan);
     const curTitle = (o.chapters[i] && o.chapters[i].title) || '';
-    if(s.stageChapters) flat.push('本章所属英雄阶段：'+stageOfChapter(i, s.stageChapters, curTitle)+'\n全阶段映射：'+arcMapText(s.stageChapters));
-    if(s.beats) flat.push('本章所属节拍：'+stageOfChapter(i, s.beats, curTitle)+'\n全节拍映射：'+arcMapText(s.beats));
-    if(s.points) flat.push('本章所属七点锚点：'+stageOfChapter(i, s.points, curTitle)+'\n全锚点映射：'+arcMapText(s.points));
+    // 定位本章归属维度：优先用 chapterPlan 的分组映射（新契约），找不到则退回全文规划
+    const curGroup = chapterGroupOf(i, s.chapterPlan, curTitle);
+    if(curGroup) flat.push('【本章归属】维度「'+curGroup+'」');
+    flat.push(structurePlanBlock(o));   // 统一的纯文本结构块（主线→副/暗/汇合(若有)→全章节计划）
     ctx += '\n\n【整体结构】\n' + flat.join('\n');
   }
   return ctx;
+}
+
+// 定位“本章属于哪个分组/维度”——遍历 chapterPlan（维度名 → 章列表），通过章节下标或标题命中
+function chapterGroupOf(i, map, curTitle){
+  return stageOfChapter(i, map, curTitle);
 }
 // 定位“本章属于哪个阶段/节拍/锚点”——通过章节下标或标题在该阶段的标题列表内查找
 function stageOfChapter(i, map, curTitle){
@@ -3000,18 +3065,47 @@ function bindPendingGlossary(){
   if(allow) allow.onchange = ()=>{ state.glossAllowFill = allow.checked; persist(); };
 }
 function structureCard(o){
-  const s = o && o.structure;
-  if(!isLong() || !s || typeof s !== 'object') return '';
-  const rows = [`<b>结构模式</b><span>${esc(s.mode||'')}</span>`];
-  const push = (k,t,fmt)=>{ const v=s[k]; if(v==null) return; if(Array.isArray(v)){ rows.push(`<b>${t}</b><span>${esc(v.join(' · '))}</span>`); } else rows.push(`<b>${t}</b><span>${esc(fmt?fmt(v):v)}</span>`); };
-  push('designReason','设计用意');
+  if(!isLong() || !o || typeof o !== 'object') return '';
+  const s = (o.structure && typeof o.structure === 'object') ? o.structure : {};
+  const rows = [`<b>结构模式</b><span>${esc(s.mode||'通用')}</span>`];
+  const push = (k,t,fmt)=>{
+    let v=s[k];
+    // 主线兜底：s.mainLine 空时用 o.logline 兜底，保证主线必有
+    if(k === 'mainLine' && (!v || !String(v).trim())) v = o.logline || '';
+    if(v==null) return;
+    if(Array.isArray(v)){
+      if(!v.length) return;   // 空数组不展示（铁律：无则空，不占行）
+      rows.push(`<b>${t}</b><span>${esc(v.join(' · '))}</span>`);
+    } else {
+      const str = fmt ? fmt(v) : String(v);
+      if(!str.trim()) return; // 空字符串不展示
+      rows.push(`<b>${t}</b><span>${esc(str)}</span>`);
+    }
+  };
   push('mainLine','主线');
   push('subLines','副线');
   push('hiddenLine','暗线');
-  push('pivotChapter','汇合/大逆转', v=>`第 ${v} 章附近`);
-  push('threeFix','三定');
-  // 阶段映射（英雄/节拍/七点）
-  ['stageChapters','beats','points'].forEach(k=>{ if(s[k]){ rows.push(`<b>${k==='stageChapters'?'英雄阶段':k==='beats'?'节拍':k==='points'?'七点锚点':k}</b><span>${esc(arcMapText(s[k])||'')}</span>`); } });
+  push('pivotPlan','汇合/大逆转');
+  // 全章节计划：读 chapterPlan（新契约）——维度分组 → 章列表，一章不落
+  let cp = s.chapterPlan;
+  // 兜底：缺 chapterPlan 时用 o.chapters 生成，保证"必有、一章不落"
+  if(!cp || typeof cp !== 'object' || !Object.keys(cp).length){
+    const chs = o.chapters || [];
+    if(chs.length){
+      const fallback = {};
+      const key = (chs[0] && chs[0].volume) ? '全卷章节' : '全章规划';
+      fallback[key] = chs.map((c,i)=> (c&&c.title) || ('第'+(i+1)+'章'));
+      cp = fallback;
+    }
+  }
+  if(cp && typeof cp==='object'){
+    const keys = Object.keys(cp).filter(k=>Array.isArray(cp[k])&&cp[k].length);
+    if(keys.length){
+      keys.forEach(k=> rows.push(`<b>${esc(k)}</b><span>${esc(cp[k].join('、'))}</span>`));
+    } else if((o.chapters||[]).length){
+      rows.push(`<b>全章节计划</b><span>${esc((o.chapters||[]).map(c=>c&&c.title).filter(Boolean).join('、'))}</span>`);
+    }
+  }
   return `<div class="card structure-card">
     <h3>🏗️ 长篇结构设计</h3>
     ${rows.map(r=>`<div class="sc-row">${r}</div>`).join('')}
