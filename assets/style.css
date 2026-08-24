@@ -219,6 +219,12 @@ label.field>span{display:block;font-size:12px;color:var(--sub);margin-bottom:6px
 .poly-combo{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:10px 0 14px;padding:10px 12px;border:1px dashed color-mix(in srgb,var(--accent) 55%, var(--line));border-radius:10px;background:color-mix(in srgb,var(--accent) 8%, transparent)}
 .pc-lbl{font-size:11px;letter-spacing:1px;color:var(--accent);font-weight:700;flex:0 0 auto}
 .pc-item{font-size:12px;background:var(--panel2);border:1px solid var(--line);border-radius:20px;padding:3px 10px;color:var(--txt)}
+/* 故事页面上部「创作范式」摘要条 */
+.recipe-summary{border:1px solid color-mix(in srgb,var(--accent) 35%, var(--line));background:color-mix(in srgb,var(--accent) 5%, transparent)}
+.recipe-summary .rs-title{font-size:12px;font-weight:700;letter-spacing:1px;color:var(--accent);margin-bottom:8px}
+.recipe-summary .rs-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.recipe-summary .rs-item{font-size:12px;background:var(--panel2);border:1px solid var(--line);border-radius:20px;padding:4px 12px;color:var(--muted)}
+.recipe-summary .rs-item b{color:var(--txt);margin-left:6px;font-weight:700}
 .poly-dim{margin-bottom:16px}
 .poly-head{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
 .poly-ic{font-size:16px}

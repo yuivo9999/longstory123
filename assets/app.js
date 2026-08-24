@@ -1336,6 +1336,28 @@ const CYBER_HOME_GRID = `
     <button class="cyber-card-btn orange" data-step="4"><span class="ico">🎞️</span><span class="lab">分镜</span><span class="sub">生成视频分镜文字</span></button>
   </div>`;
 
+// 故事页面上部「创作范式」摘要：展示本次长篇所选的结构/节奏/质量/体量，供用户生成大纲后随时回看。
+// 未选的项目如实显示"未选/未指定"；结构未选时按既定规则保持留空（让 AI 按构想发挥）。
+function recipeSummaryBar(){
+  if(!isLong()) return '';
+  const st = selStructure(), rh = selRhythm();
+  const sz = selSize();
+  const szLabel = sz.kind==='word' ? `单章 ${fmtRange(sz.range)} 字` : `全书 ${fmtRange(sz.range)} 章`;
+  const qLabel = state.autoQC ? '自动质检' : '已关闭';
+  const labelSt = st ? st.name : (state.recipeSet && (state.recipeSet.structure===null||state.recipeSet.structure===undefined) ? '由 AI 按构想发挥' : '未选');
+  const labelRh = rh ? rh.name : (state.recipeSet && state.recipeSet.rhythm===null ? '由 AI 按构想发挥' : '未选');
+  const pill = (label, val) => `<span class="rs-item">${label}<b>${esc(val)}</b></span>`;
+  return `<div class="card recipe-summary">
+    <div class="rs-title">🏗️ 创作范式</div>
+    <div class="rs-row">
+      ${pill('结构', labelSt)}
+      ${pill('节奏', labelRh)}
+      ${pill('质量', qLabel)}
+      ${pill('体量', szLabel)}
+    </div>
+  </div>`;
+}
+
 function viewStory(){
   if(!state.outline){
     const homeSub = isLong()
@@ -1360,6 +1382,7 @@ function viewStory(){
   // 大纲已生成
   const o = state.outline;
   let html = `
+    ${ recipeSummaryBar() }
     <div class="card">
       <div class="card-head-row">
         <h3 style="margin:0">📋 故事大纲</h3>
@@ -2427,7 +2450,8 @@ let expSel = []; // 长篇导出勾选的章节索引
 function viewExport(){
   // 长篇模式：多选章节 + TXT / EPUB / DOCX 导出
   if(isLong()) return longExportView();
-  if(!readyForAssets()) return `<div class="center-empty">尚无可导出的内容。请先完成故事章节。</div>`;
+  // 门槛只要求「已生成大纲」：大纲一产出即展示「一、故事大纲」；生成章节后「二、章节正文」随之填充，始终可导
+  if(!state.outline) return `<div class="center-empty">尚无可导出的内容。请先生成并确认故事大纲。</div>`;
   const md = buildMarkdown();
   return `<div class="card">
     <h3>📦 导出资产包</h3>
@@ -2442,8 +2466,8 @@ function viewExport(){
 
 /* ---------- 长篇模式导出 ---------- */
 function longExportView(){
+  if(!state.outline) return `<div class="center-empty">尚无可导出的内容。请先生成故事大纲。</div>`;
   const written = state.chapters.filter(c=> c.content && String(c.content).trim()).length;
-  if(!written) return `<div class="center-empty">尚无已写章节，请先在「故事」里「生成下一批 2 章」。</div>`;
   // 清理已失效的勾选（章节被重生成等）
   expSel = expSel.filter(i=> state.chapters[i] && state.chapters[i].content && String(state.chapters[i].content).trim());
   const title = state.outline?.title || '未命名长篇小说';
@@ -2493,10 +2517,16 @@ function buildLongMarkdown(){
   md += `## 一、故事大纲\n**梗概**：${o?.logline||''}\n\n`;
   (o?.chapters||[]).forEach((c,i)=> md += `${i+1}. **${c.title||''}** — ${c.summary||''}\n`);
   md += `\n## 二、章节正文\n`;
-  state.chapters.forEach((c,i)=>{
-    if(!c.content || !String(c.content).trim()) return;   // 未写章节不落入正文
-    md += `\n### 第${i+1}章 ${cleanChapterTitle(c.title)||''}\n${String(c.content).trim()}\n`;
-  });
+  // 长篇：仅列出已写章；大纲刚生成、尚未写正文时给占位提示，大纲/梗概仍可先行导出
+  const writtenChs = state.chapters.filter(c=> c.content && String(c.content).trim());
+  if(writtenChs.length){
+    state.chapters.forEach((c,i)=>{
+      if(!c.content || !String(c.content).trim()) return;   // 未写章节不落入正文
+      md += `\n### 第${i+1}章 ${cleanChapterTitle(c.title)||''}\n${String(c.content).trim()}\n`;
+    });
+  } else {
+    md += `（尚无成章正文，生成章节后自动填充）\n`;
+  }
   return md;
 }
 function activeChapters(){
@@ -2593,7 +2623,13 @@ function buildMarkdown(){
   md += `## 一、故事大纲\n**梗概**：${o?.logline||''}\n\n`;
   (o?.chapters||[]).forEach((c,i)=> md += `${i+1}. **${c.title}** — ${c.summary}\n`);
   md += `\n## 二、章节正文\n`;
-  state.chapters.forEach((c,i)=> md += `\n### 第${i+1}章 ${cleanChapterTitle(c.title)}\n${c.content}\n`);
+  // 仅在已有成章正文时列出；大纲刚生成、正文未写时此段为空（大纲/角色等资产仍可先行导出）
+  const writtenChs = state.chapters.filter(c=> c.content && String(c.content).trim());
+  if(writtenChs.length){
+    state.chapters.forEach((c,i)=> md += `\n### 第${i+1}章 ${cleanChapterTitle(c.title)}\n${c.content}\n`);
+  } else {
+    md += `（尚无成章正文，生成章节后自动填充）\n`;
+  }
   if(state.characters.length){
     md += `\n## 三、角色定妆提示词包\n`;
     state.characters.forEach(c=>{
@@ -2816,6 +2852,7 @@ async function genOutline(){
   const st = $('#outlineStatus'); st.className='status'; st.textContent='';
   state.idea = $('#ideaInput').value.trim();
   if(!state.idea){ toast('先写几句构想'); busy(btn,false); return; }
+  // 未选结构时的处理：结构标签留空，让 AI 完全按用户提示词自然发挥组织结构，不做随机锁定、不做固定默认
   try{
     const sys = isLong() ? longOutlineSys() : PROMPTS.outlineSys + specSysAddition();
     const txt = await callDeepSeek(sys, '故事构想：'+state.idea);
@@ -2845,7 +2882,8 @@ async function genOutline(){
       if(!s.subLines) s.subLines = [];
       if(!s.hiddenLine) s.hiddenLine = '';
       if(!s.pivotPlan) s.pivotPlan = '';
-      if(!s.mode) s.mode = (selStructure() && selStructure().name) || '多线网状交织';
+      // 结构模式：已选结构则用其名；未选结构则留空（AI 按用户提示词自然发挥，结构标签不做固定默认）
+      if(!s.mode) s.mode = (selStructure() && selStructure().name) || '';
     }
     state.outline = o; state.outlineConfirmed=false;
     // 万物词典：新生成大纲默认含 glossary（人物/地名/专名）；旧大纲缺省时给空，UI 提示重生成可启用
@@ -3067,7 +3105,7 @@ function bindPendingGlossary(){
 function structureCard(o){
   if(!isLong() || !o || typeof o !== 'object') return '';
   const s = (o.structure && typeof o.structure === 'object') ? o.structure : {};
-  const rows = [`<b>结构模式</b><span>${esc(s.mode||'通用')}</span>`];
+  const rows = [`<b>结构模式</b><span>${esc(s.mode || '按用户构想')}</span>`];
   const push = (k,t,fmt)=>{
     let v=s[k];
     // 主线兜底：s.mainLine 空时用 o.logline 兜底，保证主线必有
