@@ -33,6 +33,7 @@ const state = {
   glossAllowFill: false, // v8 「允许 AI 补充」开关：低遵从时是否放行 AI 新增实体
   glossAutoFill: true,   // v8c 词典自动补全（默认开）：批量生成章节后自动提取正文中的新人物/地名/专名并入词典；关则只保留手动「📥 提取新增」
   gsCollapsed: true,    // v8b：万物词典卡片是否整卡收缩（默认收缩，点圆形展开全部）
+  stCollapsed: false,   // v10.3：长篇结构设计栏是否收缩（默认展开，点击标题收起）
   autoQC: true,         // 自动质检开关（默认开，用户无需操心）：生成后自动两段式查错修正；关则直接落库
   chapters: [],         // [{title, content, confirmed}]
   characters: [],       // [{name, role, profile:{...}, prompts:{...}}]
@@ -228,6 +229,7 @@ function projectSnapshot(){
     glossAllowFill: state.glossAllowFill,
     glossAutoFill: state.glossAutoFill,
     gsCollapsed: state.gsCollapsed,
+    stCollapsed: state.stCollapsed,
     autoQC: (typeof state.autoQC === 'boolean') ? state.autoQC : true,
     chapters: state.chapters,
     characters: state.characters,
@@ -260,6 +262,7 @@ function applyProject(p){
   state.glossAllowFill = !!p.glossAllowFill;
   state.glossAutoFill = (typeof p.glossAutoFill === 'boolean') ? p.glossAutoFill : true;
   state.gsCollapsed = (typeof p.gsCollapsed === 'boolean') ? p.gsCollapsed : true;
+  state.stCollapsed = !!p.stCollapsed;
   state.autoQC = (typeof p.autoQC === 'boolean') ? p.autoQC : true;   // 自动质检默认开
   state.chapters = p.chapters || [];
   state.characters = p.characters || [];
@@ -1771,6 +1774,18 @@ function bindOrigIdea(){
     copyText(ta.value);   // 复用全局 copyText：clipboard API → execCommand 兜底，自带 toast
   };
 }
+// v10.3 长篇结构设计栏折叠绑定：点击标题收起/展开，状态持久化
+function bindStructureFold(){
+  const h = $('[data-st-fold]');
+  if(h) h.onclick = ()=>{
+    state.stCollapsed = !state.stCollapsed;
+    const body = $('.sc-body');
+    if(body) body.hidden = state.stCollapsed;
+    const ico = h.querySelector('.sc-fold-ico');
+    if(ico) ico.textContent = state.stCollapsed ? '▸' : '▾';
+    persist();
+  };
+}
 
 // 万物词典「设定表」卡片：展示人物/地名/专名，用户可更正错名（决策9）
 // 词典是全文一致性准则，可小幅修正，但禁用删除（应由大纲确立）。
@@ -2363,7 +2378,7 @@ function renderChapters(){
        return `<div class="card ch-card" data-ch-card="${i}">
         <div class="ch-head" data-fold="${i}" role="button" tabindex="0" aria-expanded="${foldedCls?'false':'true'}">
           <span class="ch-fold-ico">${hasC?'▾':'▸'}</span>
-          <h3 style="margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">第${i+1}章 · ${esc(cleanChapterTitle(c.title))}</h3>
+          <h3 style="margin:0;flex:1;word-break:break-word;line-height:1.35" title="第${i+1}章 · ${esc(cleanChapterTitle(c.title))}">第${i+1}章 · ${esc(cleanChapterTitle(c.title))}</h3>
           <span class="pill ${stTag}" data-ch-state>${stTxt}</span>
           ${wcBadge(c.content, `data-wc-ch="${i}"`)}
         </div>
@@ -2390,7 +2405,7 @@ function renderChapters(){
       <div class="card ch-card" data-ch-card="${i}">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
           <div style="display:flex;align-items:center;gap:8px;min-width:0">
-            <h3 style="margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">第${i+1}章 · ${esc(cleanChapterTitle(c.title))}</h3>
+            <h3 style="margin:0;word-break:break-word;line-height:1.35" title="第${i+1}章 · ${esc(cleanChapterTitle(c.title))}">第${i+1}章 · ${esc(cleanChapterTitle(c.title))}</h3>
             ${wcBadge(c.content, `data-wc-ch="${i}"`)}
           </div>
           <span class="pill ${c.confirmed?'tag-ok':'tag-warn'}">${c.confirmed?'✓ 已确认':'待确认'}</span>
@@ -3094,6 +3109,7 @@ function bindView(){
   bindGlossary();
   bindUserIntent();   // v10.1 创作意图卡片绑定
   bindOrigIdea();     // v10.2 原始构想只读卡绑定
+  bindStructureFold();// v10.3 长篇结构设计栏折叠绑定
   bindPendingGlossary();
   // 故事页内联规范选择器
   $$('.spec-opt').forEach(b=> b.onclick = ()=>{ selectSpec(b.dataset.spec); });
@@ -3536,8 +3552,13 @@ function structureCard(o){
     rows.push(`<b>全章节计划</b><span>${esc((o.chapters||[]).map(c=>c&&c.title).filter(Boolean).join('、'))}</span>`);
   }
   return `<div class="card structure-card">
-    <h3>🏗️ 长篇结构设计</h3>
-    ${rows.map(r=>`<div class="sc-row">${r}</div>`).join('')}
+    <div class="sc-head" data-st-fold role="button" tabindex="0" title="展开/收起">
+      <h3 style="margin:0">🏗️ 长篇结构设计</h3>
+      <span class="sc-fold-ico">${state.stCollapsed?'▸':'▾'}</span>
+    </div>
+    <div class="sc-body"${state.stCollapsed?' hidden':''}>
+      ${rows.map(r=>`<div class="sc-row">${r}</div>`).join('')}
+    </div>
   </div>`;
 }
 // 写一条章节正文（依所勾选质量机制 post-processing：dual 双审 / selfref 自省 / plothole 伏笔洞检测）
@@ -3709,10 +3730,33 @@ function patchChapter(i){
 }
 
 // 重生成干预弹窗（建议3·此轮）：可任选「直接重生成」或「带人工建议重生成」
+// v10.3：记录每次用户干预（regenHistory，每章独立、上限 10 条），下次打开可查看并点击回填。
 function openChapterRegenPanel(i){
   closeChapterRegenPanel();
   const c = state.chapters[i];
   const title = c && c.title ? c.title : ('第'+(i+1)+'章');
+  // 历史干预：仅用户手动重生成经过此弹窗，批量/首次生成不记录
+  const hist = Array.isArray(c && c.regenHistory) ? c.regenHistory : [];
+  const pushRegen = (mode, advice)=>{
+    const h = Array.isArray(state.chapters[i].regenHistory) ? state.chapters[i].regenHistory : (state.chapters[i].regenHistory = []);
+    h.push({ ts: Date.now(), mode, advice: String(advice||'') });
+    if(h.length > 10) h.splice(0, h.length - 10);
+    persist();
+  };
+  const pad = n => n<10?('0'+n):n;
+  const histHtml = hist.length ? `
+    <div class="rp-hist">
+      <div class="rp-hist-title">📜 历史干预（点击回填到上方输入框）</div>
+      ${hist.slice().sort((a,b)=>b.ts-a.ts).map(r=>{
+        const d = new Date(r.ts);
+        const t = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        const txt = r.advice || '（直接重生成，无干预）';
+        return `<div class="rp-hist-item" data-rp-fill="${esc(txt)}" title="${esc(txt)}">
+          <span class="rp-hist-ts">${t}</span>
+          <span class="rp-hist-txt">${esc(txt)}</span>
+        </div>`;
+      }).join('')}
+    </div>` : '';
   const ov = document.createElement('div');
   ov.id = 'regenPanel'; ov.className = 'gs-overlay';
   ov.innerHTML = `
@@ -3722,6 +3766,7 @@ function openChapterRegenPanel(i){
       <div class="gs-body">
         <p class="gs-q"><b>想如何改动这一章？</b> 可在下方填写你的具体要求（改动方向、补充设定、错误修正等）；留空则按现有风格直接重写。</p>
         <textarea id="rpAdvice" class="rp-advice" placeholder="例如：这一章节奏太慢，请压缩到 1500 字以内；女主的性格再外放一点；增加与上一章结尾的衔接…（可选）"></textarea>
+        ${histHtml}
       </div>
       <div class="gs-actions">
         <button class="btn" data-rp-plain>直接重生成（无干预）</button>
@@ -3734,14 +3779,24 @@ function openChapterRegenPanel(i){
   ov.querySelector('[data-rp-plain]').onclick = ()=>{
     const btn = document.querySelector('[data-regen="'+i+'"]');
     closeChapterRegenPanel();
+    pushRegen('plain','');
     genOneChapter(i, btn, {});
   };
   ov.querySelector('[data-rp-with]').onclick = ()=>{
     const advice = $('#rpAdvice').value.trim();
     const btn = document.querySelector('[data-regen="'+i+'"]');
     closeChapterRegenPanel();
+    pushRegen('advice', advice);
     genOneChapter(i, btn, {advice});
   };
+  // 历史条目点击回填
+  ov.querySelectorAll('[data-rp-fill]').forEach(el=>{
+    el.onclick = ()=>{
+      const ta = $('#rpAdvice'); if(ta) ta.value = el.dataset.rpFill;
+      el.classList.add('rp-fill-on');
+      ta && ta.focus();
+    };
+  });
   const ta = $('#rpAdvice'); if(ta) ta.focus();
 }
 function closeChapterRegenPanel(){ const p=$('#regenPanel'); if(p) p.remove(); }
@@ -4264,6 +4319,8 @@ function renderGroupDetail(){
       <div class="key-row">
         <input class="k-lab" data-idx="${i}" type="text" value="${esc(k.label)}" placeholder="备注">
         <input class="k-key" data-idx="${i}" type="password" value="${esc(k.key)}" placeholder="sk-..." autocomplete="off">
+        <button class="btn small ghost k-eye" data-key-eye="${i}" type="button" title="显示/隐藏 Key">👁</button>
+        <button class="btn small ghost k-copy" data-key-copy="${i}" type="button" title="复制 Key">📋</button>
         <button class="btn small ghost del" data-act="delkey" data-id="${k.id}" type="button">删</button>
       </div>`).join('') : '<div class="muted">该组还没有账号，点「＋ 账号」粘贴 API Key。</div>'}
     <div class="gd-title">模型清单</div>
@@ -4277,6 +4334,25 @@ function renderGroupDetail(){
   el.onclick = onDetail;
   el.querySelectorAll('.k-lab').forEach(inp=> inp.onchange=()=>{ const gg=_dg(); gg.keys[+inp.dataset.idx].label = inp.value || ('账号'+(+inp.dataset.idx+1)); });
   el.querySelectorAll('.k-key').forEach(inp=> { inp.onchange=()=>{ const gg=_dg(); gg.keys[+inp.dataset.idx].key = inp.value.trim(); updateCfgBadge(); }; });
+  // v10.4 眼睛：显示/隐藏 Key（password ⇄ text，图标 👁/🙈 同步）
+  el.querySelectorAll('[data-key-eye]').forEach(btn=>{
+    btn.onclick = ()=>{
+      const inp = el.querySelector('.k-key[data-idx="'+btn.dataset.keyEye+'"]');
+      if(!inp) return;
+      const show = inp.type === 'password';
+      inp.type = show ? 'text' : 'password';
+      btn.textContent = show ? '🙈' : '👁';
+      btn.title = show ? '隐藏 Key' : '显示 Key';
+    };
+  });
+  // v10.4 复制：一键复制该 Key（复用全局 copyText，自带 toast 反馈）
+  el.querySelectorAll('[data-key-copy]').forEach(btn=>{
+    btn.onclick = ()=>{
+      const inp = el.querySelector('.k-key[data-idx="'+btn.dataset.keyCopy+'"]');
+      if(!inp || !inp.value.trim()){ toast('该账号暂无 Key'); return; }
+      copyText(inp.value.trim());
+    };
+  });
   const base = el.querySelector('.g-base'); if(base) base.onchange=(ev)=>{ const gg=_dg(); gg.baseUrl = ev.target.value.trim(); };
 }
 function onDetail(ev){
