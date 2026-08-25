@@ -163,7 +163,11 @@ function resolveActiveSpec(){
     baseUrl: (group.baseUrl || 'https://api.deepseek.com').replace(/\/+$/, ''),
     apiKey: key.key || '',
     model: model.name || 'deepseek-v4-pro',
-    temperature: (cfg.temperature==null ? 0.7 : cfg.temperature)
+    temperature: (cfg.temperature==null ? 0.7 : cfg.temperature),
+    outlineTemp: (cfg.outlineTemp==null ? 0.7 : cfg.outlineTemp),   // v10.8 分任务温度：大纲
+    chapterTemp: (cfg.chapterTemp==null ? 0.5 : cfg.chapterTemp),   // v10.8 分任务温度：章节
+    qcTemp:      (cfg.qcTemp==null ? 0.2 : cfg.qcTemp),              // v10.8 分任务温度：质检/提取
+    planTemp:    (cfg.planTemp==null ? 0.4 : cfg.planTemp)           // v10.11 分任务温度：逐章梗概
   };
 }
 function currentSpecLabel(){
@@ -463,6 +467,9 @@ const MAIN_LINE_BLOCK = `"mainLine":"全书唯一主线/核心走向（必有：
   "hiddenLine":"暗线内容（如何埋设、何时揭晓）",  // 有则带；若没有暗线就空字符串或省略，绝不硬造
   "pivotPlan":"汇合/大逆转所在章（点式，如 第20章三方对峙）"  // 有则带；无则该字段省略`;
 
+// v10.9 公共 JSON 契约句：longOutlineSys / OUTLINE_GEN_SYS / 各结构 outlineSys 复用，避免双处漂移
+const JSON_HEADER = `请按如下 JSON 结构输出（不要任何解释、不要 markdown 代码块；可在此基础上按下方追加块补充 glossary、structure 等其它顶层字段）：`;
+
 const PROMPTS = {
   outlineSys: `你是一位专业编剧与故事架构师，擅长短剧/短视频叙事。根据用户的一句或几句话构想，设计一部适合改编为短视频的故事。
 请严格只输出如下 JSON（不要任何解释、不要 markdown 代码块）：
@@ -478,7 +485,7 @@ const PROMPTS = {
 "prompts":{"定妆图":"全身定妆图提示词，需固化固定外貌特征以保证后续垫图一致性","三视图":"正面/侧面/背面描述","表情":"喜/怒/哀/惊等表情参考","服饰细节":"衣物纹样与剪裁放大","道具":"武器/饰品/随身物","配色":"主色/辅色/点缀色色板","材质":"布料/金属/皮革等质感"}}]}
 要求：所有 prompts 为中文、具体、可直接粘贴即梦；『定妆图』要写清不变的身份特征；风格统一。`,
 
-  sceneSys: `你是一位美术/场景设定师。根据故事与角色，提取关键场景（4-8 个），产出即梦出图提示词。
+  sceneSys: `你是一位影视场景设定师。根据故事与角色，提取关键场景（4-8 个），产出即梦出图提示词。
 ⚠️ 重要：场景是「纯环境/空间设定」——它是无人物、无角色的环境模型（空镜），供视频 AI 作环境参考。**严禁出现任何人物、角色、人形、剪影、拟人元素**。出图提示词必须以环境为主体（空间结构/陈设/材质/光线/氛围/天气/时间感），并在提示词末尾附上负向约束：no people, no characters, no humans, no silhouettes, no figures, empty of people。
 请严格只输出如下 JSON（不要解释、不要 markdown 代码块）：
 {"scenes":[{"name":"场景名","作用":"在故事中的功能","description":"场景文字设定","prompt":"即梦出图提示词（中文，含风格/光线/氛围/构图，可直接粘贴；末尾附 no people 等负向约束）"}]}
@@ -506,23 +513,23 @@ const PROMPTS = {
   coverSysTitle: `你是一位资深书籍装帧设计师与插画师。根据用户提供的小说标题与故事梗概，为这部小说的【封面图】产出一条可粘贴到「即梦(Dreamina)」的中文出图提示词【含书名文字版】。
 要求：画面要抓住小说核心意象与情绪（世界观/主角困境/关键场景），构图强烈、光影戏剧化、色彩有记忆点；**封面需包含书法风格的【书名汉字】作为主体文字**，请把小说标题精准写入提示词，指定其为封面主文字（如"金色书法大字『书名』题于画面中央/顶部，字迹遒劲、带有水墨或烫金质感"）；其余可附风格关键词；长度 150-280 字；只输出提示词正文，不要解释、不要 markdown 代码块。`,
 
-  coverSys: `你是一位资深书籍装帧设计师与插画师。根据用户提供的小说标题与故事梗概，为这部小说的【封面图】产出一条可粘贴到「即梦(Dreamina)」的中文出图提示词【纯画面版，不含任何文字】。
-要求：画面要抓住小说核心意象与情绪（世界观/主角困境/关键场景），构图强烈、光影戏剧化、色彩有记忆点；为封面预留的书法/书名排布位置要留出充足留白（如顶部或居中留白区），方便排版方后期加字；长度 150-280 字；结尾可附风格关键词（如"电影级打光、史诗感、高对比、厚涂插画"）；**严禁生成任何文字/标题/字幕/笔画**，画面里不要出现可辨认的汉字或拼音字母；只输出提示词正文，不要解释、不要 markdown 代码块。`,
-
-  longOutlineSys: `你是一位能驾驭超长篇的著名小说架构师。根据用户的一句话或几句构想，设计一部经典的【长篇小说】。
-你不能用三幕流水的短剧套路来搭长篇，而要用真正的长篇小说结构美学来设计骨架。请按如下 JSON 结构输出（不要任何解释、不要 markdown 代码块；可在此基础上按下方追加块补充 glossary 等其它顶层字段）：
+  longOutlineSys: `你是一位能驾驭超长篇的小说架构师。
+【核心任务】根据用户的一句话或几句构想，设计一部经典的【长篇小说】骨架：全书主线走向、结构安排与逐章标题。不要用三幕流水的短剧套路来搭长篇，要用真正的长篇小说结构美学来设计。
+${JSON_HEADER}
 {"title":"小说名","logline":"一句话梗概（含核心冲突与深层命题）","structure":{ ${MAIN_LINE_BLOCK} },"chapters":[{"title":"第1章标题（有钩子感）"}]}
-structure 字段已在上方 JSON 中内联定义主线条四格（mainLine 必有 / 副暗汇合有则带 / 绝不硬造）；其中的 chapterPlan（全部章节按线索分组的写作安排）由下方【长篇结构设计 · 章节计划】块补充，一章不落。每章 title 有钩子感，体现节奏走向；**chapters 只需逐章列出标题，禁止输出任何逐章梗概、内容预告、章末钩子或阶段目标**——每章的正文与梗概将在后续写正文阶段独立生成，不在大纲阶段预写。
+【硬性约束】
+1. structure 字段按上方 JSON 内联定义主线条四格（mainLine 必有；副/暗/汇合有则带、无则空，绝不硬造）；chapterPlan（全部章节按线索分组）由下方【长篇结构设计 · 章节计划】块补充，一章不落。
+2. **chapters 只需逐章列出标题，禁止输出任何逐章梗概、内容预告、章末钩子或阶段目标**——每章的正文与梗概在写正文阶段独立生成，不在大纲阶段预写。
+【自由发挥区】在满足以上约束的前提下，章节标题的立意、措辞、节奏走向由你自由构思。
 `,
 
-  longChapterSys: `你是一位中文长篇小说的资深写手。根据「整体结构」「故事大纲」与「前文衔接来源」（本章标题 + 上一章完整正文）写出本章完整正文，做到章章服务整体架构、严格承接前文真实情节，绝不悬空发散。
-要求：以前文完整正文为准推进本章，保持人物/伏笔/时间线/专名的连续性，同时照顾全章结构位置——本线、伏笔、明暗线呼应；细腻的环境与心理描写、生动对话、符合人物弧光；节奏张弛有度（本章若是情绪高潮或转折则加压，若是过渡则蓄力）；章末留悬念或钩子，为后续章节/伏笔回落埋线；只输出正文，不要标题、不要"本章完/未完待续"之类片尾标注、不要任何解释。正文写完后另起一行，输出 【本章梗概】 + 本章核心事件 1-2 句（不含剧透式预告，仅概括本章实际发生的内容；供后续回填导出清单；该行不属于正文）。`,
+  longChapterSys: `你是一位严格遵循既定大纲的章节执行写手。
+【核心任务】你的职责不是规划全书，而是在给定的【整体结构】【本章标题】【前文真实正文】与【设定词典】框架内，扩写出本章完整正文，做到承接前文、服务整体、不越界发散。
+【硬性约束】
+1. 严格承接上一章真实正文推进本章，绝不悬空发散；保持人物/伏笔/时间线/专名的连续性（以【设定词典】为准，禁止自造新名）。
+2. 只输出正文，不要标题、不要"本章完/未完待续"之类片尾标注、不要任何解释。
+【自由发挥区】在满足以上约束的前提下，你可自由发挥：细腻的环境与心理描写、生动对话、符合人物弧光；节奏张弛有度（本章若是情绪高潮或转折则加压，若是过渡则蓄力）；章末留悬念或钩子，为后续章节/伏笔回落埋线。`,
 
-  editorSys: `你是一位挑剔而专业的长篇小说编辑。请对「给定的一章初稿」做三维审查，并输出 JSON 评分与本轮审稿意见。
-三个维度：角色一致性（人物性格/弧光是否符合设定）、剧情逻辑（因果是否合理、是否违背前文/时间线）、世界观一致（设定/能力/专名是否统一、是否出现硬伤）。
-请严格只输出如下 JSON（不要解释、不要 markdown 代码块）：
-{"role":0,"plot":0,"world":0,"pass":true,"issues":["问题1","问题2"],"advice":"若 pass 为 false，给出具体到段落的重写方向"}
-rules：role/plot/world 各按 0-100 打分；pass=true 当且仅当三维都 ≥70；issues 列出未达标维度的具体问题；advice 简明可执行。`
 };
 
 /* =========================================================
@@ -583,56 +590,56 @@ const STRUCTURES = [
     fit:'宏大世界观、群像、多势力角力的长篇；人物关系网复杂、多条伏笔同时推进的作品。',
     effect:'信息密度高、可读性强，是大师级长篇常用骨架；代价是需要强的一致性自检，否则易散架、坑填不完。' },
   { id:'causal', name:'单线因果式', tag:'经典打怪', short:'单线因果', src:'经典 · 取经路结构',
-    outlineSys: `你是擅长编排经典长篇结构的资深小说架构师。根据用户构想设计一部长篇小说。
-请按如下 JSON 结构输出（不要解释、不要 markdown 代码块；可在此基础上按下方追加块补充 glossary 等其它顶层字段）：
+    outlineSys: `你是深谙「单线因果式」经典结构的小说架构师。根据用户构想设计一部长篇小说。
+${JSON_HEADER}
 {"title":"小说名","logline":"一句话梗概","structure":{ ${MAIN_LINE_BLOCK} },"chapters":[{"title":"章标题"}]}
 要求：遵循「单线因果式」经典结构（如《西游记》取经路）——一根主线贯穿始终，"因为所以"一环扣一环，打完一关进入下一关，前因后果清晰、易读性强；主线明确推进、尽量不铺开多线；章章之间有明确因果链，前一章结果成为后一章起因；整体呈引入→闯关/成长→高潮→收束的清晰线路；每章 title 有钩子感；**chapters 只需逐章列出标题，禁止输出任何逐章梗概、内容预告或章末钩子**——每章正文与梗概将在写正文阶段独立生成。structure 中的 chapterPlan（全部章节按关卡分组的写作安排）由下方【长篇结构设计 · 章节计划】块补充，一章不落。`,
-    chapterSys: `你是中文长篇小说的资深写手。根据本章标题、前文承接与结构定位写出本章完整正文，做到因果衔接、章章推进。
-要求：遵循"因为所以"的单线因果推进——承接上一章的结果，作为本章起因，本章结束又为下一章留下因果钩子；主线单一清晰、少插枝节；有细腻的环境与心理描写、生动对话、鲜明的人物弧光与成长；节奏张弛有度；章末务必切在钩子上；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。正文写完后另起一行，输出 【本章梗概】 + 本章核心事件 1-2 句（仅概括本章实际发生的内容，供回填导出清单；该行不属于正文）。`,
+    chapterSys: `你是严格遵循既定大纲的章节执行写手。根据本章标题、前文承接与结构定位写出本章完整正文，做到因果衔接、章章推进。
+要求：遵循"因为所以"的单线因果推进——承接上一章的结果，作为本章起因，本章结束又为下一章留下因果钩子；主线单一清晰、少插枝节；有细腻的环境与心理描写、生动对话、鲜明的人物弧光与成长；节奏张弛有度；章末务必切在钩子上；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。`,
     desc:'经典「单线因果式」结构（如《西游记》取经路）：一根主线贯穿、"因为所以"一环扣一环、打完一关进下一关，主线清晰易读。',
     mech:'所有章节沿一根主线串成因果链：上一章结果是本章起因、本章结果接下一章，打怪闯关式推进。',
     fit:'常规冒险/成长爽文、连载稳定、怕写崩的稳健型作品；追求易读、主线清晰、读者不迷路。',
     effect:'易读性强、追更顺滑、写作承载力稳定；代价是难容纳复杂副线，多线并存时会受限。' },
   { id:'layered', name:'分层递归展开', tag:'Long-Novel-GPT', short:'分层递归', src:'开源 · Long-Novel-GPT',
-    outlineSys: `你是能驾驭超长篇的著名小说架构师。按【卷→部→章】分层递归地设计一部长篇小说。
-请按如下 JSON 结构输出（不要解释、不要 markdown 代码块；可在此基础上按下方追加块补充 glossary 等其它顶层字段）：
+    outlineSys: `你是深谙「卷→部→章」分层递归结构的小说架构师。按【卷→部→章】分层递归地设计一部长篇小说。
+${JSON_HEADER}
 {"title":"小说名","logline":"一句话梗概","structure":{ ${MAIN_LINE_BLOCK} },"volumes":[{"name":"第X卷卷名","theme":"本卷主题与情绪基调","chapters":[{"title":"章标题"}]}]}
 要求：整体分 2-4 卷，各卷有清晰主题与情绪递进；每卷内章节数合理；章节标题有钩子感，卷与书之间存在因果链；**volumes 内章节只需列出标题，禁止输出任何逐章梗概、内容预告或阶段目标**——每章正文与梗概将在写正文阶段独立生成。structure 主线条四格（mainLine 必有、副暗汇合有则带）由上方 JSON 定义，全书章节安排由 volumes（卷→章）承载。`,
-    chapterSys: `你是中文长篇小说的资深写手。根据本章标题、前文承接与结构定位写出本章完整正文，做到章章承接上卷、为后续蓄力。
-要求：围绕本章在卷内的位置推进（该引入就引入、该冲突就冲突、该转折就转折），承接上一卷已建立的人物与世界设定、不推倒重来；有细腻环境与心理描写、生动对话、人物弧光；章末留钩子或悬念；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。正文写完后另起一行，输出 【本章梗概】 + 本章核心事件 1-2 句（仅概括本章实际发生的内容，供回填导出清单；该行不属于正文）。`,
+    chapterSys: `你是严格遵循既定大纲的章节执行写手。根据本章标题、前文承接与结构定位写出本章完整正文，做到章章承接上卷、为后续蓄力。
+要求：围绕本章在卷内的位置推进（该引入就引入、该冲突就冲突、该转折就转折），承接上一卷已建立的人物与世界设定、不推倒重来；有细腻环境与心理描写、生动对话、人物弧光；章末留钩子或悬念；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。`,
     desc:'借鉴 Long-Novel-GPT / AI_Gen_Novel 的“卷→部→章→节”分层递归：先生成全局卷章框架，再逐卷逐章填充目标。',
     mech:'自上而下先生成全局卷章框架（卷→部→章），再逐卷逐章填充阶段性目标，层级清晰、容量可控。',
     fit:'目标明确、分卷清晰、需要高可维护性的超长篇；世界观宏大、章节海量想保持不乱的类型文。',
     effect:'结构层级严谨、每卷有独立主题与情绪递进，长期连载不易崩；代价是卷间衔接与全局呼应更费设计。' },
   { id:'hero', name:'英雄之旅', tag:'Hero\'s Journey', short:'英雄之旅', src:'开源 · NovelForger',
-    outlineSys: `你是深谙「英雄之旅」结构美学的著名小说架构师。根据用户构想设计一部长篇小说。
-请按如下 JSON 结构输出（不要解释、不要 markdown 代码块；可在此基础上按下方追加块补充 glossary 等其它顶层字段）：
+    outlineSys: `你是深谙「英雄之旅」结构美学的小说架构师。根据用户构想设计一部长篇小说。
+${JSON_HEADER}
 {"title":"小说名","logline":"一句话梗概","structure":{"mode":"英雄之旅","designReason":"为何采用此倒逼成长框架","stageChapters":{"平凡世界":["章标题",...],"召唤":["章标题",...],"拒绝":["章标题",...],"导师":["章标题",...],"跨过门槛":["章标题",...],"试炼/盟友/敌人":["章标题",...],"深渊":["章标题",...],"一搏":["章标题",...],"回报":["章标题",...],"归来":["章标题",...],"变更":["章标题",...]}, ${MAIN_LINE_BLOCK}},"chapters":[{"title":"章标题"}]}
 要求：遵循经典「英雄之旅」十二阶段（平凡世界→召唤→拒绝→导师→跨过门槛→试炼/盟友/敌人→深渊→一搏→回报→归来→变更），倒逼主角成长弧光；阶段不必逐一对应单独一章，可按体量合并或拆分，但整体要完整走完成长路径；每章 title 有钩子感；**chapters 只需逐章列出标题，禁止输出任何逐章梗概、内容预告或章末钩子**——每章正文与梗概将在写正文阶段独立生成。`,
-    chapterSys: `你是中文长篇小说的资深写手。根据本章标题、前文承接与结构定位写出本章完整正文，做到章章推动英雄的成长弧光。
-要求：围绕本章所处的「英雄之旅」阶段推进角色弧光——该试炼就试炼、该受挫就受挫、该升华就升华；主角每次抉择都要有代价、有成长痕迹；细腻的环境与心理描写、生动对话；章末留钩子或悬念；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。正文写完后另起一行，输出 【本章梗概】 + 本章核心事件 1-2 句（仅概括本章实际发生的内容，供回填导出清单；该行不属于正文）。`,
+    chapterSys: `你是严格遵循既定大纲的章节执行写手。根据本章标题、前文承接与结构定位写出本章完整正文，做到章章推动英雄的成长弧光。
+要求：围绕本章所处的「英雄之旅」阶段推进角色弧光——该试炼就试炼、该受挫就受挫、该升华就升华；主角每次抉择都要有代价、有成长痕迹；细腻的环境与心理描写、生动对话；章末留钩子或悬念；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。`,
     desc:'借鉴 Hero\'s Journey（《千面英雄》，NovelForger 支持）：12 阶段倒逼主角成长弧光，适合成长正气类长篇。',
     mech:'把全书章节映射到英雄之旅十二阶段（平凡世界→召唤→拒绝→导师→跨过门槛→试炼/盟友/敌人→深渊→一搏→回报→归来→变更），让成长弧光结构可预期。',
     fit:'主角成长型、冒险/奇幻类；希望有清晰#成长曲线#与情感爆发点的长篇。',
     effect:'主角弧光完整、情感起伏有据可依、商业辨识度高；代价是套用若生硬会显得套路化。' },
   { id:'savecat', name:'节拍表', tag:'Save the Cat', short:'节拍表', src:'业界 · Save the Cat',
-    outlineSys: `你是深谙「节拍表」结构美学的著名小说架构师。根据用户构想设计一部长篇小说。
-请按如下 JSON 结构输出（不要解释、不要 markdown 代码块；可在此基础上按下方追加块补充 glossary 等其它顶层字段）：
+    outlineSys: `你是深谙「节拍表」结构美学的小说架构师。根据用户构想设计一部长篇小说。
+${JSON_HEADER}
 {"title":"小说名","logline":"一句话梗概","structure":{"mode":"Save the Cat 节拍表","designReason":"如何用 15 拍控制节奏","beats":{"开场画面":["章标题",...],"催化剂":["章标题",...],"争执":["章标题",...],"进入第二幕":["章标题",...],"B故事":["章标题",...],"中点":["章标题",...],"坏人逼近":["章标题",...],"一切尽失":["章标题",...],"黑暗时刻":["章标题",...],"进入第三幕":["章标题",...],"终局":["章标题",...],"最终画面":["章标题",...]}, ${MAIN_LINE_BLOCK}},"chapters":[{"title":"章标题"}]}
 要求：遵循 Save the Cat 的 15 节拍（开场→催化剂→争执→B故事→中点→一切尽失→终局→最终画面等），把全书章节分配到各节拍上，节奏可预估；每章 title 有钩子感；**chapters 只需逐章列出标题，禁止输出任何逐章梗概、内容预告或章末钩子**——每章正文与梗概将在写正文阶段独立生成。`,
-    chapterSys: `你是中文长篇小说的资深写手。根据本章标题、前文承接与结构定位写出本章完整正文，做到章章贴合 Save the Cat 节拍曲线。
-要求：围绕本章所处的「节拍」推进节奏（平原蓄力、催化剂提速、黑暗时刻骤降、终局引爆等），情绪张力随节拍起伏；细腻的心理与场景描写、生动对话、人物弧光；章末留钩子或悬念；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。正文写完后另起一行，输出 【本章梗概】 + 本章核心事件 1-2 句（仅概括本章实际发生的内容，供回填导出清单；该行不属于正文）。`,
+    chapterSys: `你是严格遵循既定大纲的章节执行写手。根据本章标题、前文承接与结构定位写出本章完整正文，做到章章贴合 Save the Cat 节拍曲线。
+要求：围绕本章所处的「节拍」推进节奏（平原蓄力、催化剂提速、黑暗时刻骤降、终局引爆等），情绪张力随节拍起伏；细腻的心理与场景描写、生动对话、人物弧光；章末留钩子或悬念；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。`,
     desc:'借鉴 Save the Cat 15 节拍法：三幕展开为 15 个可预估节拍点，适合商业向、节奏可控的长篇。',
     mech:'用 15 个固定节拍（开场/催化剂/争执/中点/一切尽失/终局…）标注全书情绪曲线，节奏可计算、可预估。',
     fit:'商业类型文、需要稳定节奏与“可预估追读”的连载作品；编剧思维、强钩子驱动的长篇。',
     effect:'节奏可预估、爽点位置明确、改编友好；代价是拍点分配若机械会产生套路感。' },
   { id:'seven', name:'七点结构', tag:'Seven-Point', short:'七点结构', src:'开源 · NovelForger',
-    outlineSys: `你是深谙「七点结构」的著名小说架构师。根据用户构想设计一部长篇小说。
-请按如下 JSON 结构输出（不要解释、不要 markdown 代码块；可在此基础上按下方追加块补充 glossary 等其它顶层字段）：
+    outlineSys: `你是深谙「七点结构」的小说架构师。根据用户构想设计一部长篇小说。
+${JSON_HEADER}
 {"title":"小说名","logline":"一句话梗概","structure":{"mode":"七点结构","designReason":"七个锚点如何控制转折","points":{"Hook钩子":["章标题",...],"PlotTurn1一转折":["章标题",...],"Pinch1中点施压":["章标题",...],"Midpoint中点":["章标题",...],"Pinch2压力加码":["章标题",...],"PlotTurn2二转折":["章标题",...],"Resolution解局":["章标题",...]}, ${MAIN_LINE_BLOCK}},"chapters":[{"title":"章标题"}]}
 要求：遵循七点结构（Hook→Plot Turn 1→Pinch 1→Midpoint→Pinch 2→Plot Turn 2→Resolution），用七个锚点控制全书转折节奏；每章 title 有钩子感；**chapters 只需逐章列出标题，禁止输出任何逐章梗概、内容预告或章末钩子**——每章正文与梗概将在写正文阶段独立生成。`,
-    chapterSys: `你是中文长篇小说的资深写手。根据本章标题、前文承接与结构定位写出本章完整正文，做到章章朝七个锚点有序逼近。
-要求：围绕本章所在锚点推进（前段蓄力、Two Plot 转折、Pinch 施压、Midpoint 承转），每章都向“下一个转折点”收拢、不生枝节；细腻的心理与场景描写、生动对话、人物弧光；章末留钩子或悬念；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。正文写完后另起一行，输出 【本章梗概】 + 本章核心事件 1-2 句（仅概括本章实际发生的内容，供回填导出清单；该行不属于正文）。`,
+    chapterSys: `你是严格遵循既定大纲的章节执行写手。根据本章标题、前文承接与结构定位写出本章完整正文，做到章章朝七个锚点有序逼近。
+要求：围绕本章所在锚点推进（前段蓄力、Two Plot 转折、Pinch 施压、Midpoint 承转），每章都向“下一个转折点”收拢、不生枝节；细腻的心理与场景描写、生动对话、人物弧光；章末留钩子或悬念；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。`,
     desc:'借鉴 Seven-Point Structure（NovelForger 支持）：Hook→转折→施压→中点→加码→再转折→解局，七个锚点控转折。',
     mech:'以七个固定锚点（Hook/PlotTurn/Pinch/Midpoint/Pinch/PlotTurn/Resolution）规划全书转折，前紧后强。',
     fit:'中短到中长篇、转折重戏剧性、希望#转折节奏#清晰的作品。',
@@ -961,10 +968,14 @@ function outlineSizeNote(){
 /* 基础大纲 JSON 契约（仅是大纲内容，与『结构』彻底无关）：用户未选任何结构范式时，作为独立的大纲内容块注入，
   * 只定 title/logline/chapters 的形态。不含任何"多线/三定"等结构偏好——结构未选则不推主线条/副暗线等结构命令；
   * 但"全部章节安排"仍由 CHAPTER_PLAN_FREE_SYS 以自由分组的形式轻量补充到 structure.chapterPlan。 */
-const OUTLINE_GEN_SYS = `你是一位能驾驭超长篇的著名小说架构师。根据用户的一句话或几句构想，设计一部长篇小说的大纲骨架。
-请按如下 JSON 结构输出（不要任何解释、不要 markdown 代码块；可在此基础上按下方追加块补充 glossary、structure 等其它顶层字段）：
+const OUTLINE_GEN_SYS = `你是一位能驾驭超长篇的小说架构师。
+【核心任务】根据用户的一句话或几句构想，设计一部长篇小说的大纲骨架。
+${JSON_HEADER}
 {"title":"小说名","logline":"一句话梗概（含核心冲突与深层命题）","chapters":[{"title":"第1章标题（有钩子感）"}]}
-每章 title 有钩子感；**chapters 只需逐章列出标题，禁止输出任何逐章梗概、内容预告、章末钩子或阶段目标**——每章的正文与梗概将在后续写正文阶段独立生成，不在大纲阶段预写。全书章节数以上方【篇幅体量】为准，章节数必须与之完全一致。`;
+【硬性约束】
+1. 每章 title 有钩子感、体现节奏走向。
+2. **chapters 只需逐章列出标题，禁止输出任何逐章梗概、内容预告、章末钩子或阶段目标**——每章的正文与梗概在写正文阶段独立生成，不在大纲阶段预写。
+【自由发挥区】在满足以上约束的前提下，章节标题的立意、措辞、节奏走向由你自由构思。`;
 
 const GLOSSARY_SYS = `\n\n【glossary 万物词典（必须一并输出）】请在返回的 JSON 顶层再追加一个 glossary 字段，作为全文保持一致性的权威基准：
 "glossary":{"characters":[{"name":"人物姓名","identity":"身份/职业/社会身份","age":"岁数/年龄","gender":"性别","appearance":"外貌特征","hobby":"爱好/习惯","relation":"与该人的血缘/人际关联（妹妹/姐姐/朋友/仆人等）","trait":"性格要点"}],"places":[{"name":"地名/场景名","type":"类型","note":"设定要点"}],"propernouns":[{"name":"专名/专属设定术语","note":"含义与拼写唯一约定"}]}
@@ -974,18 +985,30 @@ const GLOSSARY_SYS = `\n\n【glossary 万物词典（必须一并输出）】请
 · relation 关系 = 她/他和谁是什么关联：血缘/姻亲/友伴/主仆，必须带"谁的"才成立——「林晚的妹妹」「她的仆人」「朋友：陈默」；禁止把身份词（捕快/市长/船女）写进 relation；
 人物条目中不设"职能/角色定位"字段。trait 归纳稳定性格以便后续各章保持一致。`;
 
-// v10.1 userIntent 创作意图提炼块：生成大纲时由同一轮 AI 顺带把用户构想中的「硬性要求」提炼成
-// 结构化清单，写正文时恒定注入（最高优先），保证用户原始意志在大纲之后不丢失。
-// 判别标准五条铁律：只收用户明确说的 / 不替用户新增 / 大纲已体现的不重复 / 宁缺毋滥 3~8 条 / 冲突以 userIntent 为准。
-const USER_INTENT_SYS = `\n\n【userIntent 创作意图（必须一并输出）】请在返回的 JSON 顶层再追加一个 userIntent 字段（字符串数组），
-把用户构想中"必须贯彻的硬性要求"提炼出来，作为正文阶段最高优先遵循的创作红线：
-"userIntent":["一句话要求1","一句话要求2"]
-提炼标准（严格遵循）：
-1. 只收录用户明确表达的硬性要求：结局方向、人物命运、禁止事项（如"不得血腥"）、必须出现的元素/场景、风格基调；
-2. 不替用户新增要求；用户没说的，一律不收；
-3. 已在大纲（logline/structure/chapters/glossary）中充分体现的内容不必重复收录，只收"丢了就会违背用户意志"的；
-4. 每条一句话、直白具体（含"必须/不得/禁止"等措辞），3~8 条为宜；确实没有硬性要求时输出空数组 [];
-5. 若与大纲/结构设计冲突，以 userIntent 为准（用户意志优先）。`;
+// v10.11 逐章梗概：章节规划师身份提示词。大纲确认后可选生成"每章一句话方向"（chapterPlans），
+// 写正文时注入【本章创作方向】对抗文风漂移；标题归大纲 AI，本 AI 只翻译方向、不写标题。
+const CHAPTER_PLAN_SYS = `你是一位深谙叙事节奏的章节规划师。
+【核心任务】根据给定的小说大纲（标题、一句话梗概、长篇结构设计、设定词典），为每一章规划一条【一句话方向梗概】——提炼本章要发生的核心事件与走向，供章节写手据此执笔。
+【硬性约束】
+1. 输出与章节数完全一致的 JSON 数组，顺序对应每一章：{"chapterPlans":["第1章：本章方向…","第2章：本章方向…"]}
+2. 每条 1-2 句、只给方向不给细节（禁止具体对话/描写/情节细则，留给正文阶段自由展开）；与设定词典、结构设计保持一致，不引入词典外的新人名/地名/专名。
+3. 每条方向必须与本章标题呼应（标题是方向的上位锚；标题由大纲架构师定，你不改写标题）。
+4. 前章的梗概不得剧透后章的关键转折；相邻章节方向衔接自然、避免断档。
+5. 不输出任何解释、不要 markdown 代码块。
+【自由发挥区】在满足以上约束的前提下，各章方向的侧重点与措辞由你把握（本卷蓄力则写蓄力方向，本卷高潮则写加压方向）。`;
+
+// v10.12 原创性要求（防雷同）· 大纲侧：防套路结构 + 高频人名 + 流水线标题。
+// 独立注入块而非改写各结构常量：一处定义，经组装函数自动覆盖全部结构范式与默认路径。
+const ORIGINALITY_OUTLINE_SYS = `【原创性要求（防雷同）】本作追求独特设定，避免与常见网络作品雷同：
+1. 拒绝套路模板：不开局退婚/系统提示音/赘婿打脸/主角降智等烂大街桥段；情节逻辑优先从本作独有设定推导，而非套用通用模板。
+2. 人名规避：人物姓名避免网文高频字组合（如林晚/苏晚/顾沉/云深/顾言之类）；可采用职业特征/意象组合造名（如"渔灯""沉砚"），姓名风格与世界观一致。
+3. 章节标题同理：标题立意避免"xx之怒/惊变/震惊"式流水线命名。`;
+
+// v10.12 原创性要求（防雷同）· 章节侧：防桥段套路 + 高频句式 + 无关套路元素。
+const ORIGINALITY_CHAPTER_SYS = `【原创性要求（防雷同）】本章内容追求自然独特：
+1. 桥段防套路：避免无理由误会、工具人反派强行送头、为冲突而冲突的降智桥段；冲突应来自前文设定与人物动机的自然推进。
+2. 句式防高频：避免网文高频表达（"嘴角勾起一抹冷笑""眼神一凛"等），对话与描写尽量具体、贴合本作人物。
+3. 不硬塞元素：不引入与既有设定无关的常见套路元素（金手指/系统/穿越梗等），除非本作设定明确包含。`;
 
 // v8c 词典增量补全：从已生成章节正文中提取「现有词典未收录」的新人物/新地名/新专名，去重后并入词典。
 // 供批量生成章节后的自动补全与词典卡片的「📥 提取新增」共用；人物字段对齐词典契约（age/gender 必填）。
@@ -1075,7 +1098,7 @@ function buildOutlineSys(){
   // ⑤-2 未选结构时：要求 AI 自由分组输出 chapterPlan（按主题/起承转合），作为"全部章节写作安排"的呈现。
   if(!st) parts.push(CHAPTER_PLAN_FREE_SYS);
   parts.push(outlineGlossaryInject(state.pendingGlossary));   // ⑥ v8 双轨：有导引用权威块，无导入保持原「请自造词典」块
-  parts.push(USER_INTENT_SYS);                                  // ⑦ v10.1 创作意图提炼块：与词典同为追加字段契约
+  parts.push('\n\n'+ORIGINALITY_OUTLINE_SYS);                   // ⑦ v10.12 原创性要求（防雷同）· 大纲侧，全部结构范式生效
   return parts.join('\n\n');
 }
 // 遵从度 → 喂给 AI 的要求（v8：与 adherenceHint 的语义一一对应，供模型判断遵循程度）
@@ -1114,13 +1137,7 @@ function storyContentBlock(){
   const o = state.outline;
   if(!o) return '';
   const lines = [];
-  // v10.1 创作意图（最高优先）：置于最前，与大纲/结构冲突时以创作意图为准（提炼与注入两端声明一致）。
-  const ui = Array.isArray(o.userIntent) ? o.userIntent.filter(Boolean) : [];
-  if(ui.length){
-    lines.push('【创作意图 · 用户硬性要求（最高优先：与大纲/结构冲突时以此为准）】');
-    ui.forEach((t,i)=> lines.push(`${i+1}. ${t}`));
-  }
-  // 顺序：创作意图 → 故事梗概（大纲）→ 长篇结构设计。先懂红线，再懂全书讲什么，再懂怎么组织。
+  // 顺序：故事梗概（大纲）→ 长篇结构设计。先懂全书讲什么，再懂怎么组织。
   // 注：不再含逐章梗概——大纲阶段只产出章节标题，正文与梗概在写正文阶段独立生成，
   //    故此处不向 AI 提供任何逐章梗概，避免以梗概为蓝本扩写正文。
   lines.push('【一、故事梗概】'+(o.logline||'（无）'));
@@ -1272,7 +1289,7 @@ async function extractNewGlossary(bodyTexts){
     return arr.length ? `${label}：${arr.join('、')}` : `${label}：（无）`;
   }).join('\n');
   const user = `【现有词典】\n${dict}\n\n【本章正文】\n${body}`;
-  const txt = await callDeepSeek(GLOSSARY_EXTRACT_SYS, user, {maxTokens: 2000});
+  const txt = await callDeepSeek(GLOSSARY_EXTRACT_SYS, user, {maxTokens: 2000, temperature: resolveActiveSpec().qcTemp});   // v10.8 质检/提取温度
   const j = parseJson(txt) || {};
   const keepChar = c => { const o = {}; ['name','identity','age','gender','appearance','hobby','relation','trait'].forEach(k=>{ if(c[k]!=null) o[k]=String(c[k]).trim(); }); return o.name ? o : null; };
   const keepPlace = p => { const o = {}; ['name','type','note'].forEach(k=>{ if(p[k]!=null) o[k]=String(p[k]).trim(); }); return o.name ? o : null; };
@@ -1430,6 +1447,7 @@ function buildChapterSys(){
   parts.push(st ? st.chapterSys : PROMPTS.longChapterSys);
   if(rh && rh.chapterNote) parts.push('\n【节奏风格 · '+rh.name+'】\n'+rh.chapterNote);
   parts.push('\n【篇幅体量】\n'+sizeChapterInjection());
+  parts.push('\n\n'+ORIGINALITY_CHAPTER_SYS);   // v10.12 原创性要求（防雷同）· 章节侧，单章/批量/重生成统一生效
   return parts.join('\n\n');
 }
 // 兼容旧调用入口
@@ -1631,7 +1649,6 @@ function viewStory(){
   const o = state.outline;
   let html = `
     ${ origIdeaCard() }
-    ${ isLong() ? userIntentCard() : '' }
     ${ recipeSummaryBar() }
     <div class="card">
       <div class="card-head-row">
@@ -1643,6 +1660,7 @@ function viewStory(){
       ${ structureCard(o) }
       ${ state.outlineConfirmed ? `
         <div class="btn-row"><span class="pill tag-ok">✓ 大纲已确认</span></div>
+        ${ isLong() ? chapterPlanBlock() : '' }
         ${ isLong() ? glossaryCardHtml() : '' }
         ${ isLong() ? `<div class="btn-row" style="margin-top:8px">
           <label class="long-jump"><span>跳到章节：</span>
@@ -1691,74 +1709,7 @@ function origIdeaCard(){
   </div>`;
 }
 
-// v10.1 创作意图卡片：展示 AI 从用户构想中提炼的硬性要求（outline.userIntent），可编辑/增删/清空。
-// 写正文时恒定注入且优先级最高；与大纲/结构冲突时以创作意图为准。
-function userIntentCard(){
-  const o = state.outline;
-  const ui = (o && Array.isArray(o.userIntent)) ? o.userIntent : [];
-  const items = ui.map((t,i)=>`
-    <div class="ui-item" data-ui-idx="${i}">
-      <span class="ui-no">${i+1}</span>
-      <input type="text" class="ui-input" data-ui-set="${i}" data-orig="${esc(t)}" value="${esc(t)}" placeholder="一句话硬性要求（如：结局主角必须牺牲）" />
-      <button type="button" class="ui-del" data-ui-del="${i}" title="删除该条">✕</button>
-    </div>`).join('');
-  const empty = !items;
-  return `<div class="card ui-card">
-    <div class="ui-head">
-      <h3 style="margin:0">📌 创作意图（用户硬性要求）</h3>
-      <span class="ui-tools">
-        <button type="button" class="btn ghost gs-tool" data-ui-add title="手动添加一条创作意图">＋ 添加</button>
-        ${empty?'':`<button type="button" class="btn ghost gs-tool" data-ui-clear title="清空全部创作意图">清空</button>`}
-      </span>
-    </div>
-    ${empty
-      ? `<p class="sub">当前无创作意图。生成大纲时 AI 会自动提炼你构想中的硬性要求（也可手动添加）；写正文时恒定注入，优先级最高。</p>`
-      : `<div class="ui-list">${items}</div>
-         <p class="muted" style="margin:6px 0 0">写正文时恒定注入，优先级最高；与大纲/结构冲突时以创作意图为准。修改后保存，后续新生成章节生效。</p>`}
-  </div>`;
-}
-// v10.1 创作意图卡片绑定：编辑失焦即存；删除/添加/清空即时生效（与词典编辑风格一致）
-function bindUserIntent(){
-  const o = state.outline;
-  if(!o) return;
-  if(!Array.isArray(o.userIntent)) o.userIntent = [];
-  const ui = o.userIntent;
-  // 失焦即存
-  $$('[data-ui-set]').forEach(inp=>{
-    inp.onchange = ()=>{
-      const i = +inp.dataset.uiSet;
-      const oldVal = inp.dataset.orig, newVal = inp.value;
-      if(newVal === oldVal) return;
-      ui[i] = newVal;
-      inp.dataset.orig = newVal;
-      persist();
-      toast('创作意图已更新，后续新生成章节生效（已生成章节可手动重生成）');
-    };
-  });
-  // 删除单条
-  $$('[data-ui-del]').forEach(b=> b.onclick = ()=>{
-    ui.splice(+b.dataset.uiDel, 1);
-    persist(); render();
-    toast('已删除该条创作意图');
-  });
-  // 添加一条（空行待填）
-  const addBtn = $('[data-ui-add]');
-  if(addBtn) addBtn.onclick = ()=>{
-    ui.push('');
-    persist(); render();
-    const inp = document.querySelector('[data-ui-set="'+(ui.length-1)+'"]');
-    if(inp) inp.focus();
-  };
-  // 清空
-  const clearBtn = $('[data-ui-clear]');
-  if(clearBtn) clearBtn.onclick = ()=>{
-    if(!confirm('清空全部创作意图？')) return;
-    ui.length = 0;
-    persist(); render();
-    toast('创作意图已清空');
-  };
-}
-// v10.2 原始构想只读卡绑定：展开/收缩切换 + 复制（clipboard API → execCommand 兜底，覆盖 file:// / http 环境）
+// v10.2 原始构想只读卡绑定：展开/收缩切换 + 复制（复用全局 copyText，自带 toast）
 function bindOrigIdea(){
   const og = $('[data-orig-toggle]');
   if(og) og.onclick = ()=>{
@@ -1771,7 +1722,7 @@ function bindOrigIdea(){
   const cpy = $('[data-orig-copy]');
   if(cpy) cpy.onclick = ()=>{
     const ta = $('.orig-text'); if(!ta) return;
-    copyText(ta.value);   // 复用全局 copyText：clipboard API → execCommand 兜底，自带 toast
+    copyText(ta.value);
   };
 }
 // v10.3 长篇结构设计栏折叠绑定：点击标题收起/展开，状态持久化
@@ -1785,6 +1736,51 @@ function bindStructureFold(){
     if(ico) ico.textContent = state.stCollapsed ? '▸' : '▾';
     persist();
   };
+}
+// v10.11 逐章梗概区块：大纲确认后的可选步骤。按钮生成全部章节方向梗概，每条可编辑（失焦即存）。
+function chapterPlanBlock(){
+  const o = state.outline;
+  const plans = (o && Array.isArray(o.chapterPlans)) ? o.chapterPlans : [];
+  const hasPlans = plans.some(Boolean);
+  const items = plans.map((t,i)=>`
+    <div class="cp-item">
+      <span class="cp-no">${i+1}</span>
+      <span class="cp-title">${esc((o.chapters&&o.chapters[i]&&o.chapters[i].title)||('第'+(i+1)+'章'))}</span>
+      <input type="text" class="cp-input" data-cp-set="${i}" data-orig="${esc(t)}" value="${esc(t)}" placeholder="本章方向（一句话，可选）" />
+    </div>`).join('');
+  return `<div class="card cp-card">
+    <div class="cp-head">
+      <h3 style="margin:0">🧭 逐章方向梗概 <span class="muted" style="font-size:11px;font-weight:400">（可选：生成后写正文会按方向走，对抗文风漂移）</span></h3>
+      <span class="cp-tools">
+        <button type="button" class="btn ghost gs-tool" data-cp-gen>${hasPlans?'🔄 重生成梗概':'📝 生成逐章梗概'}</button>
+      </span>
+    </div>
+    ${hasPlans ? `<div class="cp-list">${items}</div>
+      <p class="muted" style="margin:6px 0 0">每条可编辑，失焦即存；写正文时注入为【本章创作方向】。</p>`
+      : `<p class="sub">可选步骤：为每章规划一句话方向（核心事件/走向），写正文时据此执笔，统一各章走向。不做也不影响默认流程。</p>`}
+  </div>`;
+}
+// v10.11 逐章梗概绑定：生成（含覆盖确认）/ 逐条编辑即存
+function bindChapterPlan(){
+  const gen = $('[data-cp-gen]');
+  if(gen) gen.onclick = ()=>{
+    const o = state.outline;
+    const has = o && Array.isArray(o.chapterPlans) && o.chapterPlans.some(Boolean);
+    if(has && !confirm('将覆盖现有逐章梗概，继续？')) return;
+    genChapterPlans(gen);
+  };
+  $$('[data-cp-set]').forEach(inp=>{
+    inp.onchange = ()=>{
+      const o = state.outline; if(!o) return;
+      if(!Array.isArray(o.chapterPlans)) o.chapterPlans = [];
+      const i = +inp.dataset.cpSet;
+      if(inp.value === inp.dataset.orig) return;
+      o.chapterPlans[i] = inp.value;
+      inp.dataset.orig = inp.value;
+      persist();
+      toast('本章方向已保存，后续生成章节生效');
+    };
+  });
 }
 
 // 万物词典「设定表」卡片：展示人物/地名/专名，用户可更正错名（决策9）
@@ -2455,10 +2451,11 @@ function openReader(i){
   const ov = $('#readerOverlay'); if(!ov) return;
   $('#readerTitle').textContent = `第${toCnNum(i+1)}章 · ${cleanChapterTitle(c.title)}`;
   const paras = String(c.content||'').split(/\n+/).map(p=>p.trim()).filter(Boolean);
-  // 无正文时：展示本章梗概（写正文时 AI 回填），让「空章也可预览剧情定位」
+  // 无正文时：展示本章创作方向（逐章梗概 chapterPlans），让「空章也可预览剧情定位」
   let fallback = `<p class="muted">（本章尚未生成正文）</p>`;
-  const sum = (state.chapters && state.chapters[i] && state.chapters[i].summary) || '';
-  if(sum) fallback = `<p class="muted">📋 本章梗概：${esc(sum)}</p>
+  const plan = (state.outline && Array.isArray(state.outline.chapterPlans) && state.outline.chapterPlans[i])
+    ? String(state.outline.chapterPlans[i]).trim() : '';
+  if(plan) fallback = `<p class="muted">🧭 本章创作方向：${esc(plan)}</p>
     <p class="muted" style="margin-top:6px">生成正文后将在此展示全文。可用下方「重生成」或「一键批量生成」补写。</p>`;
   $('#readerBody').innerHTML = paras.length ? paras.map(p=>`<p>${esc(p)}</p>`).join('') : fallback;
   // 构建目录并定位当前章
@@ -2893,9 +2890,10 @@ function buildLongMarkdown(){
   let md = `# ${o?.title||'未命名长篇小说'}\n\n`;
   md += `## 一、故事大纲\n**梗概**：${o?.logline||''}\n\n`;
   (o?.chapters||[]).forEach((c,i)=>{
-    // 逐章梗概来自写正文时 AI 回填的 state.chapters[i].summary（大纲阶段不预生成梗概）
-    const chSum = (state.chapters[i] && state.chapters[i].summary) ? state.chapters[i].summary : '（生成章节后自动回填）';
-    md += `${i+1}. **${c.title||''}** — ${chSum}\n`;
+    // v10.11 逐章方向梗概（chapterPlans，计划）优先展示；实际发生以章节正文为准（事后回填已去除）
+    const plan = (Array.isArray(o.chapterPlans) && o.chapterPlans[i] && String(o.chapterPlans[i]).trim())
+      ? String(o.chapterPlans[i]).trim() : '';
+    md += `${i+1}. **${c.title||''}**${plan?` — 方向：${plan}`:'（未生成方向梗概）'}\n`;
   });
   md += `\n## 二、章节正文\n`;
   // 长篇：仅列出已写章；大纲刚生成、尚未写正文时给占位提示，大纲/梗概仍可先行导出
@@ -3107,9 +3105,9 @@ function bindView(){
     });
   }
   bindGlossary();
-  bindUserIntent();   // v10.1 创作意图卡片绑定
   bindOrigIdea();     // v10.2 原始构想只读卡绑定
   bindStructureFold();// v10.3 长篇结构设计栏折叠绑定
+  bindChapterPlan();  // v10.11 逐章梗概区块绑定
   bindPendingGlossary();
   // 故事页内联规范选择器
   $$('.spec-opt').forEach(b=> b.onclick = ()=>{ selectSpec(b.dataset.spec); });
@@ -3248,7 +3246,7 @@ async function genOutline(){
   // 未选结构时的处理：结构标签留空，让 AI 完全按用户提示词自然发挥组织结构，不做随机锁定、不做固定默认
   try{
     const sys = isLong() ? longOutlineSys() : PROMPTS.outlineSys + specSysAddition();
-    const txt = await callDeepSeek(sys, '故事构想：'+state.idea);
+    const txt = await callDeepSeek(sys, '故事构想：'+state.idea, {temperature: resolveActiveSpec().outlineTemp});   // v10.8 大纲温度
     state.raw.outline = txt;
     const o = parseJson(txt);
     // 兼容分层递归范式：返回 volumes，需扁平化为 chapters 并保留卷归属
@@ -3304,10 +3302,11 @@ async function genOutline(){
     if(!o.glossary || (!o.glossary.characters && !o.glossary.places && !o.glossary.propernouns)){
       o.glossary = { characters:[], places:[], propernouns:[] };
     }
-    // v10.1 创作意图兜底：AI 未输出 / 非数组时给空数组，UI 与正文注入均按空态处理
-    if(!Array.isArray(o.userIntent)) o.userIntent = [];
     // v10.2 原始构想快照：与大纲同生命周期，供「原始构想」只读区展示（不随后续修改构想而漂移）
     o.userIdea = state.idea;
+    // v10.11 逐章梗概：新大纲生成时重置为空（防旧梗概错配新章节数/新标题）；兜底非数组
+    if(!Array.isArray(o.chapterPlans)) o.chapterPlans = [];
+    o.chapterPlans.length = 0;
     // v8 双轨合并：若构想阶段挂载过辅轨词典，按遵从度把它与新作大纲词典合并为权威词典，再清空辅轨槽位
     let mergeNote = '';
     if(state.pendingGlossary && sourceHasGlossary(state.pendingGlossary)){
@@ -3322,6 +3321,35 @@ async function genOutline(){
   }catch(e){
     st.className='status err'; st.textContent = e.message;
   }finally{ busy(btn,false); }
+}
+
+// v10.11 逐章梗概生成：一次请求产出全部章节的一句话方向（chapterPlans）。
+// 输入 = 标题列表 + logline + 结构设计 + 设定词典，保证与全局一致。
+// 失败保持原值不清空；覆盖由调用方 confirm 把关。
+async function genChapterPlans(btn){
+  const o = state.outline;
+  if(!isLong() || !o) return;
+  if(btn) busy(btn,true,'生成逐章梗概中…');
+  try{
+    const titles = (o.chapters||[]).map((c,i)=> `第${i+1}章《${c&&c.title||''}》`).filter(Boolean).join(' / ');
+    if(!titles){ toast('尚无章节标题'); return; }
+    const parts = [];
+    parts.push(`小说标题：${o.title||''}\n一句话梗概：${o.logline||''}\n全部章节标题：${titles}`);
+    parts.push(storyContentBlock());
+    parts.push(chapterGlossaryBlock());
+    const user = parts.join('\n\n') + '\n\n' + ORIGINALITY_OUTLINE_SYS;   // v10.12 防套路：方向防套路 + 人名规避（复用大纲侧）
+    const txt = await callDeepSeek(CHAPTER_PLAN_SYS, user, {temperature: resolveActiveSpec().planTemp});
+    const j = parseJson(txt) || {};
+    const arr = Array.isArray(j.chapterPlans) ? j.chapterPlans.map(x=>String(x||'').trim()).filter(Boolean) : [];
+    if(!arr.length){ toast('未解析到梗概，请重试'); return; }
+    // 数量与章节对齐：不足补齐占位，超出截断
+    const n = (o.chapters||[]).length;
+    const plans = Array.from({length:n},(_,i)=> arr[i] || '');
+    o.chapterPlans = plans;
+    persist(); render();
+    toast(`已生成 ${arr.length} 条逐章梗概`);
+  }catch(e){ toast('梗概生成失败：'+e.message); }
+  finally{ if(btn) busy(btn,false); }
 }
 
 // 长篇：把整体结构/卷信息拼进章节生成的上下文（按所选结构注入）
@@ -3563,26 +3591,18 @@ function structureCard(o){
 }
 // 写一条章节正文（依所勾选质量机制 post-processing：dual 双审 / selfref 自省 / plothole 伏笔洞检测）
 // 省 token 策略：正文与初审均带上 max_tokens 上限；各机制一律「段落级重写」而非整章重写，
-// 并共享一个整体重写预算，避免三种机制叠加把输出放大数倍。
-// 按「【本章梗概】」标记拆分 AI 输出：标记前为正文，标记后为本章梗概；无标记则全部视为正文（梗概留空）。
+// v10.11 已去除「AI 返回本章梗概」契约（事后回填 summary 移除）：AI 输出全文即正文，直接过质检。
 function splitChapterOutput(txt){
-  const raw = String(txt||'');
-  const m = raw.match(/\n?\s*【本章梗概】\s*[:：]?\s*/);
-  if(!m) return { content: raw.trim(), summary: '' };
-  const content = raw.slice(0, m.index).trim();
-  const summary = raw.slice(m.index + m[0].length).trim();
-  return { content, summary };
+  return { content: String(txt||'').trim(), summary: '' };
 }
 async function writeOneChapterContent(i, user, onPhase, onStream){
   const mt = chapterMaxTokens();
   onPhase = onPhase || (()=>{});
   // onPhase 阶段上报；onStream 若提供则开启流式边收边显示（成本0，实时进度），否则一次性返回全文
   onPhase('撰写本章正文…');
-  let txt = await callDeepSeek(longChapterSys(), user, {maxTokens: mt, onStream});
-  // 拆分「正文 + 本章梗概」：AI 按契约在正文末尾输出【本章梗概】行；正文与梗概分离后，
-  // 梗概回填 state.chapters[i].summary（供导出清单等使用），质检只针对正文部分执行。
+  let txt = await callDeepSeek(longChapterSys(), user, {maxTokens: mt, onStream, temperature: resolveActiveSpec().chapterTemp});   // v10.8 章节温度
+  // v10.11 全文即正文（无【本章梗概】标记需要拆分），直接过质检
   const sp = splitChapterOutput(txt);
-  if(state.chapters[i]) state.chapters[i].summary = sp.summary;
   return applyChapterQuality(sp.content, user, mt, onPhase);
 }
 // 对单章正文执行统一「两段式自动质检」：草扫(scanDraft)判定有无硬伤 + 精修(rewriteSegment)只改错误段落。
@@ -3604,7 +3624,7 @@ async function applyChapterQuality(txt, user, mt, onPhase){
 当 pass=true 时只输出 {"pass":true}，禁止输出 issues/rewritten/how/任何正文。`;
   let issues;
   try{
-    const j = parseJson(await callDeepSeek(SCAN_SYS, '【本章初稿】\n'+txt.trim()));
+    const j = parseJson(await callDeepSeek(SCAN_SYS, '【本章初稿】\n'+txt.trim(), {temperature: resolveActiveSpec().qcTemp}));   // v10.8 质检温度
     issues = (j && !j.pass && Array.isArray(j.issues)) ? j.issues.filter(x=>x && x.anchor && String(x.anchor).trim()) : [];
   }catch(e){ issues = []; }
   if(!issues.length) return dedupAdjacentParagraphs(txt).trim();   // 无错即过，零改写（省返回 token）
@@ -3622,7 +3642,8 @@ async function applyChapterQuality(txt, user, mt, onPhase){
     try{
       rw = String((await callDeepSeek(
         `你是长篇小说的段落改写编辑。只针对【需修正段落】中符合【错误类型】的部分做局部修正，其余文字保持原文、风格与世界观一致，人名/地名/专名一律遵循【一致性基准】，禁止自造新拼写。只输出修正后的段落完整文字，不要解释、不要标题、不要标记。`,
-        `${gloss}\n【错误类型】${it.type||''}\n\n【需修正段落】\n${seg}`
+        `${gloss}\n【错误类型】${it.type||''}\n\n【需修正段落】\n${seg}`,
+        {temperature: resolveActiveSpec().qcTemp}   // v10.8 质检温度
       )).trim());
     }catch(e){ rw = ''; }
     if(rw && rw.length > 8) out = applyPatches(out, [{anchor:it.anchor, rewritten:rw}]);
@@ -3681,7 +3702,13 @@ function buildChapterUser(i, opt={}){
   const titles = chapterTitleWindow(i);
   // 万物词典一致性基准（建议5）：全文服从，不得自造新名（v8 统一走 chapterGlossaryBlock）
   const gloss = chapterGlossaryBlock();
-  const head = `故事标题：${o.title}\n一句话梗概：${o.logline}\n章节：${titles}${gloss}`;
+  let head = `故事标题：${o.title}\n一句话梗概：${o.logline}\n章节：${titles}${gloss}`;
+  // v10.11 逐章方向梗概：有 chapterPlans[i] 时注入【本章创作方向】（方向锚点，非最终梗概；
+  // 命名避开"本章梗概"以防 AI 误以为已有梗概而不再产出回填）
+  const plan = (Array.isArray(o.chapterPlans) && o.chapterPlans[i]) ? String(o.chapterPlans[i]).trim() : '';
+  if(plan){
+    head += `\n\n【本章创作方向（方向锚点，非最终梗概）】\n${plan}\n按此方向写本章，细节自行展开、可合理微调。`;
+  }
   // 章节定位契约（v10·§4.4 统一编号）：明示当前要写第几章、紧接上一章之后
   const chap = state.chapters[i];
   const curN = i + 1;
@@ -3923,7 +3950,7 @@ async function genAllChapters(){
         state.chapters[i].content = txt;
         chState[i]='done';
       } else {
-        const txt = await callDeepSeek(PROMPTS.chapterSys + specSysAddition(), buildChapterUser(i));
+        const txt = await callDeepSeek(PROMPTS.chapterSys + specSysAddition() + '\n\n' + ORIGINALITY_CHAPTER_SYS, buildChapterUser(i), {temperature: resolveActiveSpec().chapterTemp});   // v10.8 章节温度 / v10.12 防套路
         snapshotChapterVersion(i);            // v7.2：覆盖前存旧版，支持回退
         state.chapters[i].content = txt; state.chapters[i].confirmed=false;
         chState[i]='done';
@@ -3956,7 +3983,7 @@ async function genOneChapterNoUI(i){
   try{
     const txt = isLong()
       ? await writeOneChapterContent(i, user)
-      : (await callDeepSeek(PROMPTS.chapterSys + specSysAddition(), user)).trim();
+      : (await callDeepSeek(PROMPTS.chapterSys + specSysAddition() + '\n\n' + ORIGINALITY_CHAPTER_SYS, user, {temperature: resolveActiveSpec().chapterTemp})).trim();   // v10.8 章节温度 / v10.12 防套路
     state.chapters[i].content = txt;
     persist();
   }catch(e){ /* 继续后续 */ }
@@ -4033,7 +4060,7 @@ async function genStoryboard(){
       const ch = state.chapters[i];
       const oc = (state.outline&&state.outline.chapters&&state.outline.chapters[i])||{};
       const content = ch.content||'';
-      const user = `【本章】第${i+1}章 ${ch.title||oc.title||''}\n本章概要：${ch.summary||''}\n本章正文：\n${content.slice(0,1500)}${content.length>1500?'…':''}\n\n${base}`;
+      const user = `【本章】第${i+1}章 ${ch.title||oc.title||''}\n本章创作方向：${(state.outline&&Array.isArray(state.outline.chapterPlans)&&state.outline.chapterPlans[i])||''}\n本章正文：\n${content.slice(0,1500)}${content.length>1500?'…':''}\n\n${base}`;
       try{
         const txt = await callDeepSeek(PROMPTS.storyboardSys, user);
         const j = parseJson(txt);
@@ -4254,6 +4281,10 @@ function openSettings(){
   selGroupId = editCfg.active ? editCfg.active.groupId : (editCfg.groups[0] && editCfg.groups[0].id);
   $('#settingsModal').classList.remove('hidden');
   $('#cfgTemp').value = (editCfg.temperature==null ? '' : editCfg.temperature);
+  $('#cfgTempOutline').value = (editCfg.outlineTemp==null ? '' : editCfg.outlineTemp);   // v10.8 分任务温度回显
+  $('#cfgTempPlan').value = (editCfg.planTemp==null ? '' : editCfg.planTemp);             // v10.11 梗概温度回显
+  $('#cfgTempChapter').value = (editCfg.chapterTemp==null ? '' : editCfg.chapterTemp);
+  $('#cfgTempQC').value = (editCfg.qcTemp==null ? '' : editCfg.qcTemp);
   const st = $('#cfgStatus'); if(st){ st.className='status'; st.textContent=''; }
   renderGroupsList(); renderGroupDetail(); renderActiveSelects(); updateCfgBadge();
 }
@@ -4407,8 +4438,12 @@ function renderActiveSelects(){
 
 function saveSettings(){
   if(!editCfg){ return; }
-  const t = parseFloat($('#cfgTemp').value);
-  editCfg.temperature = isNaN(t) ? 0.7 : t;
+  const rd = (id, def)=>{ const v=parseFloat($(id) && $(id).value); return isNaN(v)?def:v; };
+  editCfg.temperature = rd('#cfgTemp', 0.7);
+  editCfg.outlineTemp = rd('#cfgTempOutline', 0.7);   // v10.8 分任务温度保存（留空=建议值）
+  editCfg.planTemp    = rd('#cfgTempPlan', 0.4);      // v10.11 梗概温度
+  editCfg.chapterTemp = rd('#cfgTempChapter', 0.5);
+  editCfg.qcTemp      = rd('#cfgTempQC', 0.2);
   const selG=$('#c_selGroup'), selK=$('#c_selKey'), selM=$('#c_selModel');
   if(selG){
     const gId=selG.value || (editCfg.groups[0] && editCfg.groups[0].id);
@@ -4458,7 +4493,7 @@ function init(){
     const h = $('#histPanel'); if(h && !h.classList.contains('hidden') && !h.contains(e.target) && !e.target.closest('#btnHist')) closeHistPanel();
   });
   $$('[data-close]').forEach(b=> b.onclick = closeSettings);
-  $('#btnCfgSave').onclick = saveSettings;
+  $('#btnCfgSave').onclick = ()=>{ saveSettings(); closeSettings(); };   // v10.10 保存后自动关闭设置窗口（测试连接仍走 testConn，不关窗）
   $('#btnCfgTest').onclick = testConn;
   // 多 AI 模型控件
   const btnAddG = $('#btnAddGroup'); if(btnAddG) btnAddG.onclick = addGroup;

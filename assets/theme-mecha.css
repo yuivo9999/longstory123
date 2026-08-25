@@ -26,16 +26,13 @@
   --m-radius: 12px;
 }
 
-/* ---------- 全局背景（无 mecha-bg.jpg 时降级） ---------- */
+/* ---------- 全局背景（v10.7 钢灰还原：移除背景图与近黑压暗层，直接用原本钢灰令牌做渐变） ---------- */
 [data-theme="mecha"] body {
   color: var(--m-text);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  /* 第 1-2 层：若有 mecha-bg.jpg 则显示并压暗；无则自动跳过，由后面渐变兜底 */
   background:
-    linear-gradient(180deg, rgba(7,8,10,0.72) 0%, rgba(7,8,10,0.55) 50%, rgba(7,8,10,0.88) 100%),
-    url('img/skins/mecha-bg.jpg') center top / cover no-repeat fixed,
-    radial-gradient(ellipse at 50% 0%, rgba(245,176,65,0.06), transparent 50%),
-    linear-gradient(180deg, #0c0e12 0%, #07080a 40%, #07080a 100%);
+    radial-gradient(ellipse at 50% 0%, rgba(255,255,255,0.07), transparent 55%),
+    linear-gradient(180deg, var(--m-metal-1) 0%, var(--m-metal-2) 45%, var(--m-metal-3) 100%);
 }
 
 [data-theme="mecha"] #app { background: transparent; }

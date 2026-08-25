@@ -533,18 +533,6 @@ body.reader-lock{overflow:hidden}
 .gs-entry .gs-f>span{font-size:11px;color:var(--sub)}
 .gs-entry .gs-f input{min-height:36px;padding:6px 8px;font-size:13px;width:100%}
 
-/* v10.1 创作意图卡片：AI 提炼的用户硬性要求，可编辑/增删/清空 */
-.ui-card{margin-top:10px}
-.ui-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
-.ui-head h3{font-size:15px}
-.ui-tools{display:flex;gap:6px;flex-wrap:wrap}
-.ui-list{display:flex;flex-direction:column;gap:8px;margin-top:4px}
-.ui-item{display:flex;align-items:center;gap:8px}
-.ui-no{flex:0 0 auto;width:20px;height:20px;border-radius:50%;background:var(--accent);color:var(--panel2);font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center}
-.ui-input{flex:1 1 auto;min-height:36px;padding:6px 8px;font-size:13px}
-.ui-del{flex:0 0 auto;width:28px;height:28px;border-radius:8px;border:1px solid var(--line);background:var(--panel2);color:var(--muted);font-size:12px;cursor:pointer;line-height:1}
-.ui-del:hover{color:#e5534b;border-color:#e5534b}
-
 /* v10.2 原始构想只读卡：故事页最顶部，默认收缩，只读可复制 */
 .orig-card{margin-top:10px}
 .orig-head{display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;color:var(--sub);font-size:13px}
@@ -557,6 +545,16 @@ body.reader-lock{overflow:hidden}
 .orig-text:focus{outline:none;border-color:var(--accent)}
 .orig-actions{display:flex;align-items:center;gap:10px;margin-top:6px;flex-wrap:wrap}
 .orig-note{font-size:11px}
+
+/* v10.11 逐章方向梗概 */
+.cp-card{margin-top:10px}
+.cp-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.cp-tools{display:flex;gap:6px;flex-wrap:wrap}
+.cp-list{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.cp-item{display:flex;align-items:center;gap:8px}
+.cp-no{flex:0 0 auto;width:20px;height:20px;border-radius:50%;background:var(--accent2);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.cp-title{flex:0 0 auto;max-width:34%;font-size:12px;color:var(--sub);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cp-input{flex:1 1 auto;min-height:34px;padding:5px 8px;font-size:12px}
 
 /* v10.3 重生成干预历史 */
 .rp-hist{margin-top:10px;border-top:1px dashed var(--line);padding-top:8px}
