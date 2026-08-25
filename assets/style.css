@@ -533,46 +533,6 @@ body.reader-lock{overflow:hidden}
 .gs-entry .gs-f>span{font-size:11px;color:var(--sub)}
 .gs-entry .gs-f input{min-height:36px;padding:6px 8px;font-size:13px;width:100%}
 
-/* v10.1 创作意图卡片：AI 提炼的用户硬性要求，可编辑/增删/清空 */
-.ui-card{margin-top:10px}
-.ui-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
-.ui-head h3{font-size:15px}
-.ui-tools{display:flex;gap:6px;flex-wrap:wrap}
-.ui-list{display:flex;flex-direction:column;gap:8px;margin-top:4px}
-.ui-item{display:flex;align-items:center;gap:8px}
-.ui-no{flex:0 0 auto;width:20px;height:20px;border-radius:50%;background:var(--accent);color:var(--panel2);font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center}
-.ui-input{flex:1 1 auto;min-height:36px;padding:6px 8px;font-size:13px}
-.ui-del{flex:0 0 auto;width:28px;height:28px;border-radius:8px;border:1px solid var(--line);background:var(--panel2);color:var(--muted);font-size:12px;cursor:pointer;line-height:1}
-.ui-del:hover{color:#e5534b;border-color:#e5534b}
-
-/* v10.2 原始构想只读卡：故事页最顶部，默认收缩，只读可复制 */
-.orig-card{margin-top:10px}
-.orig-head{display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;color:var(--sub);font-size:13px}
-.orig-head:hover{color:var(--accent)}
-.orig-t{font-weight:700;color:var(--text)}
-.orig-fold{font-size:12px;transition:transform .15s}
-.orig-body{margin-top:8px}
-.orig-text{width:100%;min-height:96px;padding:8px 10px;font-size:13px;line-height:1.6;resize:vertical;
-  background:var(--panel2);border:1px solid var(--line);border-radius:8px;color:var(--text);cursor:text}
-.orig-text:focus{outline:none;border-color:var(--accent)}
-.orig-actions{display:flex;align-items:center;gap:10px;margin-top:6px;flex-wrap:wrap}
-.orig-note{font-size:11px}
-
-/* v10.3 重生成干预历史 */
-.rp-hist{margin-top:10px;border-top:1px dashed var(--line);padding-top:8px}
-.rp-hist-title{font-size:12px;font-weight:700;color:var(--sub);margin-bottom:6px}
-.rp-hist-item{display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;
-  background:var(--panel2);cursor:pointer;margin-bottom:4px}
-.rp-hist-item:hover{border-color:var(--accent)}
-.rp-hist-item.rp-fill-on{border-color:var(--accent);background:color-mix(in srgb, var(--accent) 10%, transparent)}
-.rp-hist-ts{flex:0 0 auto;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
-.rp-hist-txt{flex:1;font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
-
-/* v10.3 长篇结构设计栏折叠 */
-.sc-head{display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer;user-select:none}
-.sc-head:hover .sc-fold-ico{color:var(--accent)}
-.sc-fold-ico{font-size:12px;color:var(--muted);transition:transform .15s}
-
 /* 建议1+3：长篇章节卡片折叠 + 分页 */
 .ch-card{overflow:hidden}
 .ch-card .ch-head{display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;padding:2px 0;border-radius:8px}
@@ -585,7 +545,7 @@ body.reader-lock{overflow:hidden}
 
 /* 改动透明化：词典导出/导入工具条 + 影响范围选择卡（建议本版） */
 .gs-card-title{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
-.gs-tools{display:flex;flex-wrap:wrap;gap:6px;align-items:center;width:100%;margin-top:6px}
+.gs-tools{display:inline-flex;gap:6px;align-items:center}
 .gs-tools .gs-tool{margin:0;padding:4px 10px;font-size:12px;font-weight:500;border-radius:8px}
 .gs-tools .gs-tool:active{transform:scale(.97)}
 .gs-tools .gs-tool-on{color:var(--accent);border-color:var(--accent);background:color-mix(in srgb, var(--accent) 12%, transparent)}
@@ -703,7 +663,7 @@ body.reader-lock{overflow:hidden}
 .group-item.active{border-color:var(--accent);background:color-mix(in srgb, var(--accent) 12%, var(--panel2))}
 
 .gd-title{font-size:12px;font-weight:600;color:var(--sub);margin:12px 0 6px}
-.key-row{display:grid;grid-template-columns:88px 1fr auto auto auto;gap:6px;margin-bottom:6px;align-items:center}
+.key-row{display:grid;grid-template-columns:88px 1fr auto;gap:6px;margin-bottom:6px;align-items:center}
 .model-row{display:flex;align-items:center;gap:8px;padding:6px 2px;border-bottom:1px dashed var(--line)}
 .model-row .m-name{flex:1;min-width:0;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
