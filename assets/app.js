@@ -3687,8 +3687,8 @@ function buildChapterUser(i, opt={}){
   const curN = i + 1;
   let tail = `你现在要写第 ${curN} 章《${chap.title}》${i>0?`，紧接第 ${i} 章之后`:''}
 ${prev?('\n【前文衔接（上一章真实正文，用于承接，只增不改）】\n'+prev):'\n（这是第一章，暂无前文直接开头）'}`;
-  // 本章边界（恒定注入，覆盖单章/重生成/批量/多章全部路径）：紧扣本章标题，不提前展开后续章节标题描述的剧情
-  tail += `\n\n【本章边界】本章内容须紧扣本章标题展开、不得偏离；即使上下文中已列出后续章节标题，也不得提前展开或暗示后续章节标题所描述的剧情，后续情节一律留待对应章节再写。`;
+  // 本章边界（恒定注入，覆盖单章/重生成/批量/多章全部路径）：紧扣本章标题，不重复前面章节标题的剧情、不提前展开后续章节标题的剧情
+  tail += `\n\n【本章边界】本章内容须紧扣本章标题展开、不得偏离；不得把前面章节标题所描述的剧情写入本章（已发生的剧情不重复叙述），也不得提前展开或暗示后续章节标题所描述的剧情，后续情节一律留待对应章节再写。`;
   tail += longChapterContext(i);   // 章节定位（卷/阶段/整体结构）：单章与批量逐章统一注入，保持定位一致
   const nextHasContent = i < o.chapters.length-1 && state.chapters[i+1] && state.chapters[i+1].content && String(state.chapters[i+1].content).trim();
   if(opt.regenerating && nextHasContent){
