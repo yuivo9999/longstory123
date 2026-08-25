@@ -7,6 +7,7 @@
 'use strict';
 
 /* ---------- 全局状态 ---------- */
+const APP_VERSION = '1.0.7';   // 应用版本号（fixed7 基线）：index.html 的 ?v= 资源戳与之同步递增，用于标识产物已更新
 const KEY_CFG = 'fyp_cfg';
 const KEY_STATE = 'fyp_state';   // 旧版单项目 key（仅用于首次迁移）
 const KEY_LIB = 'fyp_lib';       // 新版多项目历史库
@@ -1659,29 +1660,8 @@ function outlineGlossaryInject(g){
 // v8 阶段3：本体词典块（章节正文共同复用）。取合并后的大纲词典，生成「严格服从」一致性基准。
 // v8b（建议1）：正文也全量带词典详情（人物关系/身份/外貌/爱好/性格、地点类型/说明、专名含义），
 // 不再做瘦身上限——详情对提高重生成的上下文一致性收益大于其微小 token 开销（约 +300~500 token/章）。
-// 追加规划·词典「内容」块：有序输出「故事梗概 → 逐章梗概 → 长篇结构设计」。
-// 供词典 UI「📄 内容」按钮展示，并注入 chapterGlossaryBlock 让 AI 用词典时读到全局大纲与结构。
-function storyContentBlock(){
-  const o = state.outline;
-  if(!o) return '';
-  const lines = [];
-  // 顺序：故事梗概（大纲）→ 长篇结构设计。先懂全书讲什么，再懂怎么组织。
-  // 注：不再含逐章梗概——大纲阶段只产出章节标题，正文与梗概在写正文阶段独立生成，
-  //    故此处不向 AI 提供任何逐章梗概，避免以梗概为蓝本扩写正文。
-  lines.push('【一、故事梗概】'+(o.logline||'（无）'));
-  const s = o.structure;
-  const hasChs = (o.chapters||[]).length > 0;
-  // 有 structure 或有章节时都展示结构设计（前者用真实结构，后者用 chapters 兜底生成）
-  if((s && typeof s==='object') || hasChs){
-    lines.push('【二、长篇结构设计】');
-    const block = structurePlanBlock(o);   // 统一结构块（主线→副/暗/汇合(若有)→全章节计划），与卡片/AI 注入一致
-    lines.push(block || '（无）');
-  }
-  return lines.join('\n');
-}
-
 // 统一「长篇结构设计」纯文本块。所有范式共用：主线 → 副线/暗线/汇合（有则带、无则空、不硬造）→ 全章节计划。
-// 被故事页卡片 / 词典「📄内容」区 / 注入 AI 的内容块共同消费，保证三处规则与数据完全一致。
+// 被逐章梗概生成（genChapterPlans）注入 AI 消费，保证生成上下文与全文结构一致。
 // 若缺 mainLine/chapterPlan，自动做最小兜底（与 genOutline 的兜底逻辑一致），保证始终有内容。
 function structurePlanBlock(o){
   if(!o || typeof o !== 'object') return '';
@@ -1778,7 +1758,7 @@ function chapterGlossaryBlock(){
   const o = state.outline;
   if(!o) return '';
   // v10.18 不再注入【内容】块（logline+长篇结构设计）——章节 AI 只收词典一致性基准；
-  // 结构定位改由 longChapterContext 以精简形式注入；storyContentBlock 保留给逐章梗概生成与📄面板。
+  // 结构定位改由 longChapterContext 以精简形式注入；逐章梗概生成改用 structurePlanBlockNoTitles 提供结构走向（不含标题清单，遵 v2.3）。
   let body = `\n\n【全局创作上下文（严格服从，禁止自造新名）】`;
   const g = (o && o.glossary) || {};
   if(sourceHasGlossary(g)){
@@ -2904,7 +2884,6 @@ function glossaryCardHtml(){
   const empty = !(g.characters&&g.characters.length) && !(g.places&&g.places.length) && !(g.propernouns&&g.propernouns.length);
   const hasBody = state.chapters.some(c=>c && c.content);   // 是否有正文可做覆盖面统计（阶段4）
   const tools = `<span class="gs-tools">
-    <button type="button" class="btn ghost gs-tool" data-gs-content>📄 内容</button>
     <button type="button" class="btn ghost gs-tool" data-gs-history>🕘 历史更改</button>
     <button type="button" class="btn ghost gs-tool" data-gs-check ${glossaryCheckCount()?'':'hidden'} title="人物 7 字段完整性：缺失/未知标出，建议补全">🔍 字段检查${glossaryCheckCount()?`<b class="gs-check-badge">${glossaryCheckCount()}</b>`:''}</button>
     <button type="button" class="btn ghost gs-tool" data-gs-coverage ${hasBody?'':'hidden'}>📊 覆盖面</button>
@@ -2948,7 +2927,6 @@ function glossaryCardHtml(){
     </div>
     <div class="gs-card-body"${collapsed?' style="display:none"':''}>
     <p class="sub">全文一致性基准：生成正文时一律使用以下人名/地名/专名，不得自造新名。生成章节时，人物身份/岁数/性别/外貌/爱好/关系/性格会<b>完整注入</b>章节 AI（字段留空则不注入）；自动提取的新人物会带全 7 项设定（推断不出填「未知」）。建议用「🔍 字段检查」确认人物字段齐全，避免 AI 信息不足写错。</p>
-    <div class="gs-panel" id="gsContent" hidden><div class="gs-panel-title">📄 内容 · 全局大纲与结构（只读参考；逐章梗概生成时提供给 AI，章节正文不再注入）</div><pre class="gs-pre">${esc(storyContentBlock()||'（暂无内容）')}</pre></div>
     <div class="gs-panel" id="gsHistory" hidden><div class="gs-panel-title">🕘 历史更改</div><div id="gsHistoryList"></div></div>
     <div class="gs-group" data-gs-type="char"><div class="gs-title">👤 人物（${g.characters.length}）</div>
       ${chars||'<span class="muted">（无）</span>'}</div>
@@ -3032,15 +3010,6 @@ function bindGlossary(){
   // 导入词典 JSON（项7）
   $$('[data-gs-import]').forEach(b=> b.onclick = ()=> { const f=$('#gsImportFile'); if(f) f.click(); });
   const imp = $('#gsImportFile'); if(imp) imp.onchange = e=>{ const file = e.target.files && e.target.files[0]; if(file) importGlossaryJson(file); e.target.value=''; };
-  // 追加规划·「内容」按钮：展开/收起全局大纲与结构只读块
-  $$('[data-gs-content]').forEach(b=> b.onclick = ()=>{
-    const panel = $('#gsContent');
-    if(!panel) return;
-    const show = panel.hidden;
-    panel.hidden = !show;
-    $$('.gs-panel').forEach(p=>{ if(p.id!=='gsContent') p.hidden = true; }); // 与历史互斥显示
-    if(show) b.classList.add('gs-tool-on'); else b.classList.remove('gs-tool-on');
-  });
   // 追加规划·「历史更改」按钮：展开/收起历史记录列表
   $$('[data-gs-history]').forEach(b=> b.onclick = ()=>{
     const panel = $('#gsHistory');
@@ -4682,7 +4651,7 @@ async function genChapterPlans(btn){
     if(!titles){ toast('尚无章节标题'); return; }
     const parts = [];
     parts.push(`小说标题：${o.title||''}\n一句话梗概：${o.logline||''}\n全部章节标题：${titles}`);
-    parts.push(storyContentBlock());
+    parts.push(structurePlanBlockNoTitles(o));   // 长篇结构设计（主线/副线/暗线/汇合，不含章节标题清单，避免与上方「全部章节标题」重复夹带，遵 v2.3）
     parts.push(chapterGlossaryBlock());
     const user = parts.join('\n\n') + '\n\n' + ORIGINALITY_OUTLINE_SYS;   // v10.12 防套路：方向防套路 + 人名规避（复用大纲侧）
     const txt = await callDeepSeek(CHAPTER_PLAN_SYS, user, {temperature: resolveActiveSpec().planTemp});
@@ -6014,6 +5983,7 @@ function buildFyp(project){
     kind: 'complete',
     exportedAt: new Date().toISOString(),
     app: 'storyfactory',
+    appVersion: APP_VERSION,   // 导出时的应用版本号，供对方工具识别本项目由哪一版生成
     book: project   // 完整项目快照（与 lib.items[i] 同结构）
   };
 }
