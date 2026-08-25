@@ -78,6 +78,40 @@ label.field>span{display:block;font-size:12px;color:var(--sub);margin-bottom:6px
 .kv:last-child{border-bottom:none}
 .kv .k{color:var(--sub);flex:0 0 84px}
 .kv .v{color:var(--txt);flex:1}
+/* P1-3 角色/场景/分镜卡内编辑控件 */
+.char-edit{width:100%;min-width:0;padding:4px 8px;font-size:13px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--text);font-family:inherit}
+.kv .char-edit{flex:1}
+.char-edit:focus,.shot-edit:focus,.scene-edit-name:focus,.scene-edit-role:focus,.scene-edit-desc:focus,.scene-edit-prompt:focus,.cover-edit:focus{border-color:var(--accent2);outline:none}
+.shot-edit{width:100%;min-width:0;padding:4px 8px;font-size:13px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--text);font-family:inherit}
+.prompt-text .shot-edit{margin-top:2px}
+.scene-edit-name,.scene-edit-role,.scene-edit-desc,.scene-edit-prompt,.cover-edit{padding:4px 8px;font-size:13px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--text);font-family:inherit}
+.scene-edit-desc,.scene-edit-prompt,.cover-edit{width:100%}
+/* P1-4/P2-2 质检记录弹窗 */
+.qc-issue{border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px;background:var(--panel2)}
+.qc-issue-t{font-size:13px;margin-bottom:6px}
+.qc-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+@media(max-width:560px){ .qc-pair{grid-template-columns:1fr} }
+.qc-side{border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.qc-side-t{font-size:11px;font-weight:700;color:var(--sub);padding:5px 8px;background:color-mix(in srgb,var(--panel2) 70%, transparent);border-bottom:1px solid var(--line)}
+.qc-pre{font-size:12px;line-height:1.6;padding:8px;max-height:180px;overflow-y:auto;white-space:pre-wrap;word-break:break-word;color:var(--text)}
+.qc-pre.qc-fixed{color:var(--ok)}
+/* P2-1 AI 请求日志弹窗 */
+.ailog-row{border:1px solid var(--line);border-radius:10px;margin-bottom:8px;overflow:hidden;background:var(--panel2)}
+.ailog-head{display:flex;align-items:center;gap:8px;padding:8px 10px;flex-wrap:wrap}
+.ailog-time{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;flex:0 0 auto}
+.ailog-task{font-size:12.5px;font-weight:600;flex:1;min-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ailog-meta{font-size:11.5px;color:var(--sub);flex:0 0 auto}
+.ailog-meta .ok{color:var(--ok)}
+.ailog-meta .err{color:var(--warn)}
+.ailog-body{padding:8px 10px;border-top:1px dashed var(--line);background:var(--panel)}
+.ailog-sec{font-size:12px;margin-bottom:6px}
+.ailog-sec b{color:var(--sub);font-size:11px}
+.ailog-sec .err{color:var(--warn)}
+.ailog-pre{font-size:11.5px;line-height:1.6;color:var(--text);background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:6px 8px;margin-top:2px;white-space:pre-wrap;word-break:break-word;max-height:120px;overflow-y:auto}
+/* P3-1 曾用名操作按钮 */
+.hist-ops{display:flex;gap:4px;flex:0 0 auto}
+.hist-op{width:24px;height:24px;border-radius:6px;border:1px solid var(--line);background:var(--panel2);color:var(--muted);font-size:12px;cursor:pointer;line-height:1}
+.hist-op:hover{color:var(--accent2);border-color:var(--accent2)}
 
 /* 分镜卡 */
 .shot{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px}
@@ -306,6 +340,9 @@ input.tw-in[data-first]::placeholder{color:color-mix(in srgb,var(--accent) 70%, 
 .sc-row{display:flex;gap:8px;padding:3px 0;font-size:13px;line-height:1.5}
 .sc-row b{flex:0 0 64px;color:var(--sub);font-weight:600}
 .sc-row span{flex:1;min-width:0;word-break:break-word;white-space:pre-wrap}
+.sc-edit-in{flex:1;min-width:0;padding:4px 8px;font-size:13px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--text)}
+.sc-edit-in:focus{border-color:var(--accent2);outline:none}
+.sc-add-sub{margin-top:6px}
 
 /* 长篇模式：导出页多选章节列表 */
 .exp-ch-list{display:flex;flex-direction:column;gap:8px}
@@ -754,3 +791,53 @@ textarea[readonly]{
   -webkit-touch-callout:none;
 }
 textarea[readonly]::selection{ background:color-mix(in srgb, var(--accent2) 45%, transparent); }
+
+/* =========================================================
+ * v2.0 写作风格选择器
+ * ========================================================= */
+.ws-card{border-left:3px solid var(--accent2);background:var(--panel2)}
+.ws-head{display:flex;align-items:center;gap:10px;cursor:pointer;padding:2px 0}
+.ws-head h3{font-size:14px;color:var(--accent2)}
+.ws-sum{flex:1;font-size:11.5px;color:var(--sub);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right}
+.ws-body{margin-top:10px}
+.ws-group{margin-bottom:10px}
+.ws-group-t{font-size:11.5px;font-weight:700;color:var(--sub);margin-bottom:6px;letter-spacing:.3px}
+.ws-chips{display:flex;flex-wrap:wrap;gap:6px}
+.ws-chip{display:inline-flex;align-items:center;padding:5px 11px;border-radius:20px;border:1px solid var(--line);background:var(--panel);color:var(--text);font-size:12.5px;cursor:pointer;transition:all .15s;font-family:inherit}
+.ws-chip:active{transform:scale(.96)}
+.ws-chip:hover{border-color:var(--accent2)}
+.ws-chip.on{background:var(--accent2);border-color:var(--accent2);color:#fff;font-weight:600}
+.ws-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:4px}
+.ws-int-row{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--sub)}
+.ws-int{padding:4px 12px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--text);font-size:12px;cursor:pointer;font-family:inherit}
+.ws-int.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+.ws-preset{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--sub)}
+.ws-preset select{padding:5px 8px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--text);font-size:12.5px;max-width:180px}
+/* 词库管理弹窗 */
+.ws-lib-group{margin-bottom:12px}
+.ws-lib-item{display:flex;flex-direction:column;gap:4px;border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-bottom:8px;background:var(--panel2)}
+.ws-lib-name{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600}
+.ws-changed{font-size:10px;color:var(--warn);background:rgba(245,185,66,.14);border:1px solid rgba(245,185,66,.45);padding:0 6px;border-radius:20px}
+.ws-custom{font-size:10px;color:var(--accent2);background:color-mix(in srgb,var(--accent2) 14%, transparent);border:1px solid color-mix(in srgb,var(--accent2) 45%, transparent);padding:0 6px;border-radius:20px}
+.ws-lib-note{width:100%;min-height:48px;padding:6px 8px;font-size:12.5px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--text);font-family:inherit}
+.ws-lib-note:focus{border-color:var(--accent2);outline:none}
+.ws-lib-add{border:1px dashed var(--line);border-radius:10px;padding:10px;margin-bottom:14px}
+.ws-add-row{display:flex;gap:8px;margin-bottom:6px}
+.ws-add-row select,.ws-add-row input{padding:6px 8px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--text);font-size:12.5px}
+.ws-add-row select{flex:0 0 auto}
+.ws-add-row input{flex:1;min-width:0}
+.ws-lib-add textarea{width:100%;min-height:48px;padding:6px 8px;font-size:12.5px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--text);font-family:inherit;margin-bottom:6px}
+/* 重生成弹窗 · 风格折叠区 */
+.rp-style{border:1px solid var(--line);border-radius:10px;margin-top:10px;overflow:hidden}
+.rp-style-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 12px;font-size:13px;font-weight:600;cursor:pointer;background:var(--panel2);user-select:none}
+.rp-style-head:hover{background:color-mix(in srgb, var(--accent) 8%, var(--panel2))}
+.rp-style-arrow{color:var(--muted);font-size:12px}
+.rp-style-body{padding:10px 12px;background:var(--panel)}
+.rp-radio-row{display:flex;align-items:center;gap:6px;font-size:12.5px;padding:3px 0;cursor:pointer}
+.rp-radio-row input{accent-color:var(--accent)}
+.rp-style-sub{margin-top:8px;border-top:1px dashed var(--line);padding-top:8px}
+.rp-style-label{font-size:11.5px;font-weight:700;color:var(--sub);margin:6px 0 4px}
+.rp-style .ws-chip{font-size:12px;padding:4px 9px}
+.rp-style .ws-int{padding:3px 10px;font-size:11.5px}
+/* 双风格对比弹窗 */
+.cmp-pre{max-height:46vh}

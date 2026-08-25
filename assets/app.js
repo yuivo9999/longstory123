@@ -36,8 +36,12 @@ const state = {
   stCollapsed: false,   // v10.3：长篇结构设计栏是否收缩（默认展开，点击标题收起）
   cpCollapsed: true,    // v10.14：逐章方向梗概卡是否收缩（默认折叠，点击标题展开）
   autoQC: false,        // 自动质检开关（默认关闭，v10.18）：生成后自动两段式查错修正；关则直接落库
-  chapters: [],         // [{title, content, confirmed}]
+  chapters: [],         // [{title, content, confirmed, editHistory:[], qcRecord:{}}]
   characters: [],       // [{name, role, profile:{...}, prompts:{...}}]
+  outlineHistory: [],   // 大纲版本历史（上限10）：[{outline, ts}] 覆盖前快照，支持预览/恢复
+  expSel: [],           // 长篇导出勾选的章节索引（随项目快照持久化，P3-4）
+  hist: { characters:[], scenes:[], cover:[], storyboard:[] },  // P1-3 角色/场景/封面/分镜覆盖前快照（各上限10）
+  chapterStyle: { tags: [], intensity: 2, collapsed: false },   // 写作风格（v2.0）：tags=风格id数组（语气至多1个），intensity=1轻/2中/3重
   scenes: [],           // [{name, 作用, description, prompt}]
   storyboard: [],       // [{镜号,章节,时长,景别,角度,运镜,主体,构图,光线,画面描述,对白,转场,出图提示词,连续性,剪辑动机}]
   boardConcepts: [],    // 每章一条 {视觉概念, 母题}（分镜生成时随章节返回）
@@ -243,6 +247,10 @@ function projectSnapshot(){
     autoQC: (typeof state.autoQC === 'boolean') ? state.autoQC : false,
     chapters: state.chapters,
     characters: state.characters,
+    outlineHistory: state.outlineHistory,
+    expSel: Array.isArray(state.expSel) ? state.expSel : [],
+    hist: state.hist || { characters:[], scenes:[], cover:[], storyboard:[] },
+    chapterStyle: state.chapterStyle || { tags: [], intensity: 2, collapsed: false },
     scenes: state.scenes,
     storyboard: state.storyboard,
     boardConcepts: state.boardConcepts,
@@ -279,6 +287,17 @@ function applyProject(p){
   state.autoQC = (typeof p.autoQC === 'boolean') ? p.autoQC : false;   // 自动质检默认关闭（v10.18）
   state.chapters = p.chapters || [];
   state.characters = p.characters || [];
+  state.outlineHistory = Array.isArray(p.outlineHistory) ? p.outlineHistory : [];
+  state.expSel = Array.isArray(p.expSel) ? p.expSel.filter(i=> Number.isInteger(i)) : [];
+  state.hist = (p.hist && typeof p.hist === 'object') ? {
+    characters: Array.isArray(p.hist.characters)?p.hist.characters:[],
+    scenes: Array.isArray(p.hist.scenes)?p.hist.scenes:[],
+    cover: Array.isArray(p.hist.cover)?p.hist.cover:[],
+    storyboard: Array.isArray(p.hist.storyboard)?p.hist.storyboard:[]
+  } : { characters:[], scenes:[], cover:[], storyboard:[] };
+  state.chapterStyle = (p.chapterStyle && typeof p.chapterStyle === 'object')
+    ? { tags: Array.isArray(p.chapterStyle.tags)?p.chapterStyle.tags:[], intensity: (p.chapterStyle.intensity===1||p.chapterStyle.intensity===3)?p.chapterStyle.intensity:2, collapsed: !!p.chapterStyle.collapsed }
+    : { tags: [], intensity: 2, collapsed: false };
   state.scenes = p.scenes || [];
   state.storyboard = p.storyboard || [];
   state.boardConcepts = p.boardConcepts || [];
@@ -295,6 +314,9 @@ function clearState(){
   state.pendingGlossary = null; state.glossAdherence = 60; state.glossAllowFill = false; state.glossAutoFill = true; state.gsCollapsed = true;
   state.autoQC = false;  // 自动质检默认关闭（v10.18）
   state.chapters = []; state.characters = []; state.scenes = []; state.storyboard = []; state.boardConcepts = []; state.titleHistory = []; state.raw = {};
+  state.outlineHistory = []; state.expSel = [];
+  state.hist = { characters:[], scenes:[], cover:[], storyboard:[] };
+  state.chapterStyle = { tags: [], intensity: 2, collapsed: false };
   currentStep = 1;
 }
 // 兼容旧版单一范式 → 三维 recipeSet
@@ -383,67 +405,148 @@ function persist(){
 // 来源唯一：仅使用 cfg.active 指向的 (组/账号/模型)，绝不并发多模型。
 // onStream(deltaText)：提供时开启流式（stream:true），每收到一段增量就回调用；不传则一次性返回全文。
 // 函数名沿用 callDeepSeek；内部为通用 OpenAI 兼容协议，非 DeepSeek 型号也照常调用。
+
+/* ---------- P2-1 AI 请求/响应日志（最近50条，只存本机，可一键清空） ---------- */
+const KEY_AILOG = 'fyp_ailog';
+let aiLog = [];   // [{ts, task, temp, sys, user, resp, ms, ok, err}]
+(function loadAiLog(){ try{ aiLog = JSON.parse(localStorage.getItem(KEY_AILOG)) || []; }catch(e){ aiLog = []; } })();
+function aiLogPush(rec){
+  aiLog.push(rec);
+  if(aiLog.length > 50) aiLog.splice(0, aiLog.length - 50);
+  try{ localStorage.setItem(KEY_AILOG, JSON.stringify(aiLog)); }catch(e){ /* 存储满则仅内存保留 */ }
+}
+function aiLogClear(){ aiLog = []; try{ localStorage.removeItem(KEY_AILOG); }catch(e){} }
+// 请求日志弹窗：列表（时间/任务/温度/耗时/成败）+ 展开看 prompt/响应前500字 + 一键清空
+function openAiLogPanel(){
+  closeAiLogPanel();
+  const fmtTs = ts=>{ const d=new Date(ts); return (d.getMonth()+1)+'-'+d.getDate()+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')+':'+String(d.getSeconds()).padStart(2,'0'); };
+  const rows = aiLog.length ? [...aiLog].reverse().map((r,ri)=>{
+    const task = String(r.task||'').slice(0,40);
+    return `<div class="ailog-row">
+      <div class="ailog-head">
+        <span class="ailog-time">${fmtTs(r.ts)}</span>
+        <span class="ailog-task">${esc(task||'（无任务名）')}</span>
+        <span class="ailog-meta">${r.temp!=null?('🌡 '+r.temp):''} · ${r.ms!=null?(r.ms+'ms'):''} · <b class="${r.ok?'ok':'err'}">${r.ok?'✓':'✗'}</b></span>
+        <button type="button" class="btn small ghost" data-ailog-toggle="${ri}">展开</button>
+      </div>
+      <div class="ailog-body hidden" data-ailog-body="${ri}">
+        ${r.err?`<div class="ailog-sec"><b>错误：</b><span class="err">${esc(r.err)}</span></div>`:''}
+        <div class="ailog-sec"><b>System（前500字）：</b><div class="ailog-pre">${esc(String(r.sys||''))}</div></div>
+        <div class="ailog-sec"><b>User（前500字）：</b><div class="ailog-pre">${esc(String(r.user||''))}</div></div>
+        <div class="ailog-sec"><b>响应（前500字）：</b><div class="ailog-pre">${esc(String(r.resp||''))}</div></div>
+      </div>
+    </div>`;
+  }).join('') : '<p class="muted">暂无请求记录。每次调用 AI 都会记录（最近 50 条，仅存本机）。</p>';
+  const ov = document.createElement('div'); ov.id='ailogPanel'; ov.className='gs-overlay';
+  ov.innerHTML = `
+    <div class="gs-modal">
+      <div class="gs-modal-head"><b>🗒️ AI 请求日志（${aiLog.length}/50）</b>
+        <span style="display:flex;gap:6px">
+          <button class="btn small ghost" data-ailog-clear>🗑 清空</button>
+          <button class="gs-x" data-ailog-close>✕</button>
+        </span></div>
+      <div class="cv-body">
+        <div class="cv-div">排查「AI 为什么写偏/漏设定」、复现 bug 的唯一证据；只存本机，可一键清空。</div>
+        ${rows}
+      </div>
+    </div>`;
+  document.body.appendChild(ov);
+  ov.querySelector('[data-ailog-close]').onclick = closeAiLogPanel;
+  ov.addEventListener('click', e=>{ if(e.target===ov) closeAiLogPanel(); });
+  ov.addEventListener('click', e=>{
+    const b = e.target.closest('[data-ailog-toggle]'); if(!b) return;
+    const body = ov.querySelector('[data-ailog-body="'+b.dataset.ailogToggle+'"]');
+    if(body) body.classList.toggle('hidden');
+  });
+  ov.querySelector('[data-ailog-clear]').onclick = ()=>{
+    if(!window.confirm('清空全部 AI 请求日志？')) return;
+    aiLogClear(); closeAiLogPanel(); toast('请求日志已清空');
+  };
+}
+function closeAiLogPanel(){ const p=$('#ailogPanel'); if(p) p.remove(); }
+
 async function callDeepSeek(system, user, {temperature=null, signal=null, maxTokens=null, onStream=null}={}){
-  const s = resolveActiveSpec();
-  if(!s.apiKey) throw new Error('请先在 ⚙️ 配置并选择要使用的 AI 账号（API Key）');
-  const url = s.baseUrl + '/chat/completions';
-  const streaming = typeof onStream === 'function';
-  const body = {
-    model: s.model,
-    messages: [{role:'system', content: system}, {role:'user', content: user}],
-    temperature: (temperature==null ? s.temperature : temperature),
-    stream: streaming
+  const _t0 = Date.now();
+  // P2-1 记录基础信息（task 用 system 前 24 字近似任务名；具体字段在成功/失败收尾时补全）
+  const _rec = {
+    ts: _t0,
+    task: String(system||'').replace(/\s+/g,' ').slice(0,24),
+    temp: (temperature==null ? null : temperature),
+    sys: String(system||'').slice(0,500),
+    user: String(user||'').slice(0,500),
+    resp: '', ms: null, ok: false, err: ''
   };
-  // 缓存友好：请求的前缀（system + user 恒定首部）在全书各章保持不变，
-  // DeepSeek 自动命中上下文缓存，命中价远低于未命中价；可变信息一律放 user 最末。
-  if(maxTokens && maxTokens>0) body.max_tokens = maxTokens;
-  let res;
   try{
-    res = await fetch(url, {
-      method:'POST',
-      headers:{'Content-Type':'application/json','Authorization':'Bearer '+s.apiKey},
-      body: JSON.stringify(body),
-      signal
-    });
-  }catch(e){
-    throw new Error('网络/跨域失败：' + e.message + '。若被拦截，可在设置里填一个代理地址。');
-  }
-  if(!res.ok){
-    let msg = '请求失败 ('+res.status+')';
-    try{ const j = await res.json(); if(j.error && j.error.message) msg = j.error.message; }catch(e){}
-    throw new Error(msg);
-  }
-  if(!streaming){
-    const data = await res.json();
-    return (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
-  }
-  // 流式：解析 SSE（data: {...}），把 delta content 逐段回传给 onStream，最后返回完整拼接文本
-  const reader = res.body && res.body.getReader ? res.body.getReader() : null;
-  if(!reader) throw new Error('当前浏览器不支持流式响应');
-  const decoder = new TextDecoder();
-  let buf = '', full = '';
-  const feed = (chunk)=>{
-    buf += chunk;
-    let nl;
-    while((nl = buf.indexOf('\n')) >= 0){
-      const line = buf.slice(0, nl).trim();
-      buf = buf.slice(nl + 1);
-      if(!line || !line.startsWith('data:')) continue;
-      const payload = line.slice(5).trim();
-      if(payload === '[DONE]') continue;
-      let j;
-      try{ j = JSON.parse(payload); }catch(e){ continue; }
-      const delta = (j.choices && j.choices[0] && j.choices[0].delta && j.choices[0].delta.content) || '';
-      if(delta){ full += delta; onStream(delta); }
+    const s = resolveActiveSpec();
+    if(!s.apiKey) throw new Error('请先在 ⚙️ 配置并选择要使用的 AI 账号（API Key）');
+    const url = s.baseUrl + '/chat/completions';
+    const streaming = typeof onStream === 'function';
+    const body = {
+      model: s.model,
+      messages: [{role:'system', content: system}, {role:'user', content: user}],
+      temperature: (temperature==null ? s.temperature : temperature),
+      stream: streaming
+    };
+    // 缓存友好：请求的前缀（system + user 恒定首部）在全书各章保持不变，
+    // DeepSeek 自动命中上下文缓存，命中价远低于未命中价；可变信息一律放 user 最末。
+    if(maxTokens && maxTokens>0) body.max_tokens = maxTokens;
+    let res;
+    try{
+      res = await fetch(url, {
+        method:'POST',
+        headers:{'Content-Type':'application/json','Authorization':'Bearer '+s.apiKey},
+        body: JSON.stringify(body),
+        signal
+      });
+    }catch(e){
+      throw new Error('网络/跨域失败：' + e.message + '。若被拦截，可在设置里填一个代理地址。');
     }
-  };
-  while(true){
-    const {done, value} = await reader.read();
-    if(done) break;
-    feed(decoder.decode(value, {stream:true}));
+    if(!res.ok){
+      let msg = '请求失败 ('+res.status+')';
+      try{ const j = await res.json(); if(j.error && j.error.message) msg = j.error.message; }catch(e){}
+      throw new Error(msg);
+    }
+    if(!streaming){
+      const data = await res.json();
+      const out = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
+      _rec.resp = String(out).slice(0,500); _rec.ms = Date.now()-_t0; _rec.ok = true;
+      aiLogPush(_rec);
+      return out;
+    }
+    // 流式：解析 SSE（data: {...}），把 delta content 逐段回传给 onStream，最后返回完整拼接文本
+    const reader = res.body && res.body.getReader ? res.body.getReader() : null;
+    if(!reader) throw new Error('当前浏览器不支持流式响应');
+    const decoder = new TextDecoder();
+    let buf = '', full = '';
+    const feed = (chunk)=>{
+      buf += chunk;
+      let nl;
+      while((nl = buf.indexOf('\n')) >= 0){
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if(!line || !line.startsWith('data:')) continue;
+        const payload = line.slice(5).trim();
+        if(payload === '[DONE]') continue;
+        let j;
+        try{ j = JSON.parse(payload); }catch(e){ continue; }
+        const delta = (j.choices && j.choices[0] && j.choices[0].delta && j.choices[0].delta.content) || '';
+        if(delta){ full += delta; onStream(delta); }
+      }
+    };
+    while(true){
+      const {done, value} = await reader.read();
+      if(done) break;
+      feed(decoder.decode(value, {stream:true}));
+    }
+    feed(decoder.decode());
+    _rec.resp = String(full).slice(0,500); _rec.ms = Date.now()-_t0; _rec.ok = true;
+    aiLogPush(_rec);
+    return full;
+  }catch(e){
+    _rec.ms = Date.now()-_t0; _rec.ok = false; _rec.err = String(e.message||e).slice(0,200);
+    aiLogPush(_rec);
+    throw e;
   }
-  feed(decoder.decode());
-  return full;
 }
 
 /* 容错 JSON 解析：去代码围栏、抽取首尾 {} 或 [] */
@@ -676,6 +779,24 @@ function bindPolishIdea(){
     if(ta && ta.value.trim()) copyText(ta.value);
     else toast('优化区为空');
   };
+  // P3-2 保存此版为方案：把当前 textarea 内容存为新方案（原方案保留），刷新 Tab 并激活
+  const save = $('#btnPolishSave');
+  if(save) save.onclick = ()=>{
+    const ta = $('#polishText');
+    if(!ta || !ta.value.trim()){ toast('优化区为空'); return; }
+    if(!Array.isArray(state.polishOptions)) state.polishOptions = [];
+    const LETTERS = ['A','B','C','D','E'];
+    const name = '方案'+(LETTERS[state.polishOptions.length]||(state.polishOptions.length+1))+' · 手动保存';
+    state.polishOptions.push({ name, text: ta.value });
+    state.polishAdopted = null;
+    persist();
+    const tabs = $('#polishTabs'), adv = $('#polishAdvice');
+    renderPolishTabs(tabs, ta, adv, '');
+    // 激活最后新增的方案 Tab
+    const tabsArr = tabs ? [...tabs.querySelectorAll('.pol-tab')] : [];
+    if(tabsArr.length){ tabsArr.forEach(x=>x.classList.remove('active')); tabsArr[tabsArr.length-1].classList.add('active'); }
+    toast('已保存为新方案：'+name);
+  };
   // v10.16 采用此方案：更新构想 + 记录采用名 + persist + render（方案保留，提示条更新）
   const use = $('#btnPolishUse');
   if(use) use.onclick = ()=>{
@@ -902,6 +1023,75 @@ const TITLE_STYLES = [
     note:'章节标题须字数工整：全书每章标题字数统一（建议 4-6 字，可对仗），整体整齐有节奏感。' }
 ];
 const TITLE_STYLE_IDS = TITLE_STYLES.map(s=> s.id);
+
+/* =========================================================
+ * v2.0 写作风格（语气/用词）选择器：内置词库 22 项 + 用户自定义合并
+ * 组别：tone 语气基调（单选） / texture 文风质感（多选） / element 语言元素（多选）
+ * 只注入「章节正文」生成（长篇 buildChapterSys / 短片两处调用），不碰大纲/标题/梗概/词典。
+ * 每项 note 为可执行 AI 指令；注入时统一附加一致性红线。
+ * ========================================================= */
+const WRITE_STYLES = [
+  // ① 语气基调（单选）
+  { id:'humor',   group:'tone',    name:'诙谐幽默', note:'用俏皮话、反差、自嘲制造笑意；比喻俏皮但不低俗；人物吐槽有梗但符合人设与场合。' },
+  { id:'solemn',  group:'tone',    name:'严肃',     note:'语气庄重克制，不插科打诨；用词正式，叙述沉稳有分量。' },
+  { id:'straight',group:'tone',    name:'正经',     note:'一本正经地叙述，叙事严谨规整，对话符合身份与场合，不浮夸、不油滑。' },
+  { id:'cold',    group:'tone',    name:'冷峻克制', note:'惜字如金，情绪不外露；用客观白描代替抒情，把余味留给读者。' },
+  { id:'warm',    group:'tone',    name:'温情细腻', note:'侧重人物内心与关系温度，细节柔软，对话温和有生活气。' },
+  { id:'passion', group:'tone',    name:'热血燃向', note:'节奏上扬、情绪饱满；多用短促有力的表达与动作冲击，读来有燃点。' },
+  { id:'suspense',group:'tone',    name:'悬疑紧张', note:'制造信息差与压迫感，句尾留悬念；描写偏紧绷，意象偏暗。' },
+  { id:'teasing', group:'tone',    name:'戏谑吐槽', note:'毒舌但不刻薄，冷幽默旁观者视角，善于拆台与自嘲。' },
+  // ② 文风质感（多选）
+  { id:'rigorous',group:'texture', name:'严谨',     note:'逻辑链条清晰、前后呼应，用词精准，少用模糊修辞，有考据感。' },
+  { id:'ornate',  group:'texture', name:'华丽辞藻', note:'大量使用排比、对仗、通感与四字词，画面浓墨重彩，句子密度高。' },
+  { id:'poetry',  group:'texture', name:'古诗词化用', note:'恰当化用或点化古诗词意境（不整段抄袭），以诗句意象托物言志、烘托氛围。' },
+  { id:'classic', group:'texture', name:'古文笔法', note:'文白相间，善用文言虚词、四六骈句与典故，笔致典雅有书卷气（中国古代文人笔意）。' },
+  { id:'modern',  group:'texture', name:'现代文学笔法', note:'白话而讲究语感，长短句错落、意象现代，重视心理描写与留白（中国现代文人笔意）。' },
+  { id:'plain',   group:'texture', name:'白话口语', note:'平实如说话，短句为主，对话贴近生活原声，少书面腔。' },
+  { id:'implicit',group:'texture', name:'含蓄留白', note:'点到为止、以景结情；情绪不直接说破，用细节与侧面暗示。' },
+  { id:'aphorism',group:'texture', name:'金句频出', note:'每章至少 1-2 句可摘抄的警句/金句（哲理、扎心或诗意皆可），自然嵌入、不硬造。' },
+  // ③ 语言元素（多选）
+  { id:'memes',   group:'element', name:'网络梗',   note:'适度使用广为人知的网络热梗/流行语，不生造梗，每章不超过 3 处，人物用时符合年龄与场合。' },
+  { id:'idiom',   group:'element', name:'成语典故', note:'多用成语、熟语与历史典故，信手拈来但不过度堆砌。' },
+  { id:'cinematic',group:'element',name:'电影感画面', note:'以镜头语言写场景：景别/光线/运镜/构图式的描写，画面有质感、可"脑内放映"。' },
+  { id:'shortbeat',group:'element',name:'短句快节奏', note:'句子短、段落碎、信息密度高、推进快，适合强情节段落。' },
+  { id:'longflow',group:'element', name:'长句绵密', note:'用长句铺陈氛围与心理，从句叠加以形成绵密节奏（句读清晰、不绕晕）。' },
+  { id:'dialect', group:'element', name:'方言俚语', note:'关键角色可用方言/俚语点缀地域感与人味，保证读者能懂，不滥用。' }
+];
+const WRITE_GROUP_LABEL = { tone:'① 语气基调（单选）', texture:'② 文风质感（可多选）', element:'③ 语言元素（可多选）' };
+
+// 运行时词库 = 内置 22 项（note 可被 cfg.styleCustom.notes 覆盖、可被 removed 删除）⊕ 用户新增
+function writeStyleLib(){
+  const c = getCfg().styleCustom || {};
+  const notes = (c && c.notes) || {};
+  const removed = Array.isArray(c && c.removed) ? c.removed : [];
+  const added = Array.isArray(c && c.added) ? c.added : [];
+  const base = WRITE_STYLES.filter(s=> !removed.includes(s.id)).map(s=>({ ...s, note: notes[s.id] || s.note }));
+  const customs = added.map(a=>({ id:a.id, group:a.group, name:a.name||'未命名', note:a.note||'', custom:true }));
+  return base.concat(customs);
+}
+function writeStyleById(id){
+  return writeStyleLib().find(s=> s.id === id) || null;
+}
+// 当前生效的写作风格配置：override 优先（单章覆盖/对比用），缺省用 state.chapterStyle
+function curWriteStyle(override){
+  if(override && Array.isArray(override.tags)) return { tags: override.tags, intensity: (override.intensity===1||override.intensity===3)?override.intensity:2 };
+  const s = state.chapterStyle || {};
+  return { tags: Array.isArray(s.tags)?s.tags:[], intensity: (s.intensity===1||s.intensity===3)?s.intensity:2 };
+}
+// 生成注入块：按浓度前缀 + 各项 note 拼接；tags 为空返回空串（等价"无风格"）
+function chapterStyleNote(override){
+  const st = curWriteStyle(override);
+  if(!st.tags.length) return '';
+  const INT_TXT = { 1:'适度点缀（约三成篇幅体现即可，点到为止）', 2:'明显贯彻（全文章节按此浓度执行）', 3:'极致统一（几乎每段都要体现，风格贯穿全章）' };
+  const lines = ['【写作风格（用户指定，必须遵守）】', '浓度：' + (INT_TXT[st.intensity]||INT_TXT[2])];
+  const lib = writeStyleLib();
+  st.tags.forEach(id=>{
+    const s = lib.find(x=>x.id===id);
+    if(s) lines.push('· '+s.name+'：'+(s.note||''));
+  });
+  lines.push('红线：以上风格仅约束表达方式，不得破坏人名/地名/专名一致性，不得违反前述原创性要求。');
+  return '\n\n' + lines.join('\n');
+}
 
 // 当前所选
 function selStructure(){ return state.recipeSet && STRUCTURES.find(s=> s.id === state.recipeSet.structure) || null; }
@@ -1634,19 +1824,21 @@ function bindSizeHint(){
   });
 }
 // 拼装：章节提示词 =（结构章节 × 节奏 × 体量）
-function buildChapterSys(){
+function buildChapterSys(styleOverride){
   const st = selStructure(), rh = selRhythm();
   const parts = [];
   parts.push(st ? st.chapterSys : PROMPTS.longChapterSys);
   if(rh && rh.chapterNote) parts.push('\n【节奏风格 · '+rh.name+'】\n'+rh.chapterNote);
   parts.push('\n【篇幅体量】\n'+sizeChapterInjection());
   parts.push('\n\n'+ORIGINALITY_CHAPTER_SYS);   // v10.12 原创性要求（防雷同）· 章节侧，单章/批量/重生成统一生效
+  const styleNote = chapterStyleNote(styleOverride);   // v2.0 写作风格注入（override=单章覆盖/对比用）
+  if(styleNote) parts.push(styleNote);
   return parts.join('\n\n');
 }
 // 兼容旧调用入口
 function longRecipe(){ return selStructure() || STRUCTURES[0]; }
 function longOutlineSys(){ return buildOutlineSys(); }
-function longChapterSys(){ return buildChapterSys(); }
+function longChapterSys(styleOverride){ return buildChapterSys(styleOverride); }
 
 function fullStoryText(){
   return state.chapters.map(c => `【${c.title}】\n${c.content}`).join('\n\n');
@@ -1769,8 +1961,12 @@ function renameTitle(newName){
 function titleManagerHtml(){
   let histRows;
   if(state.titleHistory && state.titleHistory.length){
-    histRows = state.titleHistory.map(h=>
-      `<div class="hist-row"><span class="hist-name">${esc(h.name)}</span><span class="hist-date">${esc(h.date)}</span></div>`
+    histRows = state.titleHistory.map((h,idx)=>
+      `<div class="hist-row"><span class="hist-name">${esc(h.name)}</span><span class="hist-date">${esc(h.date)}</span>
+        <span class="hist-ops">
+          <button type="button" class="icon-btn hist-op" data-hist-restore="${esc(h.name)}" title="恢复为此名">↩</button>
+          <button type="button" class="icon-btn hist-op" data-hist-del="${idx}" title="删除该记录">🗑</button>
+        </span></div>`
     ).join('');
   }else{
     histRows = `<div class="hist-empty">暂无曾用名</div>`;
@@ -1818,6 +2014,221 @@ function recipeSummaryBar(){
   </div>`;
 }
 
+/* =========================================================
+ * v2.0 写作风格选择器：主卡片 + 预设 + 收藏 + 词库管理
+ * ========================================================= */
+const WRITE_PRESETS = [
+  { id:'clear',          name:'🧹 默认（无风格）', tags:[], intensity:2 },
+  { id:'preset-humor',   name:'😂 网感轻喜',  tags:['humor','memes','plain'], intensity:2 },
+  { id:'preset-art',     name:'🌸 文艺唯美',  tags:['ornate','poetry','implicit'], intensity:2 },
+  { id:'preset-classic', name:'🏛️ 古典正剧',  tags:['solemn','classic','idiom'], intensity:3 },
+  { id:'preset-modern',  name:'📖 现代文学',  tags:['modern','aphorism','cold'], intensity:2 },
+  { id:'preset-passion', name:'🔥 热血燃向',  tags:['passion','shortbeat'], intensity:3 }
+];
+function writeStyleState(){ return state.chapterStyle = state.chapterStyle || { tags:[], intensity:2, collapsed:false }; }
+// 通用 chips / 浓度段选渲染（主卡片与重生成弹窗复用；dataPrefix 区分绑定域）
+function writeStyleChipsHtml(sel, dataPrefix){
+  const lib = writeStyleLib();
+  return ['tone','texture','element'].map(g=>`
+    <div class="ws-group">
+      <div class="ws-group-t">${WRITE_GROUP_LABEL[g]}</div>
+      <div class="ws-chips">${lib.filter(s=>s.group===g).map(s=>`
+        <button type="button" class="ws-chip ${sel.tags.includes(s.id)?'on':''}" data-${dataPrefix}-tag="${s.id}" title="${esc(s.note)}">${esc(s.name)}</button>`).join('')}
+      </div>
+    </div>`).join('');
+}
+function writeStyleIntHtml(sel, dataPrefix){
+  return [1,2,3].map(v=>`<button type="button" class="ws-int ${sel.intensity===v?'on':''}" data-${dataPrefix}-int="${v}">${['轻','中','重'][v-1]}</button>`).join('');
+}
+// 风格 chip 切换公共逻辑：tone 单选互斥 / 质感元素多选
+function toggleWriteTag(sel, id){
+  const s = writeStyleById(id); if(!s) return;
+  if(s.group === 'tone'){
+    sel.tags = sel.tags.filter(x=>{ const o=writeStyleById(x); return o && o.group!=='tone'; });
+    if(!sel.tags.includes(id)) sel.tags.push(id);
+  } else {
+    if(sel.tags.includes(id)) sel.tags = sel.tags.filter(x=>x!==id);
+    else sel.tags.push(id);
+  }
+}
+function writePresetOptions(){
+  const sys = WRITE_PRESETS.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
+  const cfg = getCfg();
+  const mine = (Array.isArray(cfg.stylePresets)?cfg.stylePresets:[]).map(p=>`<option value="u:${p.id}">⭐ ${esc(p.name||'未命名')}</option>`).join('');
+  return sys + (mine ? `<optgroup label="⭐ 我的收藏">${mine}</optgroup>` : '');
+}
+// 主卡片
+function writeStyleCard(){
+  const st = writeStyleState();
+  const intTxt = ['','轻','中','重'][st.intensity] || '中';
+  const selName = st.tags.map(id=>{ const s=writeStyleById(id); return s?s.name:id; }).join(' + ') || '无';
+  return `<div class="card ws-card${st.collapsed?' ws-collapsed':''}">
+    <div class="ws-head" data-ws-fold role="button" tabindex="0" title="展开/收起">
+      <h3 style="margin:0">✍️ 写作风格</h3>
+      <span class="ws-sum">${intTxt}浓度 · ${st.tags.length} 项 · ${esc(selName)}</span>
+      <span class="sc-fold-ico">${st.collapsed?'▸':'▾'}</span>
+    </div>
+    <div class="ws-body"${st.collapsed?' hidden':''}>
+      ${writeStyleChipsHtml(st, 'ws')}
+      <div class="ws-tools">
+        <span class="ws-int-row">浓度：${writeStyleIntHtml(st, 'ws')}</span>
+        <label class="ws-preset"><span>预设</span>
+          <select id="wsPreset"><option value="">— 选择预设 —</option>${writePresetOptions()}</select>
+        </label>
+        <button type="button" class="btn small ghost" data-ws-save title="把当前组合保存为收藏预设（跨作品可用）">💾 收藏当前</button>
+        <button type="button" class="btn small ghost" data-ws-lib title="编辑风格词库与我的收藏">⚙️ 管理</button>
+        <button type="button" class="btn small ghost" data-ws-clear>✕ 清空</button>
+      </div>
+      <p class="muted" style="margin:6px 0 0;font-size:11px">作用于章节正文生成（单章/批量/重生成全部生效）；大纲/标题/梗概不受影响。点选即存，无需额外保存。</p>
+    </div>
+  </div>`;
+}
+function bindWriteStyle(){
+  const st = writeStyleState();
+  const head = $('[data-ws-fold]');
+  if(head) head.onclick = ()=>{
+    st.collapsed = !st.collapsed; persist();
+    const body = $('.ws-body'); if(body) body.hidden = st.collapsed;
+    const ico = head.querySelector('.sc-fold-ico'); if(ico) ico.textContent = st.collapsed?'▸':'▾';
+  };
+  $$('[data-ws-tag]').forEach(b=> b.onclick = ()=>{
+    const id = b.dataset.wsTag;
+    toggleWriteTag(st, id);
+    persist(); render();
+  });
+  $$('[data-ws-int]').forEach(b=> b.onclick = ()=>{ st.intensity = +b.dataset.wsInt; persist(); render(); });
+  const sel = $('#wsPreset');
+  if(sel) sel.onchange = ()=>{ const v = sel.value; if(!v) return; applyWritePreset(v); sel.value=''; };
+  const sv = $('[data-ws-save]');
+  if(sv) sv.onclick = ()=>{
+    if(!st.tags.length){ toast('当前无风格，无需收藏'); return; }
+    const cfg = getCfg(); if(!Array.isArray(cfg.stylePresets)) cfg.stylePresets = [];
+    const name = prompt('给这个风格组合起个名字：', '我的风格'+(cfg.stylePresets.length+1));
+    if(!name || !name.trim()) return;
+    cfg.stylePresets.push({ id:'sp'+Date.now().toString(36), name:name.trim(), tags:st.tags.slice(), intensity:st.intensity });
+    saveCfg(cfg); render();
+    toast('已收藏：'+name.trim());
+  };
+  const lb = $('[data-ws-lib]');
+  if(lb) lb.onclick = ()=> openStyleLibPanel();
+  const cl = $('[data-ws-clear]');
+  if(cl) cl.onclick = ()=>{ st.tags=[]; st.intensity=2; persist(); render(); toast('已清空写作风格'); };
+}
+// 应用预设（v='clear' / 'preset-*' / 'u:收藏id'）
+function applyWritePreset(v){
+  const st = writeStyleState();
+  if(v === 'clear'){ st.tags=[]; st.intensity=2; }
+  else if(v.indexOf('u:')===0){
+    const cfg = getCfg();
+    const p = (Array.isArray(cfg.stylePresets)?cfg.stylePresets:[]).find(x=>x.id===v.slice(2));
+    if(p){ st.tags = (p.tags||[]).slice(); st.intensity = p.intensity||2; }
+  } else {
+    const p = WRITE_PRESETS.find(x=>x.id===v);
+    if(p){ st.tags = p.tags.slice(); st.intensity = p.intensity; }
+  }
+  persist(); render();
+}
+// 词库管理弹窗：系统项 note 可改 / 自定义项可增删改 / 收藏可删 / 恢复默认
+function openStyleLibPanel(){
+  closeStyleLibPanel();
+  const cfg = getCfg();
+  if(!cfg.styleCustom) cfg.styleCustom = { notes:{}, added:[], removed:[] };
+  const lib = writeStyleLib();
+  const groups = ['tone','texture','element'];
+  const notes = cfg.styleCustom.notes || {};
+  const groupHtml = groups.map(g=>`
+    <div class="ws-lib-group">
+      <div class="ws-group-t">${WRITE_GROUP_LABEL[g]}</div>
+      ${lib.filter(s=>s.group===g).map(s=>`
+        <div class="ws-lib-item">
+          <div class="ws-lib-name">${esc(s.name)}${notes[s.id]?'<span class="ws-changed">已改</span>':''}${s.custom?'<span class="ws-custom">自定义</span>':''}</div>
+          <textarea class="ws-lib-note" data-lib-note="${s.id}" rows="2" maxlength="200" placeholder="指令文本（≤200字）">${esc(s.note||'')}</textarea>
+          ${s.custom?`<button type="button" class="btn small ghost del" data-lib-del="${s.id}">删</button>`:''}
+        </div>`).join('')}
+    </div>`).join('');
+  const mine = (Array.isArray(cfg.stylePresets)?cfg.stylePresets:[]).map((p,i)=>`
+    <div class="ws-lib-item">
+      <div class="ws-lib-name">⭐ ${esc(p.name||'未命名')}</div>
+      <span class="muted" style="font-size:11px">${(p.tags||[]).map(id=>{const s=writeStyleById(id); return s?s.name:id;}).join('+')||'无'} · ${['','轻','中','重'][p.intensity]||'中'}</span>
+      <button type="button" class="btn small ghost del" data-sp-del="${i}">删</button>
+    </div>`).join('') || '<p class="muted">暂无收藏。</p>';
+  const ov = document.createElement('div'); ov.id='wsLibPanel'; ov.className='gs-overlay';
+  ov.innerHTML = `
+    <div class="gs-modal">
+      <div class="gs-modal-head"><b>⚙️ 写作风格管理</b>
+        <span style="display:flex;gap:6px">
+          <button class="btn small ghost" data-lib-reset>恢复默认</button>
+          <button class="gs-x" data-lib-close>✕</button>
+        </span></div>
+      <div class="cv-body">
+        <div class="cv-div">系统风格指令可修改（打"已改"标记），可新增自定义风格（归属某组）、可删除自定义项；「恢复默认」清空全部词库改动。改动即时生效。</div>
+        ${groupHtml}
+        <div class="ws-lib-add">
+          <div class="ws-group-t">＋ 新增风格</div>
+          <div class="ws-add-row">
+            <select id="wsAddGroup">
+              <option value="tone">语气基调</option>
+              <option value="texture">文风质感</option>
+              <option value="element">语言元素</option>
+            </select>
+            <input type="text" id="wsAddName" placeholder="风格名称（如：民国腔调）" maxlength="20" />
+          </div>
+          <textarea id="wsAddNote" rows="2" maxlength="200" placeholder="指令文本（≤200字）：让 AI 怎么写的具体要求"></textarea>
+          <button type="button" class="btn small primary" data-lib-add>＋ 新增</button>
+        </div>
+        <div class="ws-lib-group">
+          <div class="ws-group-t">⭐ 我的收藏</div>
+          ${mine}
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(ov);
+  ov.querySelector('[data-lib-close]').onclick = closeStyleLibPanel;
+  ov.addEventListener('click', e=>{ if(e.target===ov) closeStyleLibPanel(); });
+  // note 编辑即存
+  ov.querySelectorAll('[data-lib-note]').forEach(ta=>{
+    ta.onchange = ()=>{
+      const id = ta.dataset.libNote;
+      const v = ta.value.trim().slice(0,200);
+      if(v) cfg.styleCustom.notes[id] = v; else delete cfg.styleCustom.notes[id];
+      saveCfg(cfg); render(); toast('已保存指令');
+    };
+  });
+  // 删除自定义项
+  ov.querySelectorAll('[data-lib-del]').forEach(b=>{
+    b.onclick = ()=>{
+      cfg.styleCustom.added = (cfg.styleCustom.added||[]).filter(x=>x.id!==b.dataset.libDel);
+      saveCfg(cfg); render(); toast('已删除自定义风格');
+    };
+  });
+  // 删除收藏
+  ov.querySelectorAll('[data-sp-del]').forEach(b=>{
+    b.onclick = ()=>{
+      cfg.stylePresets.splice(+b.dataset.spDel,1);
+      saveCfg(cfg); render(); toast('已删除收藏');
+    };
+  });
+  // 恢复默认
+  ov.querySelector('[data-lib-reset]').onclick = ()=>{
+    if(!window.confirm('恢复默认将清空全部词库改动（自定义新增也会删除）。确定？')) return;
+    cfg.styleCustom = { notes:{}, added:[], removed:[] };
+    saveCfg(cfg); render(); toast('已恢复默认词库');
+  };
+  // 新增风格
+  ov.querySelector('[data-lib-add]').onclick = ()=>{
+    const name = ($('#wsAddName') && $('#wsAddName').value.trim()) || '';
+    const note = ($('#wsAddNote') && $('#wsAddNote').value.trim().slice(0,200)) || '';
+    if(!name){ toast('请填写风格名称'); return; }
+    const group = ($('#wsAddGroup') && $('#wsAddGroup').value) || 'tone';
+    cfg.styleCustom.added = cfg.styleCustom.added || [];
+    cfg.styleCustom.added.push({ id:'c'+Date.now().toString(36), group, name, note });
+    saveCfg(cfg); render();
+    toast('已新增风格：'+name);
+    closeStyleLibPanel(); openStyleLibPanel();   // 刷新弹窗让新项立即可见
+  };
+}
+function closeStyleLibPanel(){ const p=$('#wsLibPanel'); if(p) p.remove(); }
+
 function viewStory(){
   if(!state.outline){
     const homeSub = isLong()
@@ -1838,6 +2249,7 @@ function viewStory(){
         <div class="pol-head"><b>✨ 优化稿</b>
           <span class="pol-tools">
             <button id="btnPolishCopy" class="btn small ghost">📋 复制</button>
+            <button id="btnPolishSave" class="btn small ghost" title="把当前编辑内容保存为新方案（不覆盖原方案）">💾 保存此版为方案</button>
             <button id="btnPolishUse" class="btn small primary">✔ 采用此方案</button>
             <button id="btnPolishDiscard" class="btn small ghost">✕ 收起</button>
           </span>
@@ -1858,10 +2270,12 @@ function viewStory(){
   const o = state.outline;
   let html = `
     ${ origIdeaCard() }
+    ${ writeStyleCard() }
     ${ recipeSummaryBar() }
     <div class="card">
       <div class="card-head-row">
         <h3 style="margin:0">📋 故事大纲</h3>
+        ${hasOutlineHistory()?`<button type="button" class="btn small ghost" id="btnOutlineHist" title="查看并恢复历史大纲版本">📚 大纲版本(${outlineHistoryCount()})</button>`:''}
         ${titleManagerHtml()}
       </div>
       <p class="sub">${esc(o.logline||'')}</p>
@@ -1956,10 +2370,22 @@ function bindStructureFold(){
 function setChapterTitle(i, title){
   const t = String(title||'').trim();
   const o = state.outline;
-  if(o && Array.isArray(o.chapters) && o.chapters[i]) o.chapters[i].title = t;
+  if(o && Array.isArray(o.chapters) && o.chapters[i]){
+    // P1-2：改前记录旧标题入 o.chTitleHistory（上限10，最新在前）
+    const oldT = (o.chapters[i].title||'').trim();
+    if(oldT && oldT !== t && o.chapters[i].title !== undefined){
+      if(!Array.isArray(o.chTitleHistory)) o.chTitleHistory = [];
+      o.chTitleHistory.unshift({ i, title: oldT, ts: Date.now() });
+      if(o.chTitleHistory.length > 10) o.chTitleHistory.splice(10);
+    }
+    o.chapters[i].title = t;
+  }
   if(state.chapters && state.chapters[i]) state.chapters[i].title = t;
   persist();
 }
+// P1-2 标题曾用记录辅助
+function chTitleHistory(){ const o=state.outline; return (o && Array.isArray(o.chTitleHistory)) ? o.chTitleHistory : []; }
+function hasChTitleHistory(){ return chTitleHistory().length > 0; }
 
 // 生成"第N章 标题"纯文本（仅章节+标题，无多余内容），供一键复制。
 // 标题常自带"第N章"前缀（cleanChapterTitle 去前缀后再统一加"第N章 "，避免"第1章 第1章 起点"）
@@ -1974,8 +2400,10 @@ function chapterTitleBlock(){
   const o = state.outline;
   const arr = (o && Array.isArray(o.chapters)) ? o.chapters : [];
   if(!arr.length) return '';
+  // P1-4 标题质检持久化：render 时从 o.titleQC 恢复标红（不再只存活一次渲染）
+  const qc = (o.titleQC && Array.isArray(o.titleQC.issues)) ? o.titleQC.issues : [];
   const rows = arr.map((c,i)=>`
-    <div class="ct-row" data-ct-row="${i}">
+    <div class="ct-row ${qc.some(q=>+q.index===i)?'ct-issue':''}" data-ct-row="${i}">
       <span class="ct-no">第${i+1}章</span>
       <span class="ct-title" title="${esc((c&&c.title)||'')}">${esc((c&&c.title)||('第'+(i+1)+'章'))}</span>
       <button type="button" class="ct-edit" data-ct-edit="${i}" title="编辑标题">✎</button>
@@ -1984,6 +2412,7 @@ function chapterTitleBlock(){
     <div class="ct-head">
       <b>📚 章节标题</b>
       <span class="ct-tools">
+        ${hasChTitleHistory()?`<button type="button" class="btn small ghost" data-ct-hist>🕘 曾用标题(${chTitleHistory().length})</button>`:''}
         <button type="button" class="btn small ghost" data-ct-copy>📋 复制全部章节标题</button>
         <button type="button" class="btn small ghost" data-rt-gen>🔄 重生成全部标题</button>
       </span>
@@ -1997,6 +2426,8 @@ function chapterTitleBlock(){
 function bindChapterTitles(){
   const cp = $('[data-ct-copy]');
   if(cp) cp.onclick = ()=>{ copyText(chapterTitleListText()); };
+  const ch = $('[data-ct-hist]');
+  if(ch) ch.onclick = ()=> openChTitleHistoryPanel();
   const rg = $('[data-rt-gen]');
   if(rg) rg.onclick = ()=> regenAllTitles(rg);   // v10.15 重生成全部标题
   $$('[data-ct-edit]').forEach(btn=>{
@@ -2046,6 +2477,52 @@ function setAllTitles(titles){
   return cnt;
 }
 
+/* ---------- P1-2 章节标题曾用记录：🕘 弹窗查看 + 一键恢复（上限10） ---------- */
+function openChTitleHistoryPanel(){
+  closeChTitleHistoryPanel();
+  const hist = chTitleHistory(); if(!hist.length){ toast('暂无曾用标题'); return; }
+  const fmtTs = ts=>{ const d=new Date(ts); return (d.getMonth()+1)+'-'+d.getDate()+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); };
+  const o = state.outline;
+  const rows = hist.map((h,idx)=>`
+    <div class="cv-row">
+      <div class="cv-meta" style="flex:1;min-width:0"><div class="cv-time">第${h.i+1}章 · ${fmtTs(h.ts)}</div><div class="cv-t" style="font-size:12px;color:var(--sub);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(h.title||'')}</div></div>
+      <div class="cv-actions" style="display:flex;gap:6px;flex-shrink:0">
+        <button type="button" class="btn ghost cv-b" data-cth-restore="${idx}">↩ 恢复为此标题</button>
+        <button type="button" class="btn ghost cv-b" data-cth-del="${idx}">🗑 删除</button>
+      </div>
+    </div>`).join('');
+  const ov = document.createElement('div'); ov.id='cthPanel'; ov.className='gs-overlay';
+  ov.innerHTML = `
+    <div class="gs-modal">
+      <div class="gs-modal-head"><b>🕘 章节标题 · 曾用记录（${hist.length}/10）</b>
+        <button class="gs-x" data-cth-close>✕</button></div>
+      <div class="cv-body">
+        <div class="cv-div">手动改名或批量重生成前的标题都会记录在这里；可一键恢复或删除某条记录。恢复会把当前标题也记入曾用。</div>
+        ${rows}
+      </div>
+    </div>`;
+  document.body.appendChild(ov);
+  ov.querySelector('[data-cth-close]').onclick = closeChTitleHistoryPanel;
+  ov.addEventListener('click', e=>{ if(e.target===ov) closeChTitleHistoryPanel(); });
+  ov.addEventListener('click', e=>{
+    const rb = e.target.closest('[data-cth-restore]'); if(!rb) return;
+    const h = hist[+rb.dataset.cthRestore]; if(!h) return;
+    if(!window.confirm(`把第${h.i+1}章标题恢复为「${h.title}」？`)) return;
+    setChapterTitle(h.i, h.title);
+    closeChTitleHistoryPanel(); render();
+    toast('已恢复该标题');
+  });
+  ov.addEventListener('click', e=>{
+    const db = e.target.closest('[data-cth-del]'); if(!db) return;
+    const idx = +db.dataset.cthDel;
+    const o2 = state.outline;
+    if(o2 && Array.isArray(o2.chTitleHistory)) o2.chTitleHistory.splice(idx,1);
+    persist(); closeChTitleHistoryPanel(); render();
+    toast('已删除该记录');
+  });
+}
+function closeChTitleHistoryPanel(){ const p=$('#cthPanel'); if(p) p.remove(); }
+
 // v10.15 重生成全部章节标题：保留梗概/结构/词典，只重出标题；可选用户建议；生成后自动标题质检（qcTemp）
 async function regenAllTitles(btn){
   const o = state.outline;
@@ -2080,6 +2557,9 @@ async function runTitleQC(titles){
     const txt = await callDeepSeek(TITLE_QC_SYS, user, {temperature: spec.qcTemp});
     const j = parseJson(txt) || {};
     const issues = Array.isArray(j.issues) ? j.issues : [];
+    // P1-4 标题质检持久化：结果含时间戳存入 outline.titleQC，标红从数据恢复
+    o.titleQC = { ts: Date.now(), issues: issues.map(it=>({ index:+it.index, type:String(it.type||''), fix:String(it.fix||'') })) };
+    persist();
     // 标红问题标题行
     document.querySelectorAll('.ct-row').forEach(row=> row.classList.remove('ct-issue'));
     (issues||[]).forEach(it=>{
@@ -2107,6 +2587,7 @@ function chapterPlanBlock(){
     <div class="cp-head" data-cp-fold role="button" tabindex="0" title="展开/收起">
       <h3 style="margin:0">🧭 逐章方向梗概 <span class="cp-arrow">${collapsed?'▸':'▾'}</span> <span class="muted" style="font-size:11px;font-weight:400">（可选：生成后写正文会按方向走，对抗文风漂移）</span></h3>
       <span class="cp-tools">
+        ${hasChapterPlansHistory()?`<button type="button" class="btn ghost gs-tool" data-cp-hist>📚 版本(${chapterPlansHistoryCount()})</button>`:''}
         <button type="button" class="btn ghost gs-tool" data-cp-gen>${hasPlans?'🔄 重生成梗概':'📝 生成逐章梗概'}</button>
       </span>
     </div>
@@ -2136,9 +2617,11 @@ function bindChapterPlan(){
   if(gen) gen.onclick = ()=>{
     const o = state.outline;
     const has = o && Array.isArray(o.chapterPlans) && o.chapterPlans.some(Boolean);
-    if(has && !confirm('将覆盖现有逐章梗概，继续？')) return;
+    if(has && !confirm('将覆盖现有逐章梗概（旧版会存入历史），继续？')) return;
     genChapterPlans(gen);
   };
+  const hist = $('[data-cp-hist]');
+  if(hist) hist.onclick = ()=> openChapterPlansHistoryPanel();
   $$('[data-cp-set]').forEach(inp=>{
     inp.onchange = ()=>{
       const o = state.outline; if(!o) return;
@@ -2669,6 +3152,17 @@ function snapshotChapterVersion(i){
 function chVersions(i){ const c=ensureChapterHistory(i); return c? c.history : []; }
 function hasChVersions(i){ return chVersions(i).length > 0; }
 
+/* ---------- P0-3 章节正文手动编辑撤销（editHistory 上限10） ---------- */
+function hasEditHistory(i){ const c=state.chapters[i]; return !!(c && Array.isArray(c.editHistory) && c.editHistory.length); }
+// 撤销一次手动编辑：弹出最后一条旧值覆盖当前内容（pop 后不写回，支持连续往回撤）
+function undoChapterEdit(i){
+  const c = state.chapters[i];
+  if(!c || !Array.isArray(c.editHistory) || !c.editHistory.length){ toast('没有可撤销的编辑'); return; }
+  c.content = c.editHistory.pop();
+  persist(); renderChapters(); updateWcTotal();
+  toast('已撤销一次编辑');
+}
+
 // 版本历史弹窗：列出当前 + 历史，可预览、可恢复
 function openChapterVersionPanel(i){
   closeChapterVersionPanel();
@@ -2754,6 +3248,8 @@ function renderChapters(){
             <button class="btn ghost" data-regen="${i}" ${state.generating?'disabled':''}>🔄 重生成</button>
             <button class="btn ghost" data-read="${i}">📖 阅读</button>
             ${hasChVersions(i)?`<button class="btn ghost" data-ver="${i}">📚 版本(${chVersions(i).length})</button>`:''}
+            ${hasEditHistory(i)?`<button class="btn ghost" data-undo="${i}" title="撤销最近一次手动编辑">↩ 撤销编辑</button>`:''}
+            ${isLong() && c.qcRecord ? `<button class="btn ghost" data-qc="${i}" title="查看本次生成的质检记录（AI 改了哪里）">🧪 质检记录</button>`:''}
           </div>
         </div>
       </div>`;
@@ -2781,6 +3277,7 @@ function renderChapters(){
           <button class="btn ghost" data-regen="${i}">🔄 重生成</button>
           <button class="btn ghost" data-read="${i}">📖 阅读</button>
           ${hasChVersions(i)?`<button class="btn ghost" data-ver="${i}">📚 版本(${chVersions(i).length})</button>`:''}
+          ${hasEditHistory(i)?`<button class="btn ghost" data-undo="${i}" title="撤销最近一次手动编辑">↩ 撤销编辑</button>`:''}
           <button class="btn ghost" data-toggle="${i}">${c.confirmed?'↺ 取消确认':'✓ 标记已确认'}</button>
         </div>
       </div>`).join('');
@@ -2833,6 +3330,28 @@ function openReader(i){
   readerCur = i;
   ov.classList.remove('hidden');
   document.body.classList.add('reader-lock'); // 锁定背景滚动
+  // P3-3 续读进度：恢复本章上次阅读位置（按项目 id + 章节存储）
+  try{
+    const rp = JSON.parse(localStorage.getItem('fyp_rp_' + (lib.curId||'x')) || 'null');
+    if(rp && rp.ch === i && rp.top){
+      requestAnimationFrame(()=>{ const b=$('#readerBody'); if(b) b.scrollTop = rp.top; });
+    }
+  }catch(e){}
+}
+// P3-3 续读进度：阅读中节流记录滚动位置（关闭/切换章节后再次打开可续读）
+function bindReaderScrollSave(){
+  const b = $('#readerBody'); if(!b || b.dataset.rpBound) return;
+  b.dataset.rpBound = '1';
+  let _t = null;
+  b.addEventListener('scroll', ()=>{
+    if(_t) return;
+    _t = setTimeout(()=>{
+      _t = null;
+      try{
+        localStorage.setItem('fyp_rp_' + (lib.curId||'x'), JSON.stringify({ ch: readerCur, top: b.scrollTop }));
+      }catch(e){}
+    }, 400);
+  }, {passive:true});
 }
 function closeReader(){
   const ov = $('#readerOverlay'); if(!ov) return;
@@ -2843,6 +3362,7 @@ function closeReader(){
 }
 function bindReader(){
   const ov = $('#readerOverlay'); if(!ov) return;
+  bindReaderScrollSave();   // P3-3 续读进度：滚动位置节流保存
   $$('[data-reader-close]', ov).forEach(el=> el.onclick = (e)=>{
     // 点击面板内部不关闭（backdrop 与 ✕ 按钮才关闭）
     if(e.target.closest('.reader-panel') && !e.target.closest('.reader-close')) return;
@@ -2929,7 +3449,10 @@ function viewCharacters(){
   return `<div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center">
         <h3>🧑 角色定妆提示词包（${state.characters.length}）</h3>
-        <button id="btnGenChars" class="btn ghost">🔄 重生成</button>
+        <span class="btn-row" style="margin:0">
+          ${hasAssetHist('characters')?`<button id="btnCharHist" class="btn ghost">🕘 历史(${assetHistCount('characters')})</button>`:''}
+          <button id="btnGenChars" class="btn ghost">🔄 重生成</button>
+        </span>
       </div>
       <div class="char-toolbar">
         <input id="charSearch" class="char-search" placeholder="🔍 搜索角色姓名 / 身份…" value="${esc(charFilters.q)}">
@@ -2956,20 +3479,44 @@ function viewCharacters(){
 
 function charCard(c, idx){
   const pf = c.profile||{};
-  const kv = Object.entries(pf).map(([k,v])=>`<div class="kv"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`).join('');
+  // P1-3 角色卡内字段可编辑：profile 键值 → input，prompts → textarea，失焦即存
+  const kv = Object.entries(pf).map(([k,v])=>`<div class="kv"><span class="k">${esc(k)}</span><input type="text" class="char-edit" data-char-kv="${idx}" data-key="${esc(k)}" data-orig="${esc(v)}" value="${esc(v)}" /></div>`).join('');
   const order = ['定妆图','三视图','表情','服饰细节','道具','配色','材质'];
   const pr = c.prompts||{};
   const cards = order.map(k=>pr[k]==null?'':`
     <div class="subcard">
       <div class="lbl">${esc(k)}<button class="copy" data-copy="${esc(pr[k])}">复制</button></div>
-      <div class="prompt-text">${esc(pr[k])}</div>
+      <textarea class="char-edit" data-char-prompt="${idx}" data-key="${esc(k)}" data-orig="${esc(pr[k])}" rows="3">${esc(pr[k])}</textarea>
     </div>`).join('');
   const allText = Object.values(pf).join(' ') + ' ' + Object.values(pr).join(' ');
   return `<div class="card" id="char-${idx}">
     <h3 style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">${esc(c.name||'未命名')} <span class="pill">${esc(c.role||'')}</span> ${wcBadge(allText)}</h3>
     <div class="subcard">${kv}</div>
     ${cards}
+    <p class="muted" style="margin:4px 0 0;font-size:11px">字段可直接编辑，失焦即存（不触发 AI）。</p>
   </div>`;
+}
+// P1-3 角色卡编辑绑定：失焦即存（profile 键值 / prompts 提示词）
+function bindCharEdit(){
+  $$('[data-char-kv],[data-char-prompt]').forEach(inp=>{
+    inp.onchange = ()=>{
+      const idx = inp.hasAttribute('data-char-kv') ? +inp.dataset.charKv : +inp.dataset.charPrompt;
+      const c = state.characters[idx]; if(!c) return;
+      const k = inp.dataset.key;
+      const v = inp.value;
+      if(v === inp.dataset.orig) return;
+      if(inp.hasAttribute('data-char-kv')){
+        if(!c.profile) c.profile = {};
+        c.profile[k] = v;
+      } else {
+        if(!c.prompts) c.prompts = {};
+        c.prompts[k] = v;
+      }
+      inp.dataset.orig = v;
+      persist();
+      toast('角色卡已保存');
+    };
+  });
 }
 
 /* ---------- 角色筛选：搜索 / 身份 / 性别 / 年龄区间（返回保留原索引） ---------- */
@@ -3012,6 +3559,7 @@ function applyCharFilters(){
   const cnt = $('#charCount');
   if(cnt) cnt.textContent = `显示 ${idxs.length} / ${state.characters.length} 个角色`;
   bindCopyBtns();
+  bindCharEdit();
 }
 function bindCopyBtns(){ $$('[data-copy]').forEach(b=> b.onclick = ()=> copyText(b.getAttribute('data-copy')) ); }
 
@@ -3068,12 +3616,17 @@ function coverCardHtml(){
     <div class="card cover-card">
       <div style="display:flex;justify-content:space-between;align-items:center">
         <h3 style="margin:0">📕 小说封面提示词</h3>
-        <span class="pill" id="coverModeLab">${modeLab}</span>
+        <span class="btn-row" style="margin:0">
+          ${hasAssetHist('cover')?`<button type="button" class="btn ghost" data-cover-hist>🕘 历史(${assetHistCount('cover')})</button>`:''}
+          <span class="pill" id="coverModeLab">${modeLab}</span>
+        </span>
       </div>
       ${seg}
       <p class="sub">${modeHint}</p>
       ${state.coverPrompt ? `
         <div class="subcard"><div class="lbl">封面提示词<button class="copy" data-copy="${esc(state.coverPrompt)}">复制</button></div><div class="prompt-text">${esc(state.coverPrompt)}</div></div>
+        <label class="field" style="margin-top:8px"><span>✎ 编辑封面提示词（失焦即存，不触发 AI）</span>
+          <textarea class="cover-edit" data-cover-edit>${esc(state.coverPrompt)}</textarea></label>
         <div class="btn-row" style="margin-top:8px"><button id="btnGenCover" class="btn ghost">🔄 重生成封面提示词</button></div>
       ` : `
         <div class="btn-row"><button id="btnGenCover" class="btn primary block">🖼️ 生成封面提示词</button></div>
@@ -3096,13 +3649,19 @@ function viewScenes(){
   }
   return coverCard + `<div class="card"><div style="display:flex;justify-content:space-between;align-items:center">
       <h3>🏞️ 场景提示词（${state.scenes.length}）</h3>
-      <button id="btnGenScenes" class="btn ghost">🔄 重生成</button></div></div>` +
-    state.scenes.map(s=>`
+      <span class="btn-row" style="margin:0">
+        ${hasAssetHist('scenes')?`<button id="btnSceneHist" class="btn ghost">🕘 历史(${assetHistCount('scenes')})</button>`:''}
+        <button id="btnGenScenes" class="btn ghost">🔄 重生成</button>
+      </span></div></div>` +
+    state.scenes.map((s,si)=>`
     <div class="card">
-      <h3 style="display:flex;align-items:center;gap:8px">${esc(s.name||'')} <span class="pill tag-env">🌿 纯环境·无人物</span> ${wcBadge((s.description||'')+' '+(s.prompt||''))}</h3>
-      <p class="sub">作用：${esc(s.作用||'')}</p>
-      <div class="subcard"><div class="lbl">场景设定</div><div class="prompt-text">${esc(s.description||'')}</div></div>
-      <div class="subcard"><div class="lbl">即梦出图提示词<button class="copy" data-copy="${esc(s.prompt||'')}">复制</button></div><div class="prompt-text">${esc(s.prompt||'')}</div></div>
+      <h3 style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <input type="text" class="scene-edit-name" data-scene-name="${si}" value="${esc(s.name||'')}" placeholder="场景名" style="flex:0 0 auto;min-width:120px;max-width:220px" />
+        <span class="pill tag-env">🌿 纯环境·无人物</span> ${wcBadge((s.description||'')+' '+(s.prompt||''))}</h3>
+      <p class="sub">作用：<input type="text" class="scene-edit-role" data-scene-role="${si}" value="${esc(s.作用||'')}" style="flex:1;min-width:160px" /></p>
+      <div class="subcard"><div class="lbl">场景设定</div><textarea class="scene-edit-desc" data-scene-desc="${si}" rows="2">${esc(s.description||'')}</textarea></div>
+      <div class="subcard"><div class="lbl">即梦出图提示词<button class="copy" data-copy="${esc(s.prompt||'')}">复制</button></div><textarea class="scene-edit-prompt" data-scene-prompt="${si}" rows="3">${esc(s.prompt||'')}</textarea></div>
+      <p class="muted" style="margin:4px 0 0;font-size:11px">字段可直接编辑，失焦即存（不触发 AI）。</p>
     </div>`).join('') + fallbackRaw('scenes');
 }
 
@@ -3140,13 +3699,20 @@ function viewStoryboard(){
   const totalSec = state.storyboard.reduce((sum,s)=> sum + (Number(s.时长)||0), 0);
   return `<div class="card" style="display:flex;justify-content:space-between;align-items:center">
       <h3>🎞️ 分镜（${state.storyboard.length} 镜）</h3>
-      <button id="btnGenBoard" class="btn ghost">🔄 重生成</button>
+      <span class="btn-row" style="margin:0">
+        ${hasAssetHist('storyboard')?`<button id="btnBoardHist" class="btn ghost">🕘 历史(${assetHistCount('storyboard')})</button>`:''}
+        <button id="btnGenBoard" class="btn ghost">🔄 重生成</button>
+      </span>
     </div>${rows}
     <div class="card board-total">⏱ 全局：<b id="boardTotal">共 ${state.storyboard.length} 镜 · 总时长 ${totalSec}s</b><span class="muted">（每镜时长可点击数字直接修改，统计实时联动）</span></div>`
     + fallbackRaw('storyboard');
 }
 function shotHtml(i){
   const s = state.storyboard[i];
+  // P1-3 分镜卡字段可编辑：text 字段 → input/textarea（失焦即存，不触发 AI）
+  const ed = (key, tag='input', rows=2)=> tag==='textarea'
+    ? `<textarea class="shot-edit" data-shot="${i}" data-key="${esc(key)}" rows="${rows}">${esc(s[key]||'')}</textarea>`
+    : `<input type="text" class="shot-edit" data-shot="${i}" data-key="${esc(key)}" value="${esc(s[key]||'')}" />`;
   return `<div class="shot">
     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
       <span class="no">镜 ${esc(s.镜号)}</span>
@@ -3156,14 +3722,26 @@ function shotHtml(i){
     <div class="meta">
       ${['景别','角度','运镜','光线','转场'].map(k=> s[k]?`<span class="pill">${esc(s[k])}</span>`:'').join('')}
     </div>
-    ${s.主体?`<div class="prompt-text" style="margin-top:6px"><b>主体：</b>${esc(s.主体)}</div>`:''}
-    ${s.构图?`<div class="prompt-text" style="margin-top:4px"><b>构图：</b>${esc(s.构图)}</div>`:''}
-    <div class="prompt-text" style="margin-top:6px">${esc(s.画面描述||'')}</div>
-    ${ s.对白 ? `<div class="sub" style="margin-top:6px">💬 ${esc(s.对白)}</div>`:'' }
-    <div class="subcard" style="margin-top:8px"><div class="lbl">出图提示词<button class="copy" data-copy="${esc(s.出图提示词||'')}">复制</button></div><div class="prompt-text">${esc(s.出图提示词||'')}</div></div>
-    ${ s.连续性 ? `<div class="muted" style="margin-top:6px">🔗 连续性：${esc(s.连续性)}</div>`:'' }
-    ${ s.剪辑动机 ? `<div class="muted" style="margin-top:4px">🎯 剪辑动机：${esc(s.剪辑动机)}</div>`:'' }
+    ${s.主体!==undefined && s.主体!=='' ? `<div class="prompt-text" style="margin-top:6px"><b>主体：</b>${ed('主体')}</div>`:''}
+    ${s.构图!==undefined && s.构图!=='' ? `<div class="prompt-text" style="margin-top:4px"><b>构图：</b>${ed('构图')}</div>`:''}
+    <div class="prompt-text" style="margin-top:6px">${ed('画面描述','textarea',2)}</div>
+    ${ s.对白 ? `<div class="sub" style="margin-top:6px">💬 ${ed('对白')}</div>`:'' }
+    <div class="subcard" style="margin-top:8px"><div class="lbl">出图提示词<button class="copy" data-copy="${esc(s.出图提示词||'')}">复制</button></div>${ed('出图提示词','textarea',3)}</div>
+    ${ s.连续性 ? `<div class="muted" style="margin-top:6px">🔗 连续性：${ed('连续性')}</div>`:'' }
+    ${ s.剪辑动机 ? `<div class="muted" style="margin-top:4px">🎯 剪辑动机：${ed('剪辑动机')}</div>`:'' }
+    <p class="muted" style="margin:4px 0 0;font-size:11px">字段可直接编辑，失焦即存（不触发 AI）。</p>
   </div>`;
+}
+// P1-3 分镜卡编辑绑定：失焦即存
+function bindShotEdit(){
+  $$('[data-shot]').forEach(inp=>{
+    inp.onchange = ()=>{
+      const s = state.storyboard[+inp.dataset.shot]; if(!s) return;
+      s[inp.dataset.key] = inp.value;
+      persist();
+      toast('分镜已保存');
+    };
+  });
 }
 /* 分镜时长联动：手改某镜秒数后，实时刷新对应章段头 + 全局统计 */
 function updateBoardTiming(){
@@ -3189,7 +3767,7 @@ function readyForAssets(){
 }
 
 /* ---------- P5 导出 ---------- */
-let expSel = []; // 长篇导出勾选的章节索引
+// P3-4 长篇导出勾选持久化：勾选状态存 state.expSel，随项目快照持久化（刷新/切换不丢）
 
 function viewExport(){
   // 长篇模式：多选章节 + TXT / EPUB / DOCX 导出
@@ -3213,7 +3791,7 @@ function longExportView(){
   if(!state.outline) return `<div class="center-empty">尚无可导出的内容。请先生成故事大纲。</div>`;
   const written = state.chapters.filter(c=> c.content && String(c.content).trim()).length;
   // 清理已失效的勾选（章节被重生成等）
-  expSel = expSel.filter(i=> state.chapters[i] && state.chapters[i].content && String(state.chapters[i].content).trim());
+  state.expSel = state.expSel.filter(i=> state.chapters[i] && state.chapters[i].content && String(state.chapters[i].content).trim());
   const title = state.outline?.title || '未命名长篇小说';
   const md = buildLongMarkdown();
   // 资产包（story 大纲 + 章节梗概 + 章节全文）前置，与普通模式 viewExport 同款；原长篇选择/格式导出后置
@@ -3233,13 +3811,13 @@ function longExportView(){
       <div class="btn-row">
         <button id="expSelAll" class="btn ghost">☑️ 全选已写</button>
         <button id="expSelNone" class="btn ghost">⬜ 清空</button>
-        <span class="muted" id="expCount">已选 ${expSel.length} / 已写 ${written} 章（共 ${state.chapters.length} 章）</span>
+        <span class="muted" id="expCount">已选 ${state.expSel.length} / 已写 ${written} 章（共 ${state.chapters.length} 章）</span>
       </div>
       <div class="exp-ch-list">
         ${state.chapters.map((c,i)=>{
           const ok = c.content && String(c.content).trim();
           return `<label class="exp-ch ${ok?'':'disabled'}">
-            <input type="checkbox" data-expch="${i}" ${expSel.includes(i)?'checked':''} ${ok?'':'disabled'}>
+            <input type="checkbox" data-expch="${i}" ${state.expSel.includes(i)?'checked':''} ${ok?'':'disabled'}>
             <span class="exp-ch-no">第${i+1}章</span>
             <span class="exp-ch-title">${esc(c.title||'')}</span>
             <span class="wc">${ok? wcInner(countWords(c.content)) : '未写'}</span>
@@ -3279,13 +3857,13 @@ function buildLongMarkdown(){
   return md;
 }
 function activeChapters(){
-  let idx = expSel.filter(i=> state.chapters[i] && state.chapters[i].content && String(state.chapters[i].content).trim()).sort((a,b)=>a-b);
+  let idx = state.expSel.filter(i=> state.chapters[i] && state.chapters[i].content && String(state.chapters[i].content).trim()).sort((a,b)=>a-b);
   if(!idx.length) idx = state.chapters.map((c,i)=> (c.content && String(c.content).trim())?i:null).filter(x=>x!==null);
   return idx;
 }
 function syncExpChecks(){
-  $$('#view [data-expch]').forEach(cb=> cb.checked = expSel.includes(+cb.dataset.expch));
-  const cnt = $('#expCount'); if(cnt) cnt.textContent = `已选 ${expSel.length} / 已写 ${state.chapters.filter(c=>c.content&&String(c.content).trim()).length} 章（共 ${state.chapters.length} 章）`;
+  $$('#view [data-expch]').forEach(cb=> cb.checked = state.expSel.includes(+cb.dataset.expch));
+  const cnt = $('#expCount'); if(cnt) cnt.textContent = `已选 ${state.expSel.length} / 已写 ${state.chapters.filter(c=>c.content&&String(c.content).trim()).length} 章（共 ${state.chapters.length} 章）`;
 }
 function downloadBlob(name, blob){
   const a = document.createElement('a');
@@ -3423,6 +4001,8 @@ function buildMarkdown(){
 function bindView(){
   // 复制按钮（事件委托）
   bindCopyBtns();
+  bindCharEdit();      // P1-3 角色卡字段编辑
+  bindShotEdit();      // P1-3 分镜卡字段编辑
 
   // 赛博朋克首页入口卡片
   $$('.cyber-home-grid [data-step]').forEach(b=> b.onclick = ()=>{ currentStep = +b.dataset.step; render(); window.scrollTo(0,0); });
@@ -3477,13 +4057,16 @@ function bindView(){
   bindGlossary();
   bindOrigIdea();     // v10.2 原始构想只读卡绑定
   bindStructureFold();// v10.3 长篇结构设计栏折叠绑定
+  bindStructureEdit();// P0-2 结构设计行内编辑（失焦即存 + 追加副线）
   bindChapterPlan();  // v10.11 逐章梗概区块绑定
   bindChapterPlanFold(); // v10.14 梗概卡折叠绑定
   bindChapterTitles();// v10.14 章节标题编辑 + 复制绑定
+  bindWriteStyle();   // v2.0 写作风格卡片绑定（chips/浓度/预设/收藏/管理/清空）
   bindPendingGlossary();
   // 故事页内联规范选择器
   $$('.spec-opt').forEach(b=> b.onclick = ()=>{ selectSpec(b.dataset.spec); });
   const btnCO = $('#btnConfirmOutline'); if(btnCO) btnCO.onclick = ()=>{ state.outlineConfirmed=true; persist(); render(); };
+  const btnOH = $('#btnOutlineHist'); if(btnOH) btnOH.onclick = ()=> openOutlineHistoryPanel();
   const btnRO = $('#btnReOutline'); if(btnRO) btnRO.onclick = ()=>{ state.outline=null; state.outlineConfirmed=false; state.chapters=[]; persist(); render(); };
   const btnGA = $('#btnGenAllChapters'); if(btnGA) btnGA.onclick = genAllChapters;
   // 多章生成：读取用户填写的章数（默认 2，可 1~任意），一次连续生成该数量章节。
@@ -3512,6 +4095,21 @@ function bindView(){
     if(histPanel_) histPanel_.classList.toggle('hidden', !on);
   };
   if(histPanel_) histPanel_.onclick = (e)=> e.stopPropagation();
+  // P3-1 曾用名：一键恢复（改回该名，当前名自动记入曾用）/ 删除该条记录
+  $$('#tmHist [data-hist-restore]').forEach(b=> b.onclick = (e)=>{
+    e.stopPropagation();
+    if(!confirm(`将书名恢复为「${b.dataset.histRestore}」？（当前名会记入曾用名）`)) return;
+    renameTitle(b.dataset.histRestore);
+    histPanel_.classList.add('hidden');
+    const tri = $('#btnTmTri'); if(tri) tri.classList.remove('on');
+  });
+  $$('#tmHist [data-hist-del]').forEach(b=> b.onclick = (e)=>{
+    e.stopPropagation();
+    if(!confirm('删除该条曾用名记录？')) return;
+    state.titleHistory.splice(+b.dataset.histDel, 1);
+    persist(); render();
+    toast('已删除该记录');
+  });
   document.addEventListener('click', (e)=>{
     const pan = $('#tmHist');
     if(pan && !pan.classList.contains('hidden') && !e.target.closest('.title-manager')){
@@ -3538,9 +4136,15 @@ function bindView(){
   }
   // P2
   const btnGC = $('#btnGenChars'); if(btnGC) btnGC.onclick = genCharacters;
+  const btnCH = $('#btnCharHist'); if(btnCH) btnCH.onclick = ()=> openAssetHistPanel('characters');
   // P3
   const btnGS = $('#btnGenScenes'); if(btnGS) btnGS.onclick = genScenes;
   const btnCV = $('#btnGenCover'); if(btnCV) btnCV.onclick = genCover;
+  const btnCVH = $('[data-cover-hist]'); if(btnCVH) btnCVH.onclick = ()=> openAssetHistPanel('cover');
+  // P1-3 封面提示词行内编辑：失焦即存（不触发 AI）
+  $$('[data-cover-edit]').forEach(ta=>{
+    ta.onchange = ()=>{ state.coverPrompt = ta.value; persist(); toast('封面提示词已保存'); };
+  });
   // 封面模式切换：纯画面(clean) / 含汉字书名(title)
   $$('[data-cv]').forEach(b=> b.onclick = ()=>{
     const v = b.dataset.cv === 'title';
@@ -3551,6 +4155,13 @@ function bindView(){
   });
   // P4
   const btnGB = $('#btnGenBoard'); if(btnGB) btnGB.onclick = genStoryboard;
+  const btnBH = $('#btnBoardHist'); if(btnBH) btnBH.onclick = ()=> openAssetHistPanel('storyboard');
+  const btnSH = $('#btnSceneHist'); if(btnSH) btnSH.onclick = ()=> openAssetHistPanel('scenes');
+  // P1-3 场景卡行内编辑：失焦即存
+  $$('[data-scene-name]').forEach(inp=> inp.onchange = ()=>{ const s=state.scenes[+inp.dataset.sceneName]; if(s){ s.name=inp.value; persist(); } });
+  $$('[data-scene-role]').forEach(inp=> inp.onchange = ()=>{ const s=state.scenes[+inp.dataset.sceneRole]; if(s){ s.作用=inp.value; persist(); } });
+  $$('[data-scene-desc]').forEach(ta=> ta.onchange = ()=>{ const s=state.scenes[+ta.dataset.sceneDesc]; if(s){ s.description=ta.value; persist(); } });
+  $$('[data-scene-prompt]').forEach(ta=> ta.onchange = ()=>{ const s=state.scenes[+ta.dataset.scenePrompt]; if(s){ s.prompt=ta.value; persist(); toast('场景提示词已保存'); } });
   // P5
   const btnCA = $('#btnCopyAll'); if(btnCA) btnCA.onclick = ()=> copyText(buildMarkdown());
   const btnDL = $('#btnDownload'); if(btnDL) btnDL.onclick = ()=> download(`影视资产包_${state.outline?.title||'story'}.md`, buildMarkdown());
@@ -3561,11 +4172,12 @@ function bindView(){
     const lnDL = $('#lnDownload'); if(lnDL) lnDL.onclick = ()=> download(`长篇资产包_${state.outline?.title||'story'}.md`, buildLongMarkdown());
     $$('#view [data-expch]').forEach(cb=> cb.onchange = ()=>{
       const i = +cb.dataset.expch;
-      if(cb.checked){ if(!expSel.includes(i)) expSel.push(i); } else expSel = expSel.filter(x=>x!==i);
+      if(cb.checked){ if(!state.expSel.includes(i)) state.expSel.push(i); } else state.expSel = state.expSel.filter(x=>x!==i);
+      persist();   // P3-4 勾选随项目快照持久化
       syncExpChecks();
     });
-    const selAll = $('#expSelAll'); if(selAll) selAll.onclick = ()=>{ expSel = state.chapters.map((c,i)=> (c.content && String(c.content).trim())?i:null).filter(x=>x!==null); syncExpChecks(); };
-    const selNone = $('#expSelNone'); if(selNone) selNone.onclick = ()=>{ expSel=[]; syncExpChecks(); };
+    const selAll = $('#expSelAll'); if(selAll) selAll.onclick = ()=>{ state.expSel = state.chapters.map((c,i)=> (c.content && String(c.content).trim())?i:null).filter(x=>x!==null); persist(); syncExpChecks(); };
+    const selNone = $('#expSelNone'); if(selNone) selNone.onclick = ()=>{ state.expSel=[]; persist(); syncExpChecks(); };
     const bt = $('#expTxt'); if(bt) bt.onclick = expText;
     const be = $('#expEpub'); if(be) be.onclick = expEpub;
     const bd = $('#expDocx'); if(bd) bd.onclick = expDocx;
@@ -3575,9 +4187,11 @@ function bindView(){
   renderChapters();
   // 用事件委托处理章节区内部点击：分页/折叠会重建部分按钮，委托在 #chaptersWrap 上保证始终生效（Bug2 修复）
   const chaptersDelegate = (e)=>{
-    const t = e.target.closest('[data-regen],[data-toggle],[data-read],[data-fold],[data-page],[data-ver]');
+    const t = e.target.closest('[data-regen],[data-toggle],[data-read],[data-fold],[data-page],[data-ver],[data-undo],[data-qc]');
     if(!t) return;
     if(t.hasAttribute('data-ver')){ openChapterVersionPanel(+t.dataset.ver); }
+    else if(t.hasAttribute('data-undo')){ undoChapterEdit(+t.dataset.undo); }
+    else if(t.hasAttribute('data-qc')){ openChapterQcPanel(+t.dataset.qc); }
     else if(t.hasAttribute('data-regen')){ openChapterRegenPanel(+t.dataset.regen); }
     else if(t.hasAttribute('data-toggle')){ const i=+t.dataset.toggle; state.chapters[i].confirmed=!state.chapters[i].confirmed; persist(); render(); }
     else if(t.hasAttribute('data-read')){ openReader(+t.dataset.read); }
@@ -3594,6 +4208,24 @@ function bindView(){
       const i = +ta.dataset.ch; state.chapters[i].content = ta.value;
       persist(); updateChapterWc(i, ta.value); updateWcTotal();
     });
+    // P0-3 手动编辑撤销：聚焦时记录原值，失焦（change）时若有变化把旧值快照入 editHistory（上限10）
+    cw.addEventListener('focusin', (e)=>{
+      const ta = e.target.closest('textarea[data-ch]'); if(!ta) return;
+      const c = state.chapters[+ta.dataset.ch];
+      ta._orig = c ? (c.content||'') : '';
+    });
+    cw.addEventListener('change', (e)=>{
+      const ta = e.target.closest('textarea[data-ch]'); if(!ta) return;
+      const i = +ta.dataset.ch; const c = state.chapters[i]; if(!c) return;
+      const old = (ta._orig !== undefined) ? ta._orig : (c.content||'');
+      if(ta.value !== old && String(ta.value||'') !== String(old||'')){
+        if(!Array.isArray(c.editHistory)) c.editHistory = [];
+        c.editHistory.push(old);
+        if(c.editHistory.length > 10) c.editHistory.splice(0, c.editHistory.length - 10);   // 上限10
+        persist(); renderChapters(); updateWcTotal();
+        toast('已记录编辑快照，可用「↩ 撤销编辑」回退');
+      }
+    });
   }
   // 分镜时长手改：实时联动章段头与全局统计
   $$('[data-dur]').forEach(inp=> inp.oninput = ()=>{
@@ -3608,6 +4240,84 @@ function bindView(){
 /* =========================================================
  * 生成动作
  * ========================================================= */
+/* ---------- P0-1 大纲版本历史：覆盖前快照 + 📚 弹窗预览/恢复（上限10） ---------- */
+function snapshotOutline(){
+  const o = state.outline;
+  if(!o || typeof o !== 'object') return;
+  const copy = JSON.parse(JSON.stringify(o));
+  state.outlineHistory.unshift({ outline: copy, ts: Date.now() });
+  if(state.outlineHistory.length > 10) state.outlineHistory.splice(10);
+}
+function hasOutlineHistory(){ return Array.isArray(state.outlineHistory) && state.outlineHistory.length > 0; }
+function outlineHistoryCount(){ return hasOutlineHistory() ? state.outlineHistory.length : 0; }
+function openOutlineHistoryPanel(){
+  closeOutlineHistoryPanel();
+  if(!hasOutlineHistory()){ toast('暂无历史版本'); return; }
+  const fmtTs = ts=>{ const d=new Date(ts); return (d.getFullYear())+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); };
+  const wc = o => { const s = JSON.stringify(o||{}); return (s.length||0); };
+  const rows = state.outlineHistory.map((h,idx)=>{
+    const o = h.outline || {};
+    const n = (o.chapters||[]).length;
+    return `<div class="cv-row">
+      <div class="cv-meta" style="flex:1;min-width:0"><div class="cv-time">${fmtTs(h.ts)}</div><div class="cv-t" style="font-size:12px;color:var(--sub);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(o.title||'未命名')} · ${n} 章 · ${wc(o)} 字符</div></div>
+      <div class="cv-actions" style="display:flex;gap:6px;flex-shrink:0">
+        <button type="button" class="btn ghost cv-b" data-ov-prev="${idx}">预览</button>
+        <button type="button" class="btn ghost cv-b" data-ov-restore="${idx}">↩ 恢复</button>
+      </div>
+    </div>`;
+  }).join('');
+  const ov = document.createElement('div'); ov.id='ovPanel'; ov.className='gs-overlay';
+  ov.innerHTML = `
+    <div class="gs-modal">
+      <div class="gs-modal-head"><b>📚 大纲版本历史（${state.outlineHistory.length}/10）</b>
+        <button class="gs-x" data-ov-close>✕</button></div>
+      <div class="cv-body">
+        <div class="cv-row cur"><div class="cv-meta"><span class="cv-time">当前版本</span><span class="cv-wc">${esc((state.outline&&state.outline.title)||'未命名')} · ${(state.outline&&state.outline.chapters||[]).length} 章</span></div></div>
+        <div class="cv-div">历史版本：恢复前会把当前大纲自动存入历史；恢复后章节列表按该版大纲重建（正文清空，已写章节保留在版本内可回退）。</div>
+        ${rows}
+        <div class="cv-preview hidden" id="ovPreview">
+          <div class="cv-prev-head"><b id="ovPrevTitle">版本预览</b><button class="gs-x" data-ov-prev-close>✕</button></div>
+          <div class="cv-pre" id="ovReader"></div>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(ov);
+  ov.querySelector('[data-ov-close]').onclick = closeOutlineHistoryPanel;
+  ov.addEventListener('click', e=>{ if(e.target===ov) closeOutlineHistoryPanel(); });
+  ov.addEventListener('click', e=>{
+    const p = e.target.closest('[data-ov-prev]'); if(!p) return;
+    const h = state.outlineHistory[+p.dataset.ovPrev]; if(!h) return;
+    const o = h.outline||{};
+    const pr=$('#ovPreview'), rd=$('#ovReader'), pt=$('#ovPrevTitle');
+    if(pr && rd){
+      pt.textContent = '预览 · '+fmtTs(h.ts);
+      rd.innerHTML = `<b>${esc(o.title||'')}</b><br><span class="muted">${esc(o.logline||'')}</span><br><br>` +
+        (o.chapters||[]).map((c,i)=>`${i+1}. ${esc((c&&c.title)||'')}`).join('<br>');
+      pr.classList.remove('hidden');
+    }
+  });
+  ov.querySelector('[data-ov-prev-close]').onclick = ()=>{ const pr=$('#ovPreview'); if(pr) pr.classList.add('hidden'); };
+  ov.addEventListener('click', e=>{
+    const rb = e.target.closest('[data-ov-restore]'); if(!rb) return;
+    const h = state.outlineHistory[+rb.dataset.ovRestore]; if(!h) return;
+    if(!window.confirm('恢复该版大纲将覆盖当前大纲（当前大纲自动存入历史，不会丢失）。若新旧章节数一致，已写正文会保留；否则章节列表按该版重建。确定恢复吗？')) return;
+    snapshotOutline();                       // 当前大纲入历史
+    const newOutline = JSON.parse(JSON.stringify(h.outline));
+    const oldOutline = state.outline;
+    state.outline = newOutline;
+    state.outlineConfirmed = false;
+    if(state.chapters.length === (newOutline.chapters||[]).length && oldOutline && (oldOutline.chapters||[]).length === state.chapters.length){
+      // 章节数一致：保留已写正文，仅同步标题（避免恢复大纲把正文冲掉）
+      state.chapters.forEach((c,i)=>{ const oc=newOutline.chapters[i]; if(oc) c.title = oc.title; });
+    } else {
+      state.chapters = (newOutline.chapters||[]).map(c=>({title:(c&&c.title)||'', content:'', summary:'', confirmed:false}));
+    }
+    persist(); closeOutlineHistoryPanel(); render();
+    toast('已恢复历史大纲');
+  });
+}
+function closeOutlineHistoryPanel(){ const p=$('#ovPanel'); if(p) p.remove(); }
+
 async function genOutline(){
   const btn = $('#btnGenOutline'); busy(btn,true,'生成大纲中…');
   const st = $('#outlineStatus'); st.className='status'; st.textContent='';
@@ -3669,6 +4379,8 @@ async function genOutline(){
       // 结构模式：已选结构则用其名；未选结构则留空（AI 按用户提示词自然发挥，结构标签不做固定默认）
       if(!s.mode) s.mode = (st && st.name) || '';
     }
+    // P0-1：新大纲覆盖前，先把旧大纲快照入版本历史（上限10）
+    snapshotOutline();
     state.outline = o; state.outlineConfirmed=false;
     // 万物词典：新生成大纲默认含 glossary（人物/地名/专名）；旧大纲缺省时给空，UI 提示重生成可启用
     if(!o.glossary || (!o.glossary.characters && !o.glossary.places && !o.glossary.propernouns)){
@@ -3717,12 +4429,80 @@ async function genChapterPlans(btn){
     // 数量与章节对齐：不足补齐占位，超出截断
     const n = (o.chapters||[]).length;
     const plans = Array.from({length:n},(_,i)=> arr[i] || '');
+    // P1-1 覆盖前快照旧梗概（上限10），支持回看/恢复
+    if(Array.isArray(o.chapterPlans) && o.chapterPlans.some(Boolean)){
+      if(!Array.isArray(o.chapterPlansHistory)) o.chapterPlansHistory = [];
+      o.chapterPlansHistory.unshift({ plans: o.chapterPlans.slice(), ts: Date.now() });
+      if(o.chapterPlansHistory.length > 10) o.chapterPlansHistory.splice(10);
+    }
     o.chapterPlans = plans;
     persist(); render();
     toast(`已生成 ${arr.length} 条逐章梗概`);
   }catch(e){ toast('梗概生成失败：'+e.message); }
   finally{ if(btn) busy(btn,false); }
 }
+
+/* ---------- P1-1 逐章梗概版本历史（上限10）：快照 + 弹窗预览/恢复 ---------- */
+function chapterPlansHistory(){ const o=state.outline; return (o && Array.isArray(o.chapterPlansHistory)) ? o.chapterPlansHistory : []; }
+function hasChapterPlansHistory(){ return chapterPlansHistory().length > 0; }
+function chapterPlansHistoryCount(){ return chapterPlansHistory().length; }
+function openChapterPlansHistoryPanel(){
+  closeChapterPlansHistoryPanel();
+  const hist = chapterPlansHistory(); if(!hist.length){ toast('暂无历史版本'); return; }
+  const o = state.outline;
+  const fmtTs = ts=>{ const d=new Date(ts); return (d.getMonth()+1)+'-'+d.getDate()+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); };
+  const rows = hist.map((h,idx)=>{
+    const n = (h.plans||[]).filter(Boolean).length;
+    const first = (h.plans||[]).slice(0,2).filter(Boolean).join(' / ');
+    return `<div class="cv-row">
+      <div class="cv-meta" style="flex:1;min-width:0"><div class="cv-time">${fmtTs(h.ts)}</div><div class="cv-t" style="font-size:12px;color:var(--sub);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${n} 条 · ${esc(first||'')}</div></div>
+      <div class="cv-actions" style="display:flex;gap:6px;flex-shrink:0">
+        <button type="button" class="btn ghost cv-b" data-cph-prev="${idx}">预览</button>
+        <button type="button" class="btn ghost cv-b" data-cph-restore="${idx}">↩ 恢复</button>
+      </div>
+    </div>`;
+  }).join('');
+  const ov = document.createElement('div'); ov.id='cphPanel'; ov.className='gs-overlay';
+  ov.innerHTML = `
+    <div class="gs-modal">
+      <div class="gs-modal-head"><b>📚 逐章梗概 · 版本历史（${hist.length}/10）</b>
+        <button class="gs-x" data-cph-close>✕</button></div>
+      <div class="cv-body">
+        <div class="cv-row cur"><div class="cv-meta"><span class="cv-time">当前版本</span><span class="cv-wc">${(Array.isArray(o.chapterPlans)?o.chapterPlans:[]).filter(Boolean).length} 条</span></div></div>
+        <div class="cv-div">历史版本：恢复会覆盖当前逐章梗概（当前版也会存入历史）。</div>
+        ${rows}
+        <div class="cv-preview hidden" id="cphPreview">
+          <div class="cv-prev-head"><b id="cphPrevTitle">版本预览</b><button class="gs-x" data-cph-prev-close>✕</button></div>
+          <div class="cv-pre" id="cphReader"></div>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(ov);
+  ov.querySelector('[data-cph-close]').onclick = closeChapterPlansHistoryPanel;
+  ov.addEventListener('click', e=>{ if(e.target===ov) closeChapterPlansHistoryPanel(); });
+  ov.addEventListener('click', e=>{
+    const p = e.target.closest('[data-cph-prev]'); if(!p) return;
+    const h = hist[+p.dataset.cphPrev]; if(!h) return;
+    const pr=$('#cphPreview'), rd=$('#cphReader'), pt=$('#cphPrevTitle');
+    if(pr && rd){ pt.textContent = '预览 · '+fmtTs(h.ts); rd.textContent = (h.plans||[]).map((t,i)=>`第${i+1}章 ${t||''}`).join('\n'); pr.classList.remove('hidden'); }
+  });
+  ov.querySelector('[data-cph-prev-close]').onclick = ()=>{ const pr=$('#cphPreview'); if(pr) pr.classList.add('hidden'); };
+  ov.addEventListener('click', e=>{
+    const rb = e.target.closest('[data-cph-restore]'); if(!rb) return;
+    const h = hist[+rb.dataset.cphRestore]; if(!h) return;
+    if(!window.confirm('恢复该版梗概将覆盖当前逐章梗概。当前版会自动存入历史，确定恢复吗？')) return;
+    // 当前版入历史
+    if(Array.isArray(o.chapterPlans) && o.chapterPlans.some(Boolean)){
+      if(!Array.isArray(o.chapterPlansHistory)) o.chapterPlansHistory = [];
+      o.chapterPlansHistory.unshift({ plans: o.chapterPlans.slice(), ts: Date.now() });
+      if(o.chapterPlansHistory.length > 10) o.chapterPlansHistory.splice(10);
+    }
+    o.chapterPlans = (h.plans||[]).slice();
+    persist(); closeChapterPlansHistoryPanel(); render();
+    toast('已恢复历史梗概');
+  });
+}
+function closeChapterPlansHistoryPanel(){ const p=$('#cphPanel'); if(p) p.remove(); }
 
 // 长篇：把整体结构/卷信息拼进章节生成的上下文（按所选结构注入）
 function longChapterContext(i){
@@ -3917,24 +4697,22 @@ function structureCard(o){
   if(!isLong() || !o || typeof o !== 'object') return '';
   const s = (o.structure && typeof o.structure === 'object') ? o.structure : {};
   const rows = [`<b>结构模式</b><span>${esc(s.mode || '按用户构想')}</span>`];
-  const push = (k,t,fmt)=>{
-    let v=s[k];
-    // 主线兜底：s.mainLine 空时用 o.logline 兜底，保证主线必有
-    if(k === 'mainLine' && (!v || !String(v).trim())) v = o.logline || '';
-    if(v==null) return;
-    if(Array.isArray(v)){
-      if(!v.length) return;   // 空数组不展示（铁律：无则空，不占行）
-      rows.push(`<b>${t}</b><span>${esc(v.join(' · '))}</span>`);
-    } else {
-      const str = fmt ? fmt(v) : String(v);
-      if(!str.trim()) return; // 空字符串不展示
-      rows.push(`<b>${t}</b><span>${esc(str)}</span>`);
-    }
+  // P0-2：主线/副线/暗线/汇合 四行改为「行内可编辑」（失焦即存，零 AI 调用），
+  // 与词典字段编辑同交互：常显 input，onchange 写回 state + persist。
+  const editRow = (k,t,v,fmt)=>{
+    const str = fmt ? fmt(v) : String(v==null?'':v);
+    return `<b>${t}</b><input type="text" class="sc-edit-in" data-sc-key="${k}" data-orig="${esc(str)}" value="${esc(str)}" placeholder="${t}" />`;
   };
-  push('mainLine','主线');
-  push('subLines','副线');
-  push('hiddenLine','暗线');
-  push('pivotPlan','汇合/大逆转');
+  // 主线兜底：s.mainLine 空时用 o.logline 兜底
+  let mainLine = s.mainLine;
+  if(!mainLine || !String(mainLine).trim()) mainLine = o.logline || '';
+  rows.push(editRow('mainLine','主线', mainLine));
+  // 副线：数组 ↔ 顿号/分号分隔文本（可加可删）
+  const subLines = Array.isArray(s.subLines) ? s.subLines.filter(Boolean) : [];
+  rows.push(editRow('subLines','副线', subLines.join('；')));
+  rows.push(editRow('hiddenLine','暗线', s.hiddenLine || ''));
+  rows.push(editRow('pivotPlan','汇合/大逆转', s.pivotPlan || ''));
+  const addSubBtn = `<button type="button" class="btn small ghost sc-add-sub" data-sc-add-sub title="追加一条副线">＋ 副线</button>`;
   // 全章节安排：优先结构专属章节映射（英雄之旅 stageChapters / 节拍表 beats / 七点 points），回退统一 chapterPlan；分层卷结构作为另一种合法呈现。
   const plan = structureChapterPlan(s, o);
   if(plan){
@@ -3958,8 +4736,43 @@ function structureCard(o){
     </div>
     <div class="sc-body"${state.stCollapsed?' hidden':''}>
       ${rows.map(r=>`<div class="sc-row">${r}</div>`).join('')}
+      ${addSubBtn}
+      <p class="muted" style="margin:6px 0 0;font-size:11px">主线/副线/暗线/汇合可直接编辑，失焦即存（不触发 AI）；副线多条用「；」分隔。</p>
     </div>
   </div>`;
+}
+// P0-2 结构设计行内编辑绑定：失焦即存 + 「＋副线」追加
+function bindStructureEdit(){
+  const o = state.outline; if(!o || !isLong()) return;
+  if(!o.structure || typeof o.structure !== 'object') o.structure = {};
+  const s = o.structure;
+  $$('[data-sc-key]').forEach(inp=>{
+    inp.onchange = ()=>{
+      const k = inp.dataset.scKey;
+      let v = inp.value.trim();
+      if(k === 'subLines'){
+        // 数组字段：按「；」/「;」/「、」/「，」分隔，过滤空
+        const arr = v.split(/[；;、，,]+/).map(x=>x.trim()).filter(Boolean);
+        s.subLines = arr;
+        inp.value = arr.join('；');
+      } else {
+        s[k] = v;
+      }
+      if(k === 'mainLine' && !v) s[k] = o.logline || '';   // 主线不允许清空，回退 logline
+      inp.dataset.orig = inp.value;
+      persist(); toast('结构设计已保存');
+    };
+  });
+  $$('[data-sc-add-sub]').forEach(btn=>{
+    btn.onclick = ()=>{
+      if(!Array.isArray(s.subLines)) s.subLines = [];
+      s.subLines.push('新副线：');
+      persist(); render();
+      // 自动滚动到新输入行并聚焦
+      const inp = $('.sc-edit-in[data-sc-key="subLines"]');
+      if(inp){ inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
+    };
+  });
 }
 // 写一条章节正文（依所勾选质量机制 post-processing：dual 双审 / selfref 自省 / plothole 伏笔洞检测）
 // 省 token 策略：正文与初审均带上 max_tokens 上限；各机制一律「段落级重写」而非整章重写，
@@ -3967,23 +4780,27 @@ function structureCard(o){
 function splitChapterOutput(txt){
   return { content: String(txt||'').trim(), summary: '' };
 }
-async function writeOneChapterContent(i, user, onPhase, onStream){
+async function writeOneChapterContent(i, user, onPhase, onStream, styleOverride){
   const mt = chapterMaxTokens();
   onPhase = onPhase || (()=>{});
   // onPhase 阶段上报；onStream 若提供则开启流式边收边显示（成本0，实时进度），否则一次性返回全文
   onPhase('撰写本章正文…');
-  let txt = await callDeepSeek(longChapterSys(), user, {maxTokens: mt, onStream, temperature: resolveActiveSpec().chapterTemp});   // v10.8 章节温度
+  let txt = await callDeepSeek(longChapterSys(styleOverride), user, {maxTokens: mt, onStream, temperature: resolveActiveSpec().chapterTemp});   // v10.8 章节温度 / v2.0 风格覆盖
   // v10.11 全文即正文（无【本章梗概】标记需要拆分），直接过质检
   const sp = splitChapterOutput(txt);
-  return applyChapterQuality(sp.content, user, mt, onPhase);
+  const { final, record } = await applyChapterQuality(sp.content, user, mt, onPhase);   // P1-4/P2-2：返回 {定稿, 质检记录}
+  if(state.chapters[i]) state.chapters[i].qcRecord = record;   // 质检记录（含初稿/定稿对照）挂到本章
+  return final;
 }
 // 对单章正文执行统一「两段式自动质检」：草扫(scanDraft)判定有无硬伤 + 精修(rewriteSegment)只改错误段落。
 // 取代旧的三种质量范式（dual 双审 / selfref 自省 / plothole 伏笔洞），一套规则、无错即过、零无效输出（按 安排token.md §10-§15）。
 // 草扫只发本章，判定「逻辑/人物关系/人名专名/写作」四类硬伤；无错 → pass:true 零改写；有错 → 对每个 anchor 定位的错误段做局部精修，绝不重发全文。
 // 由 buildGen 与批量（2章/多章）共用；autoQC 关闭时直接过，不产生质检请求。
+// P1-4/P2-2：返回 { final, record }——final 为定稿文本；record 为质检记录（scan 判定 + 初稿/定稿对照），供「🧪 质检记录」弹窗展示。
 async function applyChapterQuality(txt, user, mt, onPhase){
-  if(!isLong()) return txt.trim();
-  if(typeof state.autoQC !== 'undefined' && !state.autoQC) return txt.trim();   // 自动质检开关：关则直接落库
+  const noRecord = (f)=> ({ final: String(f||'').trim(), record: null });
+  if(!isLong()) return noRecord(txt);
+  if(typeof state.autoQC !== 'undefined' && !state.autoQC) return noRecord(txt);   // 自动质检开关：关则直接落库
   mt = mt || chapterMaxTokens();
   onPhase = onPhase || (()=>{});
   // 第一步：草扫——只判「有无硬伤 + anchor 定位」，禁止返回改写正文（省最贵的输出 token）
@@ -3999,7 +4816,8 @@ async function applyChapterQuality(txt, user, mt, onPhase){
     const j = parseJson(await callDeepSeek(SCAN_SYS, '【本章初稿】\n'+txt.trim(), {temperature: resolveActiveSpec().qcTemp}));   // v10.8 质检温度
     issues = (j && !j.pass && Array.isArray(j.issues)) ? j.issues.filter(x=>x && x.anchor && String(x.anchor).trim()) : [];
   }catch(e){ issues = []; }
-  if(!issues.length) return dedupAdjacentParagraphs(txt).trim();   // 无错即过，零改写（省返回 token）
+  const record = { ts: Date.now(), passed: !issues.length, issues: [], draft: String(txt||'').trim(), final: '' };
+  if(!issues.length){ record.final = dedupAdjacentParagraphs(txt).trim(); return { final: record.final, record }; }   // 无错即过，零改写（省返回 token）
   // 第二步：精修——只发「错误段 + 一致性词典 + 词典基准」做局部重写，逐段落回，不重发全文
   let budget = 3;                                   // 精修次数上限（防止极端硬伤输出放大）
   let out = txt;
@@ -4018,10 +4836,50 @@ async function applyChapterQuality(txt, user, mt, onPhase){
         {temperature: resolveActiveSpec().qcTemp}   // v10.8 质检温度
       )).trim());
     }catch(e){ rw = ''; }
-    if(rw && rw.length > 8) out = applyPatches(out, [{anchor:it.anchor, rewritten:rw}]);
+    if(rw && rw.length > 8){
+      record.issues.push({ type: it.type||'', anchor: it.anchor, orig: seg, rewritten: rw });   // P1-4：记录原文段 → 修正段对照
+      out = applyPatches(out, [{anchor:it.anchor, rewritten:rw}]);
+    }
   }
-  return dedupAdjacentParagraphs(out).trim();
+  record.final = dedupAdjacentParagraphs(out).trim();
+  record.passed = !record.issues.length;
+  return { final: record.final, record };
 }
+/* ---------- P1-4/P2-2 质检记录弹窗：scan 判定 + 原文/修正对照 + 初稿/定稿 ---------- */
+function openChapterQcPanel(i){
+  closeChapterQcPanel();
+  const c = state.chapters[i]; if(!c || !c.qcRecord) { toast('本章暂无质检记录'); return; }
+  const r = c.qcRecord;
+  const fmtTs = ts=>{ const d=new Date(ts); return (d.getMonth()+1)+'-'+d.getDate()+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); };
+  const issuesHtml = r.issues.length ? r.issues.map((it,idx)=>`
+    <div class="qc-issue">
+      <div class="qc-issue-t">${idx+1}. 类型：<b>${esc(it.type||'未分类')}</b><span class="muted"> · anchor：${esc(it.anchor||'')}</span></div>
+      <div class="qc-pair">
+        <div class="qc-side"><div class="qc-side-t">✂️ 原文段（AI 判定的问题段）</div><div class="qc-pre">${esc(it.orig||'')}</div></div>
+        <div class="qc-side"><div class="qc-side-t">✅ 修正后段落</div><div class="qc-pre qc-fixed">${esc(it.rewritten||'')}</div></div>
+      </div>
+    </div>`).join('') : '<p class="muted">草扫未发现硬伤，零改写通过。</p>';
+  const ov = document.createElement('div'); ov.id='qcPanel'; ov.className='gs-overlay';
+  ov.innerHTML = `
+    <div class="gs-modal">
+      <div class="gs-modal-head"><b>🧪 质检记录 · 第${i+1}章「${esc(cleanChapterTitle(c.title))}」</b>
+        <button class="gs-x" data-qc-close>✕</button></div>
+      <div class="cv-body">
+        <div class="cv-row cur"><div class="cv-meta"><span class="cv-time">${fmtTs(r.ts)}</span><span class="cv-wc">${r.passed ? '✅ 通过（零改写）' : '⚠️ 已修正 '+r.issues.length+' 处'}</span></div></div>
+        <div class="cv-div">AI 质检改了哪些地方、初稿 vs 定稿，都在这里可查。</div>
+        ${issuesHtml}
+        <div class="cv-div" style="margin-top:10px">📄 初稿 / 定稿 对照（仅展示，正文以当前章节内容为准）</div>
+        <div class="qc-pair">
+          <div class="qc-side"><div class="qc-side-t">初稿（AI 原始返回，QC 前）</div><div class="qc-pre">${esc((r.draft||'').slice(0,1200))}${(r.draft||'').length>1200?'…':''}</div></div>
+          <div class="qc-side"><div class="qc-side-t">定稿（QC 修正后落库）</div><div class="qc-pre qc-fixed">${esc((r.final||'').slice(0,1200))}${(r.final||'').length>1200?'…':''}</div></div>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(ov);
+  ov.querySelector('[data-qc-close]').onclick = closeChapterQcPanel;
+  ov.addEventListener('click', e=>{ if(e.target===ov) closeChapterQcPanel(); });
+}
+function closeChapterQcPanel(){ const p=$('#qcPanel'); if(p) p.remove(); }
 // 依 anchor 定位其在整章中的所在段原文（供精修第二步只发该段；复用 applyPatches 的段落边界逻辑）
 function locateSegment(txt, anchor){
   const a = String(anchor || '').trim();
@@ -4156,6 +5014,9 @@ function openChapterRegenPanel(i){
         </div>`;
       }).join('')}
     </div>` : '';
+  // v2.0 本章风格覆盖 + 双风格对比的局部状态（一次性，不持久化）
+  const rpOv = { on:false, tags:[], intensity:2 };
+  const rpCmpB = { tags:[], intensity:2 };
   const ov = document.createElement('div');
   ov.id = 'regenPanel'; ov.className = 'gs-overlay';
   ov.innerHTML = `
@@ -4166,6 +5027,34 @@ function openChapterRegenPanel(i){
         <p class="gs-q"><b>想如何改动这一章？</b> 可在下方填写你的具体要求（改动方向、补充设定、错误修正等）；留空则按现有风格直接重写。</p>
         <textarea id="rpAdvice" class="rp-advice" placeholder="例如：这一章节奏太慢，请压缩到 1500 字以内；女主的性格再外放一点；增加与上一章结尾的衔接…（可选）"></textarea>
         ${histHtml}
+        <div class="rp-style">
+          <div class="rp-style-head" data-rpov-fold role="button" tabindex="0">
+            <span>🎨 本章风格覆盖 <span class="rp-style-arrow">▾</span></span>
+            <span class="muted" style="font-size:11px;font-weight:400">默认跟随全书 · 一次性不保存</span>
+          </div>
+          <div class="rp-style-body">
+            <label class="rp-radio-row"><input type="radio" name="rpov" value="off" checked> 跟随全书风格</label>
+            <label class="rp-radio-row"><input type="radio" name="rpov" value="on"> 仅本章覆盖（重生成这章时用下面的风格，不保存）</label>
+            <div class="rp-style-sub hidden" id="rpOvBox">
+              <div class="rp-style-label">覆盖风格（语气单选 · 质感/元素多选）</div>
+              ${writeStyleChipsHtml(rpOv, 'rpov')}
+              <div class="rp-style-label">浓度：${writeStyleIntHtml(rpOv, 'rpov')}</div>
+            </div>
+          </div>
+        </div>
+        <div class="rp-style">
+          <div class="rp-style-head" data-rpcmp-fold role="button" tabindex="0">
+            <span>⚡ 双风格对比生成 <span class="rp-style-arrow">▾</span></span>
+            <span class="muted" style="font-size:11px;font-weight:400">两次调用 · 左右对照选稿</span>
+          </div>
+          <div class="rp-style-body">
+            <p class="muted" style="font-size:12px;margin:4px 0 8px">A 稿 = 当前生效风格（含上方本章覆盖）；B 稿 = 下方所选（留空 = 无风格直白版）。</p>
+            <div class="rp-style-label">B 稿对比风格</div>
+            ${writeStyleChipsHtml(rpCmpB, 'rpcmp')}
+            <div class="rp-style-label">B 稿浓度：${writeStyleIntHtml(rpCmpB, 'rpcmp')}</div>
+            <button class="btn blue" data-rp-compare>⚡ 生成 A/B 两稿并对比</button>
+          </div>
+        </div>
       </div>
       <div class="gs-actions">
         <button class="btn" data-rp-plain>直接重生成（无干预）</button>
@@ -4175,18 +5064,49 @@ function openChapterRegenPanel(i){
   document.body.appendChild(ov);
   ov.querySelector('[data-rp-close]').onclick = closeChapterRegenPanel;
   ov.addEventListener('click', e=>{ if(e.target===ov) closeChapterRegenPanel(); });
+  // v2.0 折叠区开关
+  const foldOv = ov.querySelector('[data-rpov-fold]');
+  if(foldOv) foldOv.onclick = ()=>{
+    const body = ov.querySelector('.rp-style-body'); if(!body) return;
+    const on = body.classList.toggle('hidden');
+    const arrow = foldOv.querySelector('.rp-style-arrow'); if(arrow) arrow.textContent = on?'▸':'▾';
+  };
+  const foldCmp = ov.querySelector('[data-rpcmp-fold]');
+  if(foldCmp) foldCmp.onclick = ()=>{
+    const body = foldCmp.closest('.rp-style').querySelector('.rp-style-body'); if(!body) return;
+    const on = body.classList.toggle('hidden');
+    const arrow = foldCmp.querySelector('.rp-style-arrow'); if(arrow) arrow.textContent = on?'▸':'▾';
+  };
+  // v2.0 本章覆盖：radio 切换 + chips + 浓度
+  ov.querySelectorAll('input[name="rpov"]').forEach(r=> r.onchange = ()=>{
+    rpOv.on = r.value === 'on';
+    const box = ov.querySelector('#rpOvBox'); if(box) box.classList.toggle('hidden', !rpOv.on);
+  });
+  ov.querySelectorAll('[data-rpov-tag]').forEach(b=> b.onclick = ()=>{ toggleWriteTag(rpOv, b.dataset.rpovTag); ov.querySelectorAll('[data-rpov-tag]').forEach(x=> x.classList.toggle('on', rpOv.tags.includes(x.dataset.rpovTag))); });
+  ov.querySelectorAll('[data-rpov-int]').forEach(b=> b.onclick = ()=>{ rpOv.intensity = +b.dataset.rpovInt; ov.querySelectorAll('[data-rpov-int]').forEach(x=> x.classList.toggle('on', rpOv.intensity===+x.dataset.rpovInt)); });
+  // v2.0 对比 B 风格：chips + 浓度
+  ov.querySelectorAll('[data-rpcmp-tag]').forEach(b=> b.onclick = ()=>{ toggleWriteTag(rpCmpB, b.dataset.rpcmpTag); ov.querySelectorAll('[data-rpcmp-tag]').forEach(x=> x.classList.toggle('on', rpCmpB.tags.includes(x.dataset.rpcmpTag))); });
+  ov.querySelectorAll('[data-rpcmp-int]').forEach(b=> b.onclick = ()=>{ rpCmpB.intensity = +b.dataset.rpcmpInt; ov.querySelectorAll('[data-rpcmp-int]').forEach(x=> x.classList.toggle('on', rpCmpB.intensity===+x.dataset.rpcmpInt)); });
+  // 生成按钮：携带本章覆盖
   ov.querySelector('[data-rp-plain]').onclick = ()=>{
     const btn = document.querySelector('[data-regen="'+i+'"]');
     closeChapterRegenPanel();
     pushRegen('plain','');
-    genOneChapter(i, btn, {});
+    genOneChapter(i, btn, rpOv.on ? { styleOverride: { tags: rpOv.tags.slice(), intensity: rpOv.intensity } } : {});
   };
   ov.querySelector('[data-rp-with]').onclick = ()=>{
     const advice = $('#rpAdvice').value.trim();
     const btn = document.querySelector('[data-regen="'+i+'"]');
     closeChapterRegenPanel();
     pushRegen('advice', advice);
-    genOneChapter(i, btn, {advice});
+    genOneChapter(i, btn, rpOv.on ? { advice, styleOverride: { tags: rpOv.tags.slice(), intensity: rpOv.intensity } } : { advice });
+  };
+  // 对比生成
+  ov.querySelector('[data-rp-compare]').onclick = ()=>{
+    const btn = document.querySelector('[data-regen="'+i+'"]');
+    const styleA = rpOv.on ? { tags: rpOv.tags.slice(), intensity: rpOv.intensity } : null;   // null=全书风格
+    closeChapterRegenPanel();
+    genChapterCompare(i, styleA, { tags: rpCmpB.tags.slice(), intensity: rpCmpB.intensity });
   };
   // 历史条目点击回填
   ov.querySelectorAll('[data-rp-fill]').forEach(el=>{
@@ -4200,8 +5120,82 @@ function openChapterRegenPanel(i){
 }
 function closeChapterRegenPanel(){ const p=$('#regenPanel'); if(p) p.remove(); }
 
+/* ---------- v2.0 双风格对比生成：A=当前生效风格 / B=所选对比风格，两次调用后左右对照选稿 ---------- */
+async function genChapterCompare(i, styleA, styleB){
+  const c = state.chapters[i]; if(!c) return;
+  const btn = document.querySelector('[data-regen="'+i+'"]');
+  chState[i] = 'generating'; state.generating = true; patchChapter(i);
+  if(btn) busy(btn,true,'对比生成中…');
+  const st = $('#chStatus');
+  const setPhase = m => { if(st){ st.className='status'; st.textContent = `第 ${i+1}/${state.chapters.length} 章：${m||''}`; } };
+  try{
+    const user = buildChapterUser(i, {regenerating:true});
+    setPhase('生成 A 稿（当前风格）…');
+    const txtA = await writeOneChapterContent(i, user, setPhase, null, styleA);
+    const qcA = state.chapters[i] && state.chapters[i].qcRecord ? state.chapters[i].qcRecord : null;
+    setPhase('生成 B 稿（对比风格）…');
+    const txtB = await writeOneChapterContent(i, user, setPhase, null, styleB);
+    const qcB = state.chapters[i] && state.chapters[i].qcRecord ? state.chapters[i].qcRecord : null;
+    chState[i] = 'done';
+    openComparePanel(i, txtA, txtB, qcA, qcB);
+    if(st){ st.className='status ok'; st.textContent = `第 ${i+1} 章双风格对比稿已生成，请在弹窗中选择采用。`; }
+    toast('两稿已生成，请选择采用');
+  }catch(e){
+    chState[i] = 'error'; patchChapter(i);
+    if(st){ st.className='status err'; st.textContent = '对比生成失败：'+e.message; }
+    toast('对比生成失败：'+e.message);
+  }finally{
+    state.generating = false;
+    if(btn) busy(btn,false);
+    patchChapter(i);
+  }
+}
+// 对比结果弹窗：左右两栏（复用 .qc-pair）+ 采用 A/B + 未采用稿与旧正文一并入版本历史
+function openComparePanel(i, a, b, qcA, qcB){
+  closeComparePanel();
+  const c = state.chapters[i];
+  const title = c && c.title ? c.title : ('第'+(i+1)+'章');
+  const ov = document.createElement('div'); ov.id='cmpPanel'; ov.className='gs-overlay';
+  ov.innerHTML = `
+    <div class="gs-modal">
+      <div class="gs-modal-head"><b>⚡ 双风格对比 · 第${i+1}章「${esc(cleanChapterTitle(title))}」</b>
+        <button class="gs-x" data-cmp-close>✕</button></div>
+      <div class="cv-body">
+        <div class="cv-div">A 稿 = 当前生效风格；B 稿 = 对比风格。采用后，未采用稿会连同旧正文一起存入版本历史（📚 版本 可回退）。</div>
+        <div class="qc-pair">
+          <div class="qc-side"><div class="qc-side-t">A 稿 · 当前生效风格（${countWords(a).total} 字）</div><div class="qc-pre cmp-pre">${esc(a)}</div></div>
+          <div class="qc-side"><div class="qc-side-t">B 稿 · 对比风格（${countWords(b).total} 字）</div><div class="qc-pre cmp-pre">${esc(b)}</div></div>
+        </div>
+        <div class="gs-actions" style="margin-top:10px">
+          <button class="btn primary" data-cmp-use="a">✔ 采用 A 稿</button>
+          <button class="btn primary" data-cmp-use="b">✔ 采用 B 稿</button>
+          <button class="btn" data-cmp-close>暂不采用（两稿都存历史）</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(ov);
+  ov.querySelectorAll('[data-cmp-close]').forEach(b=> b.onclick = closeComparePanel);
+  ov.addEventListener('click', e=>{ if(e.target===ov) closeComparePanel(); });
+  ov.addEventListener('click', e=>{
+    const u = e.target.closest('[data-cmp-use]'); if(!u) return;
+    const isA = u.dataset.cmpUse === 'a';
+    const pick = isA ? a : b;
+    const other = isA ? b : a;
+    snapshotChapterVersion(i);                    // 旧正文入历史
+    const ch = ensureChapterHistory(i);
+    ch.content = pick;
+    if(other && String(other).trim()) ch.history.push({ content: other, ts: Date.now() });   // 未采用稿也入历史备查
+    if(ch.history.length > 30) ch.history.splice(0, ch.history.length - 30);
+    ch.qcRecord = isA ? (qcA||null) : (qcB||null);   // 质检记录与采用稿对齐，避免误导
+    persist(); closeComparePanel(); renderChapters(); updateWcTotal();
+    toast('已采用 '+(isA?'A':'B')+' 稿');
+  });
+}
+function closeComparePanel(){ const p=$('#cmpPanel'); if(p) p.remove(); }
+
 // 单章生成（🔄 重生成，决策5：只重写目标章，注入上章结尾+下章概要+全局词典）
 // opt.advice：可选的人工干预要求（建议3·此轮），随 buildChapterUser 注入模型
+// opt.styleOverride：可选的本章风格覆盖 {tags,intensity}（v2.0：仅本章生效，一次性消费）
 async function genOneChapter(i, btn, opt={}){
   chState[i] = 'generating'; state.generating = true; patchChapter(i);
   if(btn) busy(btn,true,'生成中…');
@@ -4215,7 +5209,7 @@ async function genOneChapter(i, btn, opt={}){
     const stStream = $('#chStatus');
     let _s = 0;
     const onStream = currentIsDeepSeek() ? (delta => { if(stStream){ _s += String(delta||'').length; stStream.className='status'; stStream.textContent = `第 ${i+1}/${state.chapters.length} 章：撰写中 · 已生成 ${_s} 字`; } }) : null;
-    const txt = await writeOneChapterContent(i, user, setPhase, onStream);   // 各阶段经 setPhase 上报，正文流式实时字数经 onStream
+    const txt = await writeOneChapterContent(i, user, setPhase, onStream, opt.styleOverride);   // 各阶段经 setPhase 上报，正文流式实时字数经 onStream；v2.0 支持本章风格覆盖
     snapshotChapterVersion(i);            // v7.2：覆盖前存旧版，支持回退
     state.chapters[i].content = txt;
     chState[i] = 'done';
@@ -4322,7 +5316,7 @@ async function genAllChapters(){
         state.chapters[i].content = txt;
         chState[i]='done';
       } else {
-        const txt = await callDeepSeek(PROMPTS.chapterSys + specSysAddition() + '\n\n' + ORIGINALITY_CHAPTER_SYS, buildChapterUser(i), {temperature: resolveActiveSpec().chapterTemp});   // v10.8 章节温度 / v10.12 防套路
+        const txt = await callDeepSeek(PROMPTS.chapterSys + specSysAddition() + '\n\n' + ORIGINALITY_CHAPTER_SYS + chapterStyleNote(), buildChapterUser(i), {temperature: resolveActiveSpec().chapterTemp});   // v10.8 章节温度 / v10.12 防套路 / v2.0 写作风格
         snapshotChapterVersion(i);            // v7.2：覆盖前存旧版，支持回退
         state.chapters[i].content = txt; state.chapters[i].confirmed=false;
         chState[i]='done';
@@ -4355,15 +5349,98 @@ async function genOneChapterNoUI(i){
   try{
     const txt = isLong()
       ? await writeOneChapterContent(i, user)
-      : (await callDeepSeek(PROMPTS.chapterSys + specSysAddition() + '\n\n' + ORIGINALITY_CHAPTER_SYS, user, {temperature: resolveActiveSpec().chapterTemp})).trim();   // v10.8 章节温度 / v10.12 防套路
+      : (await callDeepSeek(PROMPTS.chapterSys + specSysAddition() + '\n\n' + ORIGINALITY_CHAPTER_SYS + chapterStyleNote(), user, {temperature: resolveActiveSpec().chapterTemp})).trim();   // v10.8 章节温度 / v10.12 防套路 / v2.0 写作风格
     state.chapters[i].content = txt;
     persist();
   }catch(e){ /* 继续后续 */ }
 }
 
+/* ---------- P1-3 角色/场景/封面/分镜：覆盖前快照 + 历史弹窗（各上限10） ---------- */
+function pushAssetHist(kind, data){
+  if(data == null) return;
+  if(!state.hist) state.hist = { characters:[], scenes:[], cover:[], storyboard:[] };
+  const arr = state.hist[kind]; if(!Array.isArray(arr)) return;
+  arr.unshift({ data: JSON.parse(JSON.stringify(data)), ts: Date.now() });
+  if(arr.length > 10) arr.splice(10);
+}
+function assetHistCount(kind){ return Array.isArray(state.hist && state.hist[kind]) ? state.hist[kind].length : 0; }
+function hasAssetHist(kind){ return assetHistCount(kind) > 0; }
+const ASSET_LABEL = { characters:'角色定妆', scenes:'场景提示词', cover:'封面提示词', storyboard:'分镜' };
+function openAssetHistPanel(kind){
+  closeAssetHistPanel();
+  const hist = Array.isArray(state.hist && state.hist[kind]) ? state.hist[kind] : [];
+  if(!hist.length){ toast('暂无历史版本'); return; }
+  const fmtTs = ts=>{ const d=new Date(ts); return (d.getMonth()+1)+'-'+d.getDate()+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); };
+  const rows = hist.map((h,idx)=>{
+    const d = h.data;
+    let brief = '';
+    if(kind==='characters') brief = (Array.isArray(d)?d.map(x=>x&&x.name).filter(Boolean).join('、'):'');
+    else if(kind==='scenes') brief = (Array.isArray(d)?d.map(x=>x&&x.name).filter(Boolean).join('、'):'');
+    else if(kind==='cover') brief = String(d||'').slice(0,40);
+    else if(kind==='storyboard') brief = `${Array.isArray(d)?d.length:0} 镜`;
+    const cnt = Array.isArray(d) ? d.length : 1;
+    return `<div class="cv-row">
+      <div class="cv-meta" style="flex:1;min-width:0"><div class="cv-time">${fmtTs(h.ts)} · ${cnt} 条</div><div class="cv-t" style="font-size:12px;color:var(--sub);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(brief||'')}</div></div>
+      <div class="cv-actions" style="display:flex;gap:6px;flex-shrink:0">
+        <button type="button" class="btn ghost cv-b" data-ah-prev="${idx}">预览</button>
+        <button type="button" class="btn ghost cv-b" data-ah-restore="${idx}">↩ 恢复</button>
+      </div>
+    </div>`;
+  }).join('');
+  const ov = document.createElement('div'); ov.id='ahPanel'; ov.className='gs-overlay';
+  ov.innerHTML = `
+    <div class="gs-modal">
+      <div class="gs-modal-head"><b>🕘 ${ASSET_LABEL[kind]} · 历史版本（${hist.length}/10）</b>
+        <button class="gs-x" data-ah-close>✕</button></div>
+      <div class="cv-body">
+        <div class="cv-row cur"><div class="cv-meta"><span class="cv-time">当前版本</span><span class="cv-wc">${kind==='cover' ? (state.coverPrompt?'有':'空') : (Array.isArray(state[kind==='characters'?'characters':(kind==='scenes'?'scenes':'storyboard')])?state[kind==='characters'?'characters':(kind==='scenes'?'scenes':'storyboard')].length:0)+' 条'}</span></div></div>
+        <div class="cv-div">重生成前旧版会自动存入这里；恢复会覆盖当前内容（当前版也先存入历史）。</div>
+        ${rows}
+        <div class="cv-preview hidden" id="ahPreview">
+          <div class="cv-prev-head"><b id="ahPrevTitle">版本预览</b><button class="gs-x" data-ah-prev-close>✕</button></div>
+          <div class="cv-pre" id="ahReader"></div>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(ov);
+  ov.querySelector('[data-ah-close]').onclick = closeAssetHistPanel;
+  ov.addEventListener('click', e=>{ if(e.target===ov) closeAssetHistPanel(); });
+  ov.addEventListener('click', e=>{
+    const p = e.target.closest('[data-ah-prev]'); if(!p) return;
+    const h = hist[+p.dataset.ahPrev]; if(!h) return;
+    const pr=$('#ahPreview'), rd=$('#ahReader'), pt=$('#ahPrevTitle');
+    if(pr && rd){
+      pt.textContent = '预览 · '+fmtTs(h.ts);
+      const d = h.data;
+      let txt = '';
+      if(kind==='characters') txt = (d||[]).map(x=>`${x.name||''}（${x.role||''}）\n${JSON.stringify(x.profile||{},null,1)}`).join('\n\n');
+      else if(kind==='scenes') txt = (d||[]).map(x=>`${x.name||''}（${x.作用||''}）\n${x.description||''}`).join('\n\n');
+      else if(kind==='cover') txt = String(d||'');
+      else if(kind==='storyboard') txt = (d||[]).map(x=>`镜${x.镜号||''}：${x.画面描述||''}`).join('\n');
+      rd.textContent = txt.slice(0,1500) + (txt.length>1500?'\n…':''); 
+      pr.classList.remove('hidden');
+    }
+  });
+  ov.querySelector('[data-ah-prev-close]').onclick = ()=>{ const pr=$('#ahPreview'); if(pr) pr.classList.add('hidden'); };
+  ov.addEventListener('click', e=>{
+    const rb = e.target.closest('[data-ah-restore]'); if(!rb) return;
+    const h = hist[+rb.dataset.ahRestore]; if(!h) return;
+    if(!window.confirm(`恢复该版${ASSET_LABEL[kind]}将覆盖当前内容（当前版先存入历史）。确定恢复吗？`)) return;
+    const curData = kind==='cover' ? (state.coverPrompt||'') : state[kind==='characters'?'characters':(kind==='scenes'?'scenes':'storyboard')];
+    pushAssetHist(kind, curData);
+    if(kind==='cover') state.coverPrompt = String(h.data||'');
+    else state[kind==='characters'?'characters':(kind==='scenes'?'scenes':'storyboard')] = JSON.parse(JSON.stringify(h.data||[]));
+    persist(); closeAssetHistPanel(); render();
+    toast('已恢复历史版本');
+  });
+}
+function closeAssetHistPanel(){ const p=$('#ahPanel'); if(p) p.remove(); }
+
 async function genCharacters(){
   const btn = $('#btnGenChars'); busy(btn,true,'生成角色中…');
   try{
+    // P1-3 覆盖前快照
+    if(state.characters && state.characters.length) pushAssetHist('characters', state.characters);
     const txt = await callDeepSeek(PROMPTS.characterSys, '【完整故事】\n'+fullStoryText());
     state.raw.characters = txt;
     const j = parseJson(txt);
@@ -4378,6 +5455,8 @@ async function genCharacters(){
 async function genScenes(){
   const btn = $('#btnGenScenes'); busy(btn,true,'生成场景中…');
   try{
+    // P1-3 覆盖前快照
+    if(state.scenes && state.scenes.length) pushAssetHist('scenes', state.scenes);
     const txt = await callDeepSeek(PROMPTS.sceneSys, '【完整故事】\n'+fullStoryText());
     state.raw.scenes = txt;
     const j = parseJson(txt);
@@ -4407,6 +5486,8 @@ async function genCover(){
   const sys = state.coverWithTitle ? PROMPTS.coverSysTitle : PROMPTS.coverSysClean;
   const user = `小说标题：${o.title}\n一句话梗概：${o.logline}\n章节：${(o.chapters||[]).map(c=>c.title).join(' / ')}\n\n请为这部小说设计封面图的出图提示词。\n模式：${state.coverWithTitle?'包含书名汉字作为封面主体文字':'纯画面、无任何文字、预留书名留白'}`;
   try{
+    // P1-3 覆盖前快照
+    if(state.coverPrompt) pushAssetHist('cover', state.coverPrompt);
     const txt = await callDeepSeek(sys, user);
     state.coverPrompt = txt.trim();
     persist(); render();
@@ -4448,6 +5529,8 @@ async function genStoryboard(){
       }
     }
     if(!shots.length) throw new Error('分镜生成失败：' + fails.join('；'));
+    // P1-3 覆盖前快照
+    if(state.storyboard && state.storyboard.length) pushAssetHist('storyboard', state.storyboard);
     state.boardConcepts = concepts;
     state.storyboard = shots;
     state.raw.storyboard = '';
@@ -4872,6 +5955,9 @@ function init(){
   applyTheme(c.theme || 'dark');
   // 顶栏设置
   $('#btnSettings').onclick = openSettings;
+  // P2-1 顶栏「🗒️ 日志」入口
+  const btnLog = $('#btnAiLog');
+  if(btnLog) btnLog.onclick = (e)=>{ e.stopPropagation(); openAiLogPanel(); };
   // 历史作品按钮：展开/收起弹层；新建小说 / 新建长篇按钮
   rebindHistPanel();
   // 主题按钮：展开/收起主题弹层
