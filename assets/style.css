@@ -554,6 +554,10 @@ body.reader-lock{overflow:hidden}
 .pol-text{min-height:120px;width:100%;padding:8px 10px;font-size:13px;line-height:1.7;box-sizing:border-box}
 .pol-multi{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--muted);cursor:pointer}
 .pol-multi input{width:14px;height:14px;cursor:pointer}
+/* v10.17 章节列表工具栏（右上角质检开关） */
+.ch-toolbar{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:10px 0 4px;flex-wrap:wrap}
+.ch-toolbar-t{font-size:13px;color:var(--sub)}
+
 /* v10.16 多方案保留提示条 */
 .pol-keep{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:2px 0 10px;padding:7px 10px;border:1px dashed var(--line);border-radius:8px;background:color-mix(in srgb,var(--accent) 6%, var(--panel2));font-size:12px}
 .pol-keep-t{color:var(--sub)}

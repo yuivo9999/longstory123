@@ -1875,10 +1875,13 @@ function viewStory(){
           <label class="long-jump"><span>跳到章节：</span>
           <select id="longJump"><option value="">— 选择章节阅读 —</option>${state.chapters.map((c,i)=>`<option value="${i}">第${i+1}章 ${esc(cleanChapterTitle(c.title))}</option>`).join('')}</select></label>
         </div>` : '' }
+        <div class="ch-toolbar">
+          <span class="ch-toolbar-t">📚 章节列表（共 ${state.chapters.length} 章，已生成 ${state.chapters.filter(c=>c.content && String(c.content).trim()).length} 章）</span>
+          <button type="button" class="btn small ${state.autoQC?'tag-ok':'ghost'}" data-autogc title="生成后是否自动两段式质检（草扫硬伤+段落精修）；关闭则直接落库、省调用">🧪 自动质检：${state.autoQC?'开':'关'}</button>
+        </div>
         <div id="chaptersWrap"></div>
         <div class="btn-row" style="margin-top:12px">
-          <button id="btnGenAllChapters" class="btn primary">${isLong()?'⚡ 生成下一批 2 章':'⚡ 一键生成全部章节'}</button>
-          ${ isLong() ? `<span class="multi-gen">
+          <button id="btnGenAllChapters" class="btn primary">${isLong()?'⚡ 生成下一批 2 章':'⚡ 一键生成全部章节'}</button>          ${ isLong() ? `<span class="multi-gen">
             <input id="genCountIn" type="number" min="1" max="999" step="1" value="2" class="gen-count-in" aria-label="一次生成章数">
             <button id="btnGenMany" class="btn blue">⚡ 多章生成</button>
           </span>` : '<button id="btnReOutline" class="btn ghost">重生成大纲</button>' }
