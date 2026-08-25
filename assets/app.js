@@ -298,6 +298,7 @@ function applyProject(p){
   state.chapterStyle = (p.chapterStyle && typeof p.chapterStyle === 'object')
     ? { tags: Array.isArray(p.chapterStyle.tags)?p.chapterStyle.tags:[], intensity: (p.chapterStyle.intensity===1||p.chapterStyle.intensity===3)?p.chapterStyle.intensity:2, collapsed: !!p.chapterStyle.collapsed }
     : { tags: [], intensity: 2, collapsed: false };
+  wsDraft = null;   // v2.1 切作品后草稿重置（以新作品的生效配置为起点）
   state.scenes = p.scenes || [];
   state.storyboard = p.storyboard || [];
   state.boardConcepts = p.boardConcepts || [];
@@ -317,6 +318,7 @@ function clearState(){
   state.outlineHistory = []; state.expSel = [];
   state.hist = { characters:[], scenes:[], cover:[], storyboard:[] };
   state.chapterStyle = { tags: [], intensity: 2, collapsed: false };
+  wsDraft = null;   // v2.1 新项目草稿重置
   currentStep = 1;
 }
 // 兼容旧版单一范式 → 三维 recipeSet
@@ -334,41 +336,71 @@ function migrateRecipeSet(set, legacyRecipe){
   const legacyMap = { mesh:{structure:'mesh',rhythm:null,quality:[]}, layered:{structure:'layered',rhythm:null,quality:[]}, dual:{structure:'mesh',rhythm:null,quality:['dual']}, web:{structure:null,rhythm:'web',quality:[]}, web100:{structure:null,rhythm:'web',quality:[]}, causal:{structure:'causal',rhythm:null,quality:[]} };
   return legacyMap[legacyRecipe] || { structure:null, rhythm:null, quality:[] };
 }
+// 落盘：优先写 IndexedDB（突破 5MB）；IDB 不可用或写入失败时回退 localStorage 双写，保证不丢。
+// 注意：保持内存模型 lib 不变，仅替换"落盘通道"。调用方（persist/开关项目/新建/删除）无需改动。
+function idbSaveLib(){
+  if(!idbAvailable()){
+    // IDB 不可用：直接写回 localStorage 旧库路径（仅作回退，避免数据丢失）
+    try{ localStorage.setItem(KEY_LIB, JSON.stringify(lib)); }catch(e){}
+    return;
+  }
+  idbPutAll(lib.items, lib.curId).catch(function(){
+    // IDB 写入失败：回退 localStorage，保证本次改动不丢
+    try{ localStorage.setItem(KEY_LIB, JSON.stringify(lib)); }catch(e2){}
+  });
+}
 function saveLib(){
-  localStorage.setItem(KEY_LIB, JSON.stringify(lib));
+  idbSaveLib();   // 原同步落盘改为异步走 IDB（fire-and-forget）
 }
 function robustSaveLib(){
-  try{
-    saveLib();
-  }catch(e){
-    // 存储满兜底：淘汰最旧非当前项目后重试
-    if(/quota/i.test(String(e.name + e.message))){
-      const others = lib.items.filter(i=> i.id !== lib.curId);
-      if(others.length){
-        others.sort((a,b)=> (a.updatedAt||0) - (b.updatedAt||0));
-        lib.items = lib.items.filter(i=> i.id !== others[0].id);
-        try{ saveLib(); }catch(e2){}
-      }
-    }
+  // 超过上限则淘汰最旧非当前项目（保持内存模型整洁，并清理 IDB 中孤儿记录）
+  while(lib.items.length > MAX_PROJECTS){
+    const others = lib.items.filter(i=> i.id !== lib.curId);
+    if(!others.length) break;
+    others.sort((a,b)=> (a.updatedAt||0) - (b.updatedAt||0));
+    const victim = others[0];
+    lib.items = lib.items.filter(i=> i.id !== victim.id);
+    idbDelete(victim.id).catch(function(){}); // 清理 IDB 孤儿，避免重复
   }
+  idbSaveLib();
 }
-// 首次加载：迁移旧单项目 fyp_state → 第一个项目；否则读历史库
-function loadState(){
+// 把现有 localStorage 旧库一次性灌入 IDB（双写一版，不删 localStorage 旧数据，零丢失）
+function idbMigrateFromLib(libObj){
+  if(!idbAvailable()) return;
+  idbPutAll(libObj.items, libObj.curId).catch(function(){});
+}
+// 首次加载（异步）：优先读 IndexedDB 全量项目；IDB 为空/不可用→回退旧 localStorage fyp_lib（双写迁移进 IDB）；再无→迁移旧单项目 fyp_state
+async function loadState(){
   clearState();
+  // 1) 优先读 IndexedDB
   try{
-    const raw = localStorage.getItem(KEY_LIB);
-    if(raw){
-      const parsed = JSON.parse(raw);
-      if(parsed && Array.isArray(parsed.items)){
-        lib = parsed;
+    if(idbAvailable()){
+      const items = await idbList();
+      if(items && items.length){
+        const curId = (await idbGetMeta()) || (items[0] && items[0].id);
+        lib = { curId: curId, items: items };
         // 保持 curId 有效
         if(!lib.items.some(i=> i.id === lib.curId)) lib.curId = lib.items[0] && lib.items[0].id;
         if(lib.curId){ const cur = lib.items.find(i=> i.id === lib.curId); if(cur) applyProject(cur); }
         return;
       }
     }
+  }catch(e){ /* IDB 读取失败，继续回退 localStorage */ }
+  // 2) IDB 空或不可用：回退旧 localStorage fyp_lib（并双写迁移进 IDB，不删旧数据）
+  try{
+    const raw = localStorage.getItem(KEY_LIB);
+    if(raw){
+      const parsed = JSON.parse(raw);
+      if(parsed && Array.isArray(parsed.items)){
+        lib = parsed;
+        if(!lib.items.some(i=> i.id === lib.curId)) lib.curId = lib.items[0] && lib.items[0].id;
+        if(lib.curId){ const cur = lib.items.find(i=> i.id === lib.curId); if(cur) applyProject(cur); }
+        idbMigrateFromLib(lib); // 双写进 IDB（fire-and-forget），旧 localStorage 保留作回退
+        return;
+      }
+    }
   }catch(e){}
-  // 无新库：尝试迁移旧版单项目 fyp_state
+  // 3) 无新库：尝试迁移旧版单项目 fyp_state
   migrateOldState();
 }
 function migrateOldState(){
@@ -431,9 +463,10 @@ function openAiLogPanel(){
       </div>
       <div class="ailog-body hidden" data-ailog-body="${ri}">
         ${r.err?`<div class="ailog-sec"><b>错误：</b><span class="err">${esc(r.err)}</span></div>`:''}
-        <div class="ailog-sec"><b>System（前500字）：</b><div class="ailog-pre">${esc(String(r.sys||''))}</div></div>
-        <div class="ailog-sec"><b>User（前500字）：</b><div class="ailog-pre">${esc(String(r.user||''))}</div></div>
-        <div class="ailog-sec"><b>响应（前500字）：</b><div class="ailog-pre">${esc(String(r.resp||''))}</div></div>
+        <div class="ailog-sec"><b>System · 前500字 / 共 ${(r.sysLen||r.sys.length).toLocaleString('en-US')} 字：</b><div class="ailog-pre">${esc(String(r.sys||''))}</div></div>
+        <div class="ailog-sec"><b>User · 前500字 / 共 ${(r.userLen||r.user.length).toLocaleString('en-US')} 字：</b><div class="ailog-pre">${esc(String(r.user||''))}</div></div>
+        <div class="ailog-sec"><b>响应 · 前500字 / 共 ${(r.respLen||0).toLocaleString('en-US')} 字：</b><div class="ailog-pre">${esc(String(r.resp||''))}</div></div>
+        <p class="muted" style="font-size:11px">500 字仅为日志预览上限，实际发送/接收为全量，不影响请求。</p>
       </div>
     </div>`;
   }).join('') : '<p class="muted">暂无请求记录。每次调用 AI 都会记录（最近 50 条，仅存本机）。</p>';
@@ -468,12 +501,16 @@ function closeAiLogPanel(){ const p=$('#ailogPanel'); if(p) p.remove(); }
 async function callDeepSeek(system, user, {temperature=null, signal=null, maxTokens=null, onStream=null}={}){
   const _t0 = Date.now();
   // P2-1 记录基础信息（task 用 system 前 24 字近似任务名；具体字段在成功/失败收尾时补全）
+  // v2.4 记录实际完整长度 sysLen/userLen/respLen，日志展示"前500字/共N字"消除误解
   const _rec = {
     ts: _t0,
     task: String(system||'').replace(/\s+/g,' ').slice(0,24),
     temp: (temperature==null ? null : temperature),
     sys: String(system||'').slice(0,500),
     user: String(user||'').slice(0,500),
+    sysLen: String(system||'').length,
+    userLen: String(user||'').length,
+    respLen: 0,
     resp: '', ms: null, ok: false, err: ''
   };
   try{
@@ -509,7 +546,7 @@ async function callDeepSeek(system, user, {temperature=null, signal=null, maxTok
     if(!streaming){
       const data = await res.json();
       const out = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
-      _rec.resp = String(out).slice(0,500); _rec.ms = Date.now()-_t0; _rec.ok = true;
+      _rec.resp = String(out).slice(0,500); _rec.respLen = String(out).length; _rec.ms = Date.now()-_t0; _rec.ok = true;
       aiLogPush(_rec);
       return out;
     }
@@ -539,7 +576,7 @@ async function callDeepSeek(system, user, {temperature=null, signal=null, maxTok
       feed(decoder.decode(value, {stream:true}));
     }
     feed(decoder.decode());
-    _rec.resp = String(full).slice(0,500); _rec.ms = Date.now()-_t0; _rec.ok = true;
+    _rec.resp = String(full).slice(0,500); _rec.respLen = String(full).length; _rec.ms = Date.now()-_t0; _rec.ok = true;
     aiLogPush(_rec);
     return full;
   }catch(e){
@@ -1032,41 +1069,133 @@ const TITLE_STYLE_IDS = TITLE_STYLES.map(s=> s.id);
  * ========================================================= */
 const WRITE_STYLES = [
   // ① 语气基调（单选）
-  { id:'humor',   group:'tone',    name:'诙谐幽默', note:'用俏皮话、反差、自嘲制造笑意；比喻俏皮但不低俗；人物吐槽有梗但符合人设与场合。' },
-  { id:'solemn',  group:'tone',    name:'严肃',     note:'语气庄重克制，不插科打诨；用词正式，叙述沉稳有分量。' },
-  { id:'straight',group:'tone',    name:'正经',     note:'一本正经地叙述，叙事严谨规整，对话符合身份与场合，不浮夸、不油滑。' },
-  { id:'cold',    group:'tone',    name:'冷峻克制', note:'惜字如金，情绪不外露；用客观白描代替抒情，把余味留给读者。' },
-  { id:'warm',    group:'tone',    name:'温情细腻', note:'侧重人物内心与关系温度，细节柔软，对话温和有生活气。' },
-  { id:'passion', group:'tone',    name:'热血燃向', note:'节奏上扬、情绪饱满；多用短促有力的表达与动作冲击，读来有燃点。' },
-  { id:'suspense',group:'tone',    name:'悬疑紧张', note:'制造信息差与压迫感，句尾留悬念；描写偏紧绷，意象偏暗。' },
-  { id:'teasing', group:'tone',    name:'戏谑吐槽', note:'毒舌但不刻薄，冷幽默旁观者视角，善于拆台与自嘲。' },
+  { id:'humor',   group:'tone',    name:'诙谐幽默', note:'用俏皮话、反差、自嘲制造笑意；比喻俏皮但不低俗；人物吐槽有梗但符合人设与场合。',
+    tips:['把紧张或伤感的场面用轻松口吻化解，制造反差笑点','给人物设计符合性格的吐槽（主角嘴贫、配角耿直、长辈一本正经）','用生活化的夸张比喻把抽象情绪具象化'],
+    avoid:['冷笑话堆砌（笑点必须服务剧情或人物）','所有角色说同一套俏皮话'],
+    check:['至少 2 处自然笑点','笑点长在人物身上而非作者旁白'],
+    demo:'他把这辈子的勇气都攒起来，最后用在了和老板娘砍价上。' },
+  { id:'solemn',  group:'tone',    name:'严肃',     note:'语气庄重克制，不插科打诨；用词正式，叙述沉稳有分量。',
+    tips:['用正式书面语与庄重句式','叙述沉稳，少用感叹与网络化表达','人物对话克制、有分量感'],
+    avoid:['俏皮话/流行语/轻浮比喻','情绪化宣泄式抒情'],
+    check:['全文无口语化玩笑','重大情节用庄重笔触'] },
+  { id:'straight',group:'tone',    name:'正经',     note:'一本正经地叙述，叙事严谨规整，对话符合身份与场合，不浮夸、不油滑。',
+    tips:['按身份与场合使用得体措辞','叙事平实规整、一板一眼','对话符合人物身份，不越界'],
+    avoid:['浮夸修辞与夸张戏剧化','不符合人物身份的油腔滑调'],
+    check:['对话与人物身份相符','无油滑腔调'] },
+  { id:'cold',    group:'tone',    name:'冷峻克制', note:'惜字如金，情绪不外露；用客观白描代替抒情，把余味留给读者。',
+    tips:['用短句、白描、留白代替抒情','情绪用动作与环境暗示','删掉冗余形容词，惜字如金'],
+    avoid:['直白喊出情绪（如"他心如刀绞"）','大段心理独白'],
+    check:['情绪段落少于直接描写','无直白情绪标签'],
+    demo:'他把刀擦干净，放回架子上。窗外雨没停。' },
+  { id:'warm',    group:'tone',    name:'温情细腻', note:'侧重人物内心与关系温度，细节柔软，对话温和有生活气。',
+    tips:['多写人物的微小动作与眼神','对话温和、有生活气息','用日常细节传递温度'],
+    avoid:['刻意煽情、强行催泪','甜腻到失真'],
+    check:['至少一处生活细节体现关系温度','情感自然不煽情'] },
+  { id:'passion', group:'tone',    name:'热血燃向', note:'节奏上扬、情绪饱满；多用短促有力的表达与动作冲击，读来有燃点。',
+    tips:['用短促有力的口号式表达','动作描写有冲击力','情绪递进到高点再引爆'],
+    avoid:['全程高亢失去起伏','为燃而燃的空喊口号'],
+    check:['有清晰的情绪高点','高潮段落节奏明显加快'] },
+  { id:'suspense',group:'tone',    name:'悬疑紧张', note:'制造信息差与压迫感，句尾留悬念；描写偏紧绷，意象偏暗。',
+    tips:['制造信息差（读者知道得比角色少或多）','句尾留悬念钩子','环境描写偏暗、紧绷'],
+    avoid:['提前泄底','为悬疑而故弄玄虚（逻辑不通）'],
+    check:['段落间有悬念牵引','悬念符合逻辑、可回收'] },
+  { id:'teasing', group:'tone',    name:'戏谑吐槽', note:'毒舌但不刻薄，冷幽默旁观者视角，善于拆台与自嘲。',
+    tips:['冷幽默旁观者视角','一本正经说反话的拆台式吐槽','毒舌但留分寸'],
+    avoid:['刻薄伤人的恶意嘲讽','吐槽脱离剧情变成作者乱入'],
+    check:['吐槽符合人物视角','无恶意攻击'] },
   // ② 文风质感（多选）
-  { id:'rigorous',group:'texture', name:'严谨',     note:'逻辑链条清晰、前后呼应，用词精准，少用模糊修辞，有考据感。' },
-  { id:'ornate',  group:'texture', name:'华丽辞藻', note:'大量使用排比、对仗、通感与四字词，画面浓墨重彩，句子密度高。' },
-  { id:'poetry',  group:'texture', name:'古诗词化用', note:'恰当化用或点化古诗词意境（不整段抄袭），以诗句意象托物言志、烘托氛围。' },
-  { id:'classic', group:'texture', name:'古文笔法', note:'文白相间，善用文言虚词、四六骈句与典故，笔致典雅有书卷气（中国古代文人笔意）。' },
-  { id:'modern',  group:'texture', name:'现代文学笔法', note:'白话而讲究语感，长短句错落、意象现代，重视心理描写与留白（中国现代文人笔意）。' },
-  { id:'plain',   group:'texture', name:'白话口语', note:'平实如说话，短句为主，对话贴近生活原声，少书面腔。' },
-  { id:'implicit',group:'texture', name:'含蓄留白', note:'点到为止、以景结情；情绪不直接说破，用细节与侧面暗示。' },
-  { id:'aphorism',group:'texture', name:'金句频出', note:'每章至少 1-2 句可摘抄的警句/金句（哲理、扎心或诗意皆可），自然嵌入、不硬造。' },
+  { id:'rigorous',group:'texture', name:'严谨',     note:'逻辑链条清晰、前后呼应，用词精准，少用模糊修辞，有考据感。',
+    tips:['逻辑链完整（因果/时间/空间都经得起推敲）','用词精准，少用"大约/好像"等模糊语','涉及设定时保持前后一致'],
+    avoid:['含糊其辞','前后矛盾'],
+    check:['时间线/因果关系无矛盾','专名与设定统一'] },
+  { id:'ornate',  group:'texture', name:'华丽辞藻', note:'大量使用排比、对仗、通感与四字词，画面浓墨重彩，句子密度高。',
+    tips:['多用排比、对仗、通感','用四字词与色彩意象铺陈','句子的密度与节奏感并重'],
+    avoid:['华丽但空洞（只有形容词没有实义）','堆砌到影响阅读'],
+    check:['至少 2 处排比/对仗','辞藻服务于画面与情绪'],
+    demo:'暮色像一匹被揉皱的绸缎，摊在山脊上，流光一寸寸洇开。' },
+  { id:'poetry',  group:'texture', name:'古诗词化用', note:'恰当化用或点化古诗词意境（不整段抄袭），以诗句意象托物言志、烘托氛围。',
+    tips:['化用诗词意境与意象（不整段抄袭）','用诗句托物言志、烘托氛围','文辞带诗意'],
+    avoid:['生硬掉书袋','为用诗而用诗、脱离情节'],
+    check:['意境化用自然不生硬','无整段照抄'] },
+  { id:'classic', group:'texture', name:'古文笔法', note:'文白相间，善用文言虚词、四六骈句与典故，笔致典雅有书卷气（中国古代文人笔意）。',
+    tips:['文白相间、善用四六骈句','用文言虚词点缀','典故用事增加书卷气'],
+    avoid:['通篇文言导致难读','滥用典故不作说明'],
+    check:['白话为骨、文言为韵','可读性不牺牲'],
+    demo:'是夜月明如洗，庭中桂影婆娑，似有暗香浮动。' },
+  { id:'modern',  group:'texture', name:'现代文学笔法', note:'白话而讲究语感，长短句错落、意象现代，重视心理描写与留白（中国现代文人笔意）。',
+    tips:['白话但讲究语感与节奏','长短句错落、意象现代','心理描写细腻，善用留白与细节'],
+    avoid:['网络化表达','平铺直叙无节奏'],
+    check:['有 1-2 处可反复回味的句子','心理与景物交融'],
+    demo:'雨落在青石板上，像有人细细地敲着门。' },
+  { id:'plain',   group:'texture', name:'白话口语', note:'平实如说话，短句为主，对话贴近生活原声，少书面腔。',
+    tips:['句子短、像说话','对话贴近生活原声','少书面腔与成语'],
+    avoid:['文绉绉的书面语','生硬翻译腔'],
+    check:['读起来像听人说话','无翻译腔'] },
+  { id:'implicit',group:'texture', name:'含蓄留白', note:'点到为止、以景结情；情绪不直接说破，用细节与侧面暗示。',
+    tips:['情绪点到为止、以景结情','用细节暗示，不直接说破','结尾留余味'],
+    avoid:['把情绪说穿','结尾把道理讲尽'],
+    check:['关键情绪有留白','结尾有余味'] },
+  { id:'aphorism',group:'texture', name:'金句频出', note:'每章至少 1-2 句可摘抄的警句/金句（哲理、扎心或诗意皆可），自然嵌入、不硬造。',
+    tips:['每章 1-2 句可摘抄的警句（哲理/扎心/诗意）','金句嵌入对话或叙述高潮处'],
+    avoid:['硬造金句、口号化','金句与情节脱节'],
+    check:['至少 1 句可摘抄','金句自然生长自情节'] },
   // ③ 语言元素（多选）
-  { id:'memes',   group:'element', name:'网络梗',   note:'适度使用广为人知的网络热梗/流行语，不生造梗，每章不超过 3 处，人物用时符合年龄与场合。' },
-  { id:'idiom',   group:'element', name:'成语典故', note:'多用成语、熟语与历史典故，信手拈来但不过度堆砌。' },
-  { id:'cinematic',group:'element',name:'电影感画面', note:'以镜头语言写场景：景别/光线/运镜/构图式的描写，画面有质感、可"脑内放映"。' },
-  { id:'shortbeat',group:'element',name:'短句快节奏', note:'句子短、段落碎、信息密度高、推进快，适合强情节段落。' },
-  { id:'longflow',group:'element', name:'长句绵密', note:'用长句铺陈氛围与心理，从句叠加以形成绵密节奏（句读清晰、不绕晕）。' },
-  { id:'dialect', group:'element', name:'方言俚语', note:'关键角色可用方言/俚语点缀地域感与人味，保证读者能懂，不滥用。' }
+  { id:'memes',   group:'element', name:'网络梗',   note:'适度使用广为人知的网络热梗/流行语，不生造梗，每章不超过 3 处，人物用时符合年龄与场合。',
+    tips:['用广为人知的网络热梗/流行语点缀','人物使用时符合年龄与场合','每章不超过 3 处'],
+    avoid:['生造梗、过气冷梗','全员玩梗'],
+    check:['每章 ≤3 处','梗符合人设与场合'] },
+  { id:'idiom',   group:'element', name:'成语典故', note:'多用成语、熟语与历史典故，信手拈来但不过度堆砌。',
+    tips:['多用成语、熟语','善用历史典故','信手拈来、恰到好处'],
+    avoid:['过度堆砌成语','用错典故'],
+    check:['成语使用准确','不密集到发酸'] },
+  { id:'cinematic',group:'element',name:'电影感画面', note:'以镜头语言写场景：景别/光线/运镜/构图式的描写，画面有质感、可"脑内放映"。',
+    tips:['用镜头语言写场景（景别/光线/运镜/构图）','动作连贯、可"脑内放映"','每场戏有画面主镜头'],
+    avoid:['平铺直叙的流水账','只有远景没有特写'],
+    check:['每场戏有画面主镜头','光线/构图至少一处具体'],
+    demo:'镜头从雨帘推近，落在她攥紧的伞柄上，指节发白。' },
+  { id:'shortbeat',group:'element',name:'短句快节奏', note:'句子短、段落碎、信息密度高、推进快，适合强情节段落。',
+    tips:['句子短、段落碎','信息密度高','用单句成段制造节奏'],
+    avoid:['长句堆叠拖慢节奏','节奏单一没有起伏'],
+    check:['平均句长明显偏短','节奏有快慢变化'] },
+  { id:'longflow',group:'element', name:'长句绵密', note:'用长句铺陈氛围与心理，从句叠加以形成绵密节奏（句读清晰、不绕晕）。',
+    tips:['用长句铺陈氛围与心理','从句叠加形成绵密节奏','句读清晰'],
+    avoid:['绕晕读者的超长句','为长而长'],
+    check:['长句有内在节奏','读起来不迷路'] },
+  { id:'dialect', group:'element', name:'方言俚语', note:'关键角色可用方言/俚语点缀地域感与人味，保证读者能懂，不滥用。',
+    tips:['关键角色用方言/俚语点缀','体现地域感与人味','生僻词带意译，保证读者能懂'],
+    avoid:['全程方言难懂','每个角色都说方言'],
+    check:['方言只做点缀','读者能懂'] }
 ];
 const WRITE_GROUP_LABEL = { tone:'① 语气基调（单选）', texture:'② 文风质感（可多选）', element:'③ 语言元素（可多选）' };
 
 // 运行时词库 = 内置 22 项（note 可被 cfg.styleCustom.notes 覆盖、可被 removed 删除）⊕ 用户新增
+// v2.4 自定义风格 note 支持三行配方：写法:/避免:/自查:（按行解析成 tips/avoid/check）
+function parseCustomStyleNote(note){
+  const tips=[], avoid=[], check=[];
+  const lines = String(note||'').split(/\n/);
+  let mode = null;
+  lines.forEach(l=>{
+    const t = String(l||'').trim();
+    if(!t) return;
+    if(/^写法[:：]/.test(t)) mode = 'tips';
+    else if(/^避免[:：]/.test(t)) mode = 'avoid';
+    else if(/^自查[:：]/.test(t)) mode = 'check';
+    else if(mode === 'tips') tips.push(t.replace(/^[①②③④⑤]?[.、）)]?\s*/,''));
+    else if(mode === 'avoid') avoid.push(t.replace(/^[✗×\-\s]+/,''));
+    else if(mode === 'check') check.push(t.replace(/^[□✅◇\-\s]+/,''));
+  });
+  return { tips, avoid, check };
+}
 function writeStyleLib(){
   const c = getCfg().styleCustom || {};
   const notes = (c && c.notes) || {};
   const removed = Array.isArray(c && c.removed) ? c.removed : [];
   const added = Array.isArray(c && c.added) ? c.added : [];
   const base = WRITE_STYLES.filter(s=> !removed.includes(s.id)).map(s=>({ ...s, note: notes[s.id] || s.note }));
-  const customs = added.map(a=>({ id:a.id, group:a.group, name:a.name||'未命名', note:a.note||'', custom:true }));
+  const customs = added.map(a=>{
+    const parsed = parseCustomStyleNote(a.note||'');
+    return { id:a.id, group:a.group, name:a.name||'未命名', note:a.note||'', custom:true, tips:parsed.tips, avoid:parsed.avoid, check:parsed.check };
+  });
   return base.concat(customs);
 }
 function writeStyleById(id){
@@ -1078,18 +1207,31 @@ function curWriteStyle(override){
   const s = state.chapterStyle || {};
   return { tags: Array.isArray(s.tags)?s.tags:[], intensity: (s.intensity===1||s.intensity===3)?s.intensity:2 };
 }
-// 生成注入块：按浓度前缀 + 各项 note 拼接；tags 为空返回空串（等价"无风格"）
+// v2.4 生成注入块：最高优先指令 + 冲突裁决 + 浓度量化 + 四件套配方（仅展开选中项）；tags 为空返回空串
 function chapterStyleNote(override){
   const st = curWriteStyle(override);
   if(!st.tags.length) return '';
-  const INT_TXT = { 1:'适度点缀（约三成篇幅体现即可，点到为止）', 2:'明显贯彻（全文章节按此浓度执行）', 3:'极致统一（几乎每段都要体现，风格贯穿全章）' };
-  const lines = ['【写作风格（用户指定，必须遵守）】', '浓度：' + (INT_TXT[st.intensity]||INT_TXT[2])];
+  const INT_TXT = {
+    1:'浓度（轻）：全章约三分之一段落体现风格，其余按常规写作；每段最多 1-2 处风格痕迹。写完自查：不足处不必强补，保持自然。',
+    2:'浓度（中）：全章大部分段落（约三分之二）体现风格，每段至少 1 处明显痕迹；开头段落必须体现以立住基调。写完自查：不达标段落补强。',
+    3:'浓度（重）：全章每一段都要体现风格，对话与叙述几乎句句带痕迹，形成统一文风。写完自查：无风格痕迹的段落一律重写。'
+  };
+  const lines = [
+    '【写作风格（用户指定 · 最高优先指令）】',
+    '本指令为本章写作的最高优先要求：当它与节奏、篇幅、原创性等任何其他要求冲突时，以本指令为准；唯一不可逾越的红线：不得破坏人名/地名/专名一致性、不得违反基础剧情逻辑与人物设定。',
+    INT_TXT[st.intensity] || INT_TXT[2]
+  ];
   const lib = writeStyleLib();
   st.tags.forEach(id=>{
     const s = lib.find(x=>x.id===id);
-    if(s) lines.push('· '+s.name+'：'+(s.note||''));
+    if(!s) return;
+    lines.push('· '+s.name+'（总纲）：'+(s.note||''));
+    if(Array.isArray(s.tips) && s.tips.length) lines.push('  写法：' + s.tips.map((t,i)=>`${['①','②','③','④','⑤'][i]||(i+1)+'.'} ${t}`).join('；'));
+    if(Array.isArray(s.avoid) && s.avoid.length) lines.push('  避免：✗ ' + s.avoid.join('；✗ '));
+    if(s.demo) lines.push('  示范写法：「'+s.demo+'」（可模仿其语感，不要照抄句子）');
+    if(Array.isArray(s.check) && s.check.length) lines.push('  自查：' + s.check.map(c=>'□ '+c).join(' '));
   });
-  lines.push('红线：以上风格仅约束表达方式，不得破坏人名/地名/专名一致性，不得违反前述原创性要求。');
+  lines.push('红线：以上风格仅约束表达方式，不得破坏人名/地名/专名一致性，不得违反基础剧情逻辑与人物设定。');
   return '\n\n' + lines.join('\n');
 }
 
@@ -1400,7 +1542,11 @@ const GLOSSARY_EXTRACT_SYS = `你是长篇小说设定整理助手。给定【�
 规则：
 1. 只提取正文中真实出现、且有明确所指（被命名）的实体；纯叙述性泛指不提取。
 2. 必须与现有词典逐名去重：同名条目一律不再输出。
-3. 人物必须标注 identity / age / gender / appearance / hobby；无法确定的用「未知」。提取时同样区分 relation 与 identity：身份词（捕快/市长/船女）归 identity，带"谁的"的人际关联（XX的妹妹/她的仆人）归 relation。
+3. ★【人物必须输出全部 7 个字段：identity / age / gender / appearance / hobby / relation / trait】
+   · 禁止只输出人名、禁止缺字段、禁止省略任何字段；
+   · 从正文中提取该人物的身份、年龄、性别、外貌、爱好、关系、性格等信息，正文未明说的字段按上下文合理推断后填写；
+   · 实在无法推断的字段填「未知」，不得留空、不得删除该字段；
+   · relation 与 identity 务必区分：身份词（捕快/市长/船女）归 identity；带"谁的"的人际关联（XX的妹妹/她的仆人）归 relation。
 4. 无明显新实体时输出 {"characters":[],"places":[],"propernouns":[]}。`;
 
 /** 未选结构时的「章节安排」提示：仅要求 AI 输出 structure.chapterPlan，把全部章节按主题/起承转合自由分组、一章不落；
@@ -1569,6 +1715,20 @@ function structurePlanBlock(o){
   return lines.join('\n');
 }
 
+// v2.4 结构注入「无标题版」：只输出 主线/副线/暗线/汇合，不输出"全章节计划/卷结构"的章节标题清单。
+// 供章节生成注入使用（v2.3 用户要求：全部章节标题不夹带在大纲/结构/词典里）；structurePlanBlock 保留给大纲卡片/词典📄面板/逐章梗概生成。
+function structurePlanBlockNoTitles(o){
+  if(!o || typeof o !== 'object') return '';
+  const s = (o.structure && typeof o.structure === 'object') ? o.structure : {};
+  const lines = [];
+  const mainLine = s.mainLine || o.logline || '';
+  if(mainLine) lines.push('主线：'+mainLine);
+  if(s.subLines && s.subLines.length) lines.push('副线：'+(s.subLines||[]).join('；'));
+  if(s.hiddenLine) lines.push('暗线：'+s.hiddenLine);
+  if(s.pivotPlan) lines.push('汇合/大逆转：'+s.pivotPlan);
+  return lines.join('\n');
+}
+
 // 追加·传给 AI 的词典：完整保留原始内容（不删重复、不合并、不改结构），仅做「分类 + 排序 + 重复检测标注」。
 // 1) 三类各自保留 ALL 条目（含重复名称），不删除任何文字与人名——重复情况只「检测并标注」，供 AI 知悉而非删改；
 // 2) 每类按名称中文排序，条理化、易扫读（排序不改变数据本身）；
@@ -1662,6 +1822,14 @@ function checkGlossaryCoverage(){
   scan(g.propernouns, summary.props);
   return summary;
 }
+// v2.4 人物字段契约（与大纲词典 GLOSSARY_SYS 完全一致：name + 7 字段）；词典卡字段检查共用
+const CHAR_FIELDS = ['identity','age','gender','appearance','hobby','relation','trait'];
+const CHAR_FIELD_LABEL = { identity:'身份', age:'岁数', gender:'性别', appearance:'外貌', hobby:'爱好', relation:'关系', trait:'性格' };
+// v2.4 提取结果补全：空字段一律填「未知」，保证新人物 7 字段齐全再入库（禁止"只有名字的新人物"）
+function completeCharFields(c){
+  CHAR_FIELDS.forEach(k=>{ if(c[k]==null || String(c[k]).trim()==='') c[k] = '未知'; });
+  return c;
+}
 // v8c 词典增量补全——从已生成正文提取「未收录」新实体（人物/地名/专名），字段白名单过滤后返回
 async function extractNewGlossary(bodyTexts){
   const g = (state.outline && state.outline.glossary) || {};
@@ -1674,7 +1842,12 @@ async function extractNewGlossary(bodyTexts){
   const user = `【现有词典】\n${dict}\n\n【本章正文】\n${body}`;
   const txt = await callDeepSeek(GLOSSARY_EXTRACT_SYS, user, {maxTokens: 2000, temperature: resolveActiveSpec().qcTemp});   // v10.8 质检/提取温度
   const j = parseJson(txt) || {};
-  const keepChar = c => { const o = {}; ['name','identity','age','gender','appearance','hobby','relation','trait'].forEach(k=>{ if(c[k]!=null) o[k]=String(c[k]).trim(); }); return o.name ? o : null; };
+  const keepChar = c => {
+    if(c.name == null || !String(c.name).trim()) return null;
+    const o = { name: String(c.name).trim() };
+    CHAR_FIELDS.forEach(k=>{ if(c[k]!=null) o[k] = String(c[k]).trim(); });
+    return completeCharFields(o);   // v2.4 缺字段补「未知」，保证 7 字段齐全
+  };
   const keepPlace = p => { const o = {}; ['name','type','note'].forEach(k=>{ if(p[k]!=null) o[k]=String(p[k]).trim(); }); return o.name ? o : null; };
   const keepProp = p => { const o = {}; ['name','note'].forEach(k=>{ if(p[k]!=null) o[k]=String(p[k]).trim(); }); return o.name ? o : null; };
   return {
@@ -1711,7 +1884,7 @@ async function autoExtractGlossary(){
   try{
     const ext = await extractNewGlossary(written);
     const n = mergeExtractedGlossary(ext);
-    if(n.total > 0){ persist(); toast(`词典已补全：+${n.c} 人物、+${n.p} 地名、+${n.k} 专名`); }
+    if(n.total > 0){ persist(); toast(`词典已补全：+${n.c} 人物（含完整设定）、+${n.p} 地名、+${n.k} 专名`); }
   }catch(e){ /* 静默失败，不阻塞章节生成 */ }
 }
 // 全部已生成正文中「零出现」的词典条目（可能因重生成覆盖而失效；复用 checkGlossaryCoverage 的统计）
@@ -1736,7 +1909,7 @@ async function manualExtractGlossary(){
   try{
     const ext = await extractNewGlossary(written);
     const n = mergeExtractedGlossary(ext);
-    if(n.total > 0){ persist(); render(); toast(`词典已补全：+${n.c} 人物、+${n.p} 地名、+${n.k} 专名`); }
+    if(n.total > 0){ persist(); render(); toast(`词典已补全：+${n.c} 人物（含完整设定）、+${n.p} 地名、+${n.k} 专名`); }
     else toast('未发现词典未收录的新实体');
   }catch(e){ toast('提取失败：'+e.message); }
 }
@@ -1828,11 +2001,11 @@ function buildChapterSys(styleOverride){
   const st = selStructure(), rh = selRhythm();
   const parts = [];
   parts.push(st ? st.chapterSys : PROMPTS.longChapterSys);
+  const styleNote = chapterStyleNote(styleOverride);   // v2.4 风格块提到 System 开头（身份之后第一块，最高优先）
+  if(styleNote) parts.push(styleNote);
   if(rh && rh.chapterNote) parts.push('\n【节奏风格 · '+rh.name+'】\n'+rh.chapterNote);
   parts.push('\n【篇幅体量】\n'+sizeChapterInjection());
   parts.push('\n\n'+ORIGINALITY_CHAPTER_SYS);   // v10.12 原创性要求（防雷同）· 章节侧，单章/批量/重生成统一生效
-  const styleNote = chapterStyleNote(styleOverride);   // v2.0 写作风格注入（override=单章覆盖/对比用）
-  if(styleNote) parts.push(styleNote);
   return parts.join('\n\n');
 }
 // 兼容旧调用入口
@@ -2026,6 +2199,33 @@ const WRITE_PRESETS = [
   { id:'preset-passion', name:'🔥 热血燃向',  tags:['passion','shortbeat'], intensity:3 }
 ];
 function writeStyleState(){ return state.chapterStyle = state.chapterStyle || { tags:[], intensity:2, collapsed:false }; }
+// v2.1 主卡「生效确认」：草稿态（内存，不参与生成）vs 生效态（state.chapterStyle）
+let wsDraft = null;   // null=未编辑（与生效一致）；非 null=有草稿待应用
+function wsDraftInit(){
+  if(!wsDraft){ const st = writeStyleState(); wsDraft = { tags:(st.tags||[]).slice(), intensity: st.intensity||2 }; }
+  return wsDraft;
+}
+function wsDraftDirty(d, st){
+  const a = ((d&&d.tags)||[]).slice().sort().join(',');
+  const b = ((st&&st.tags)||[]).slice().sort().join(',');
+  return a !== b || ((d&&d.intensity)||2) !== ((st&&st.intensity)||2);
+}
+// 局部刷新主卡 UI（不重建 DOM，避免丢焦点）：chips 高亮 / 摘要行双态 / 应用按钮 / 提示行
+function refreshWsUI(){
+  const st = writeStyleState();
+  const dirty = !!wsDraft && wsDraftDirty(wsDraft, st);
+  const draft = wsDraft || st;
+  const intTxt = ['','轻','中','重'][draft.intensity] || '中';
+  const selName = (draft.tags||[]).map(id=>{ const s=writeStyleById(id); return s?s.name:id; }).join(' + ') || '无';
+  const sum = $('.ws-sum');
+  if(sum){ sum.textContent = (dirty?'⚠️ 待应用':'✔ 已生效')+' · '+(draft.tags||[]).length+' 项 · '+intTxt+' · '+selName; sum.classList.toggle('dirty', dirty); }
+  $$('[data-ws-tag]').forEach(b=> b.classList.toggle('on', (draft.tags||[]).includes(b.dataset.wsTag)));
+  $$('[data-ws-int]').forEach(b=> b.classList.toggle('on', draft.intensity === +b.dataset.wsInt));
+  const ap = $('[data-ws-apply]');
+  if(ap){ ap.disabled = !dirty; ap.classList.toggle('disabled', !dirty); }
+  const hint = $('.ws-dirty-hint');
+  if(hint) hint.style.display = dirty ? '' : 'none';
+}
 // 通用 chips / 浓度段选渲染（主卡片与重生成弹窗复用；dataPrefix 区分绑定域）
 function writeStyleChipsHtml(sel, dataPrefix){
   const lib = writeStyleLib();
@@ -2060,26 +2260,31 @@ function writePresetOptions(){
 // 主卡片
 function writeStyleCard(){
   const st = writeStyleState();
-  const intTxt = ['','轻','中','重'][st.intensity] || '中';
-  const selName = st.tags.map(id=>{ const s=writeStyleById(id); return s?s.name:id; }).join(' + ') || '无';
+  const draft = wsDraft || st;
+  const dirty = !!wsDraft && wsDraftDirty(wsDraft, st);
+  const intTxt = ['','轻','中','重'][draft.intensity] || '中';
+  const selName = (draft.tags||[]).map(id=>{ const s=writeStyleById(id); return s?s.name:id; }).join(' + ') || '无';
+  const sumTxt = (dirty?'⚠️ 待应用':'✔ 已生效')+' · '+(draft.tags||[]).length+' 项 · '+intTxt+' · '+selName;
   return `<div class="card ws-card${st.collapsed?' ws-collapsed':''}">
     <div class="ws-head" data-ws-fold role="button" tabindex="0" title="展开/收起">
       <h3 style="margin:0">✍️ 写作风格</h3>
-      <span class="ws-sum">${intTxt}浓度 · ${st.tags.length} 项 · ${esc(selName)}</span>
+      <span class="ws-sum${dirty?' dirty':''}">${sumTxt}</span>
       <span class="sc-fold-ico">${st.collapsed?'▸':'▾'}</span>
     </div>
     <div class="ws-body"${st.collapsed?' hidden':''}>
-      ${writeStyleChipsHtml(st, 'ws')}
+      ${writeStyleChipsHtml(draft, 'ws')}
       <div class="ws-tools">
-        <span class="ws-int-row">浓度：${writeStyleIntHtml(st, 'ws')}</span>
+        <span class="ws-int-row">浓度：${writeStyleIntHtml(draft, 'ws')}</span>
         <label class="ws-preset"><span>预设</span>
           <select id="wsPreset"><option value="">— 选择预设 —</option>${writePresetOptions()}</select>
         </label>
-        <button type="button" class="btn small ghost" data-ws-save title="把当前组合保存为收藏预设（跨作品可用）">💾 收藏当前</button>
+        <button type="button" class="btn small primary ws-apply${dirty?'':' disabled'}" data-ws-apply ${dirty?'':'disabled'} title="把当前草稿设为生效配置（从此生成用这套风格）">✔ 应用并保存</button>
+        <button type="button" class="btn small ghost" data-ws-save title="把当前草稿收藏为预设（跨作品可用）">💾 收藏当前</button>
         <button type="button" class="btn small ghost" data-ws-lib title="编辑风格词库与我的收藏">⚙️ 管理</button>
         <button type="button" class="btn small ghost" data-ws-clear>✕ 清空</button>
       </div>
-      <p class="muted" style="margin:6px 0 0;font-size:11px">作用于章节正文生成（单章/批量/重生成全部生效）；大纲/标题/梗概不受影响。点选即存，无需额外保存。</p>
+      <p class="ws-dirty-hint" style="display:${dirty?'':'none'}">⚠️ 当前为草稿（${(draft.tags||[]).length} 项未生效），点「✔ 应用并保存」后开始生效；生成章节读的是已生效配置。</p>
+      <p class="muted" style="margin:6px 0 0;font-size:11px">作用于章节正文生成（单章/批量/重生成全部生效）；大纲/标题/梗概不受影响。选择后需点「✔ 应用并保存」才生效。</p>
     </div>
   </div>`;
 }
@@ -2091,42 +2296,57 @@ function bindWriteStyle(){
     const body = $('.ws-body'); if(body) body.hidden = st.collapsed;
     const ico = head.querySelector('.sc-fold-ico'); if(ico) ico.textContent = st.collapsed?'▸':'▾';
   };
+  // v2.1：chips/浓度/预设/清空 一律改「草稿」→ 局部刷新 → 点「✔ 应用并保存」才生效
   $$('[data-ws-tag]').forEach(b=> b.onclick = ()=>{
-    const id = b.dataset.wsTag;
-    toggleWriteTag(st, id);
-    persist(); render();
+    toggleWriteTag(wsDraftInit(), b.dataset.wsTag);
+    refreshWsUI();
   });
-  $$('[data-ws-int]').forEach(b=> b.onclick = ()=>{ st.intensity = +b.dataset.wsInt; persist(); render(); });
+  $$('[data-ws-int]').forEach(b=> b.onclick = ()=>{ wsDraftInit().intensity = +b.dataset.wsInt; refreshWsUI(); });
   const sel = $('#wsPreset');
-  if(sel) sel.onchange = ()=>{ const v = sel.value; if(!v) return; applyWritePreset(v); sel.value=''; };
+  if(sel) sel.onchange = ()=>{ const v = sel.value; if(!v) return; applyWritePresetDraft(v); sel.value=''; };
+  // 应用并保存：草稿 → 生效配置 → persist → toast
+  const ap = $('[data-ws-apply]');
+  if(ap) ap.onclick = ()=>{
+    if(!wsDraft) return;
+    const st2 = writeStyleState();
+    st2.tags = wsDraft.tags.slice(); st2.intensity = wsDraft.intensity;
+    persist();
+    const name = wsDraft.tags.map(id=>{ const s=writeStyleById(id); return s?s.name:id; }).join(' + ') || '无';
+    wsDraft = null;
+    refreshWsUI();
+    toast('写作风格已生效：'+(name==='无'?'无风格（AI 默认文风）':name));
+  };
+  // 收藏当前：收藏草稿组合（未编辑时即生效配置）
   const sv = $('[data-ws-save]');
   if(sv) sv.onclick = ()=>{
-    if(!st.tags.length){ toast('当前无风格，无需收藏'); return; }
+    const cur = wsDraft || writeStyleState();
+    if(!cur.tags.length){ toast('当前无风格，无需收藏'); return; }
     const cfg = getCfg(); if(!Array.isArray(cfg.stylePresets)) cfg.stylePresets = [];
     const name = prompt('给这个风格组合起个名字：', '我的风格'+(cfg.stylePresets.length+1));
     if(!name || !name.trim()) return;
-    cfg.stylePresets.push({ id:'sp'+Date.now().toString(36), name:name.trim(), tags:st.tags.slice(), intensity:st.intensity });
+    cfg.stylePresets.push({ id:'sp'+Date.now().toString(36), name:name.trim(), tags:cur.tags.slice(), intensity:cur.intensity });
     saveCfg(cfg); render();
     toast('已收藏：'+name.trim());
   };
   const lb = $('[data-ws-lib]');
   if(lb) lb.onclick = ()=> openStyleLibPanel();
+  // 清空：只清草稿，点应用才生效（语义统一）
   const cl = $('[data-ws-clear]');
-  if(cl) cl.onclick = ()=>{ st.tags=[]; st.intensity=2; persist(); render(); toast('已清空写作风格'); };
+  if(cl) cl.onclick = ()=>{ const d = wsDraftInit(); d.tags=[]; d.intensity=2; refreshWsUI(); toast('已清空草稿，点「✔ 应用并保存」生效'); };
 }
-// 应用预设（v='clear' / 'preset-*' / 'u:收藏id'）
-function applyWritePreset(v){
-  const st = writeStyleState();
-  if(v === 'clear'){ st.tags=[]; st.intensity=2; }
+// v2.1 预设 → 填入草稿（不直接生效）
+function applyWritePresetDraft(v){
+  const d = wsDraftInit();
+  if(v === 'clear'){ d.tags=[]; d.intensity=2; }
   else if(v.indexOf('u:')===0){
     const cfg = getCfg();
     const p = (Array.isArray(cfg.stylePresets)?cfg.stylePresets:[]).find(x=>x.id===v.slice(2));
-    if(p){ st.tags = (p.tags||[]).slice(); st.intensity = p.intensity||2; }
+    if(p){ d.tags = (p.tags||[]).slice(); d.intensity = p.intensity||2; }
   } else {
     const p = WRITE_PRESETS.find(x=>x.id===v);
-    if(p){ st.tags = p.tags.slice(); st.intensity = p.intensity; }
+    if(p){ d.tags = p.tags.slice(); d.intensity = p.intensity; }
   }
-  persist(); render();
+  refreshWsUI();
 }
 // 词库管理弹窗：系统项 note 可改 / 自定义项可增删改 / 收藏可删 / 恢复默认
 function openStyleLibPanel(){
@@ -2142,7 +2362,7 @@ function openStyleLibPanel(){
       ${lib.filter(s=>s.group===g).map(s=>`
         <div class="ws-lib-item">
           <div class="ws-lib-name">${esc(s.name)}${notes[s.id]?'<span class="ws-changed">已改</span>':''}${s.custom?'<span class="ws-custom">自定义</span>':''}</div>
-          <textarea class="ws-lib-note" data-lib-note="${s.id}" rows="2" maxlength="200" placeholder="指令文本（≤200字）">${esc(s.note||'')}</textarea>
+          <textarea class="ws-lib-note" data-lib-note="${s.id}" rows="2" maxlength="500" placeholder="指令文本（≤500字；可用 写法:/避免:/自查: 三行写配方）">${esc(s.note||'')}</textarea>
           ${s.custom?`<button type="button" class="btn small ghost del" data-lib-del="${s.id}">删</button>`:''}
         </div>`).join('')}
     </div>`).join('');
@@ -2173,7 +2393,7 @@ function openStyleLibPanel(){
             </select>
             <input type="text" id="wsAddName" placeholder="风格名称（如：民国腔调）" maxlength="20" />
           </div>
-          <textarea id="wsAddNote" rows="2" maxlength="200" placeholder="指令文本（≤200字）：让 AI 怎么写的具体要求"></textarea>
+          <textarea id="wsAddNote" rows="2" maxlength="500" placeholder="指令文本（≤500字）。推荐三行配方：&#10;写法：…&#10;避免：…&#10;自查：…"></textarea>
           <button type="button" class="btn small primary" data-lib-add>＋ 新增</button>
         </div>
         <div class="ws-lib-group">
@@ -2189,7 +2409,7 @@ function openStyleLibPanel(){
   ov.querySelectorAll('[data-lib-note]').forEach(ta=>{
     ta.onchange = ()=>{
       const id = ta.dataset.libNote;
-      const v = ta.value.trim().slice(0,200);
+      const v = ta.value.trim().slice(0,500);
       if(v) cfg.styleCustom.notes[id] = v; else delete cfg.styleCustom.notes[id];
       saveCfg(cfg); render(); toast('已保存指令');
     };
@@ -2217,7 +2437,7 @@ function openStyleLibPanel(){
   // 新增风格
   ov.querySelector('[data-lib-add]').onclick = ()=>{
     const name = ($('#wsAddName') && $('#wsAddName').value.trim()) || '';
-    const note = ($('#wsAddNote') && $('#wsAddNote').value.trim().slice(0,200)) || '';
+    const note = ($('#wsAddNote') && $('#wsAddNote').value.trim().slice(0,500)) || '';
     if(!name){ toast('请填写风格名称'); return; }
     const group = ($('#wsAddGroup') && $('#wsAddGroup').value) || 'tone';
     cfg.styleCustom.added = cfg.styleCustom.added || [];
@@ -2636,6 +2856,46 @@ function bindChapterPlan(){
   });
 }
 
+// v2.4 词典人物字段检查：7 字段完整性三态（缺失红 / 未知黄 / 齐全 ✅）
+function glossaryFieldCheck(){
+  const g = (state.outline && state.outline.glossary) || {};
+  const rows = [];
+  (g.characters||[]).forEach(c=>{
+    const missing = CHAR_FIELDS.filter(k=> c[k]==null || String(c[k]).trim()==='');
+    const unknown = CHAR_FIELDS.filter(k=> String(c[k]||'').trim()==='未知');
+    if(missing.length || unknown.length) rows.push({ name: String(c.name||'未命名').trim(), missing, unknown });
+  });
+  return rows;
+}
+function glossaryCheckCount(){ return glossaryFieldCheck().length; }
+function openGlossaryCheckPanel(){
+  closeGlossaryCheckPanel();
+  const rows = glossaryFieldCheck();
+  const body = rows.length ? rows.map(r=>{
+    const m = r.missing.map(k=>CHAR_FIELD_LABEL[k]).join('、');
+    const u = r.unknown.map(k=>CHAR_FIELD_LABEL[k]).join('、');
+    return `<div class="cv-row">
+      <div class="cv-meta" style="flex:1;min-width:0">
+        <div class="cv-time">${esc(r.name)}</div>
+        <div class="cv-t" style="font-size:12px;line-height:1.6">
+          ${m?`<span class="gs-miss">缺失：${m}</span>`:''} ${u?`<span class="gs-unk">未知：${u}（建议补全）</span>`:''}
+        </div>
+      </div>
+    </div>`;
+  }).join('') : '<p class="muted">✅ 全部人物字段齐全（身份/岁数/性别/外貌/爱好/关系/性格），无缺失、无未知。</p>';
+  const ov = document.createElement('div'); ov.id='gsCheckPanel'; ov.className='gs-overlay';
+  ov.innerHTML = `<div class="gs-modal">
+    <div class="gs-modal-head"><b>🔍 词典人物字段检查（${rows.length}）</b><button class="gs-x" data-gsck-close>✕</button></div>
+    <div class="cv-body">
+      <div class="cv-div">生成章节时，人物 7 字段会完整注入给章节 AI；字段缺失或「未知」会导致 AI 信息不足而写错内容。可点开对应词典条目补全，补全后对后续生成的章节生效。</div>
+      ${body}
+    </div></div>`;
+  document.body.appendChild(ov);
+  ov.querySelector('[data-gsck-close]').onclick = closeGlossaryCheckPanel;
+  ov.addEventListener('click', e=>{ if(e.target===ov) closeGlossaryCheckPanel(); });
+}
+function closeGlossaryCheckPanel(){ const p=$('#gsCheckPanel'); if(p) p.remove(); }
+
 // 万物词典「设定表」卡片：展示人物/地名/专名，用户可更正错名（决策9）
 // 词典是全文一致性准则，可小幅修正，但禁用删除（应由大纲确立）。
 function glossaryCardHtml(){
@@ -2646,6 +2906,7 @@ function glossaryCardHtml(){
   const tools = `<span class="gs-tools">
     <button type="button" class="btn ghost gs-tool" data-gs-content>📄 内容</button>
     <button type="button" class="btn ghost gs-tool" data-gs-history>🕘 历史更改</button>
+    <button type="button" class="btn ghost gs-tool" data-gs-check ${glossaryCheckCount()?'':'hidden'} title="人物 7 字段完整性：缺失/未知标出，建议补全">🔍 字段检查${glossaryCheckCount()?`<b class="gs-check-badge">${glossaryCheckCount()}</b>`:''}</button>
     <button type="button" class="btn ghost gs-tool" data-gs-coverage ${hasBody?'':'hidden'}>📊 覆盖面</button>
     <button type="button" class="btn ghost gs-tool" data-gs-extract ${hasBody?'':'hidden'} title="从已生成正文提取词典未收录的新人物/地名/专名并入库">📥 提取新增</button>
     <button type="button" class="btn ghost gs-tool" data-gs-clean ${hasBody?'':'hidden'} title="清理在全部已生成正文中均未出现的条目（如重生成覆盖后失效的旧人物）">🧹 清理未使用</button>
@@ -2686,7 +2947,7 @@ function glossaryCardHtml(){
       <button type="button" class="gs-collapse-btn" data-gs-collapse title="${collapsed?'展开全部':'收缩'}" aria-label="${collapsed?'展开':'收缩'}">${collapsed?'＋':'−'}</button>
     </div>
     <div class="gs-card-body"${collapsed?' style="display:none"':''}>
-    <p class="sub">全文一致性基准：生成正文时一律使用以下人名/地名/专名，不得自造新名。可小幅修改错名，保留为准则。</p>
+    <p class="sub">全文一致性基准：生成正文时一律使用以下人名/地名/专名，不得自造新名。生成章节时，人物身份/岁数/性别/外貌/爱好/关系/性格会<b>完整注入</b>章节 AI（字段留空则不注入）；自动提取的新人物会带全 7 项设定（推断不出填「未知」）。建议用「🔍 字段检查」确认人物字段齐全，避免 AI 信息不足写错。</p>
     <div class="gs-panel" id="gsContent" hidden><div class="gs-panel-title">📄 内容 · 全局大纲与结构（只读参考；逐章梗概生成时提供给 AI，章节正文不再注入）</div><pre class="gs-pre">${esc(storyContentBlock()||'（暂无内容）')}</pre></div>
     <div class="gs-panel" id="gsHistory" hidden><div class="gs-panel-title">🕘 历史更改</div><div id="gsHistoryList"></div></div>
     <div class="gs-group" data-gs-type="char"><div class="gs-title">👤 人物（${g.characters.length}）</div>
@@ -2755,6 +3016,8 @@ function bindGlossary(){
   });
   // 覆盖面自检（阶段4）：需有正文后才可见
   $$('[data-gs-coverage]').forEach(b=> b.onclick = openCoveragePanel);
+  // v2.4 字段检查
+  $$('[data-gs-check]').forEach(b=> b.onclick = openGlossaryCheckPanel);
   // v8c 提取新增：手动对全部已生成正文提取词典未收录的新实体
   $$('[data-gs-extract]').forEach(b=> b.onclick = ()=>{ manualExtractGlossary(); });
   // v8c 清理未使用：弹窗勾选确认删除全部正文零出现的条目
@@ -4522,16 +4785,13 @@ function longChapterContext(i){
     const s = o.structure;
     const flat = [];
     if(s.mode) flat.push('结构模式：'+s.mode);
-    if(s.mainLine) flat.push('主线：'+s.mainLine);
-    if(s.subLines && s.subLines.length) flat.push('副线：'+(s.subLines||[]).join('；'));
-    if(s.hiddenLine) flat.push('暗线：'+s.hiddenLine);
-    if(s.pivotPlan) flat.push('汇合/大逆转：'+s.pivotPlan);
     const curTitle = (o.chapters[i] && o.chapters[i].title) || '';
     // 定位本章归属维度：优先结构专属章节映射（stageChapters/beats/points），回退统一 chapterPlan
     const planMap = (s && (s.stageChapters || s.beats || s.points || s.chapterPlan)) || null;
     const curGroup = chapterGroupOf(i, planMap, curTitle);
     if(curGroup && curGroup !== '（未匹配，按大纲推进即可）') flat.push('【本章归属】维度「'+curGroup+'」');
-    flat.push(structurePlanBlock(o));   // 统一的纯文本结构块（主线→副/暗/汇合(若有)→全章节计划）
+    const nt = structurePlanBlockNoTitles(o);   // v2.4 无标题版（主线/副/暗/汇合，不含全章节计划标题清单）
+    if(nt) flat.push(nt);
     ctx += '\n\n【整体结构】\n' + flat.join('\n');
   }
   return ctx;
@@ -4895,16 +5155,7 @@ function locateSegment(txt, anchor){
 // 以最大化 DeepSeek 上下文缓存命中；可变信息（上一章全文/结构注入）尽量放后。
 // opt.regenerating=true 时（单章重生成）额外注入下章概要，保证前后连贯（建议5/决策5）。
 // 衔接来源 = 上一章完整正文（替代旧的本章概要/上章结尾200字，避免丢信息），批内多章一体时更由前文临时写入承接。
-// 章节标题窗口列表（v8b 抽出）：以第 i 章为中心、前后各 R 章；分卷结构整卷全列。
-// 单章路径 buildChapterUser 与批量 2 章 genTwoChapters(topic 窗口以 pairStart 为中心) 共用，
-// 确保两种生成方式模型都能看到本章在全书中的位置与前后节奏。
-// 章节标题列表（v9 改为全列）：标题很短，全书全列仅几千 token，利于远距伏笔对上前情，且放进恒定前缀区利于缓存命中。
-// 章节定位契约（v10·统一编号 §4.4）：每一项统一为「第 N 章《标题》」，与逐章梗概、上一章、本章任务的记法完全一致，杜绝 1. / 【第N章】 等混杂写法。
-function chapterTitleWindow(i){
-  const o = state.outline;
-  if(!o || !Array.isArray(o.chapters)) return '';
-  return o.chapters.map((c,k)=> (c && c.title) ? `第 ${k+1} 章《${c.title}》` : '').filter(Boolean).join(' / ');
-}
+// 章节标题列表（v9 曾全列；v2.4 起不再注入章节生成——用户要求全部章节标题零夹带，逐章梗概生成自行拼标题列表）
 // 承接来源（v10）：只提供「上一章真实正文」，取代旧的全量前文（cumulativeChapters）。恒定内容块承载全书脉络。
 // 上一章标签统一为【上一章（第 N 章《标题》）】，i 为当前章 0 基下标；第 1 章（i<=0）无前文返回空。
 function prevChapter(i){
@@ -4925,37 +5176,59 @@ function cumulativeChapters(i){
   }
   return out.join('\n\n');
 }
+// v2.4 章节 User 组装：按用户指定优先级（最高→次高）——
+// ① 写作风格（重申）② 上一章真实正文（必须接着写）③ 本章任务+本章梗概 ④ 本章/下一章边界（禁越界，末章收束）⑤ 大纲/结构/词典 ⑥ 人工干预（重生成）
+// 不注入"全部章节标题"（v2.3 零夹带）；词典全字段经 chapterGlossaryBlock 注入。
 function buildChapterUser(i, opt={}){
   const o = state.outline;
-  // 承接来源（v10）：仅上一章真实正文（替代旧的全量前文）
-  const prev = i>0 ? prevChapter(i) : '';
-  const titles = chapterTitleWindow(i);
-  // 万物词典一致性基准（建议5）：全文服从，不得自造新名（v8 统一走 chapterGlossaryBlock）
-  const gloss = chapterGlossaryBlock();
-  let head = `故事标题：${o.title}\n一句话梗概：${o.logline}\n章节：${titles}${gloss}`;
-  // v10.11 逐章方向梗概：有 chapterPlans[i] 时注入【本章创作方向】（方向锚点，非最终梗概；
-  // 命名避开"本章梗概"以防 AI 误以为已有梗概而不再产出回填）
-  const plan = (Array.isArray(o.chapterPlans) && o.chapterPlans[i]) ? String(o.chapterPlans[i]).trim() : '';
-  if(plan){
-    head += `\n\n【本章创作方向（方向锚点，非最终梗概）】\n${plan}\n按此方向写本章，细节自行展开、可合理微调。`;
-  }
-  // 章节定位契约（v10·§4.4 统一编号）：明示当前要写第几章、紧接上一章之后
   const chap = state.chapters[i];
   const curN = i + 1;
-  let tail = `你现在要写第 ${curN} 章《${chap.title}》${i>0?`，紧接第 ${i} 章之后`:''}
-${prev?('\n【前文衔接（上一章真实正文，用于承接，只增不改）】\n'+prev):'\n（这是第一章，暂无前文直接开头）'}`;
-  // 本章边界（恒定注入，覆盖单章/重生成/批量/多章全部路径）：紧扣本章标题，不重复前面章节标题的剧情、不提前展开后续章节标题的剧情
-  tail += `\n\n【本章边界】本章内容须紧扣本章标题展开、不得偏离；不得把前面章节标题所描述的剧情写入本章（已发生的剧情不重复叙述），也不得提前展开或暗示后续章节标题所描述的剧情，后续情节一律留待对应章节再写。`;
-  tail += longChapterContext(i);   // 章节定位（卷/阶段/整体结构）：单章与批量逐章统一注入，保持定位一致
-  const nextHasContent = i < o.chapters.length-1 && state.chapters[i+1] && state.chapters[i+1].content && String(state.chapters[i+1].content).trim();
-  if(opt.regenerating && nextHasContent){
-    tail += `\n下一章标题（请预留衔接，但不要剧透下一章情节）：${o.chapters[i+1].title||''}`;
+  const parts = [];
+  // ① 写作风格重申（完整配方在 System，此处点名提示）
+  const st = curWriteStyle(opt.styleOverride);
+  if(st && st.tags.length){
+    const intTxt = ['','轻','中','重'][st.intensity] || '中';
+    const names = st.tags.map(id=>{ const s=writeStyleById(id); return s?s.name:id; }).join('、');
+    parts.push(`【写作风格（最高优先）】写作风格：${names}（${intTxt}浓度）。完整要求见 System 中的【写作风格】块，务必遵守。`);
   }
-  // 人工干预要求（建议3·此轮）：重生成时遵循用户指定的改动方向
+  // ② 上一章真实正文（必须接着上一章写下去）
+  if(i > 0){
+    const pc = state.chapters[i-1];
+    if(pc && pc.content && String(pc.content).trim()){
+      parts.push(`【上一章真实正文（第 ${i} 章《${pc.title||''}》）】\n你必须接着上一章的结尾继续写：承接其情节、人物状态与情绪，不推倒重来、不重述已发生的事。\n${String(pc.content).trim()}`);
+    } else {
+      parts.push(`【上一章说明】上一章（第 ${i} 章）尚无正文，本章按大纲独立展开，但不得违背全局设定。`);
+    }
+  } else {
+    parts.push(`【开篇说明】本章为全书第一章，无前文，请直接开篇立住基调。`);
+  }
+  // ③ 本章任务 + 本章梗概（创作方向）
+  let task = `【本章任务】第 ${curN} 章《${chap.title}》`;
+  const plan = (Array.isArray(o.chapterPlans) && o.chapterPlans[i]) ? String(o.chapterPlans[i]).trim() : '';
+  if(plan) task += `\n【本章创作方向（本章梗概）】\n${plan}\n按此方向写本章，细节自行展开、可合理微调。`;
+  parts.push(task);
+  // ④ 本章边界 + 下一章边界（禁越界）/ 末章收束
+  const isLast = (i + 1) >= (o.chapters||[]).length;
+  let boundary = `【本章边界】本章内容须紧扣本章标题展开、不得偏离；已发生的剧情不重复叙述。`;
+  if(isLast){
+    boundary += `\n【全书收束】本章为全书最后一章：请收束全书，交代主要线索与人物归宿，给出结局，不留开放式烂尾。`;
+  } else {
+    const nextC = o.chapters[i+1];
+    const nextPlan = (Array.isArray(o.chapterPlans) && o.chapterPlans[i+1]) ? String(o.chapterPlans[i+1]).trim() : '';
+    boundary += `\n【下一章边界】下一章为第 ${i+2} 章《${(nextC&&nextC.title)||''}》${nextPlan?`，其创作方向：${nextPlan}`:''}。\n本章严禁展开、暗示或提前完成下一章内容；下一章的情节一律留到下一章再写。`;
+  }
+  parts.push(boundary);
+  // ⑤ 大纲 / 结构（无标题版）/ 词典（全字段）
+  let ref = `【小说大纲】书名：${o.title||''}｜一句话梗概：${o.logline||''}`;
+  const structCtx = longChapterContext(i);   // 含【整体结构】主线/副/暗/汇合/本章归属/卷定位（无章节标题清单）
+  if(structCtx) ref += structCtx;
+  ref += chapterGlossaryBlock();
+  parts.push(ref);
+  // ⑥ 人工干预要求（重生成时）
   if(opt.advice){
-    tail += `\n\n【人工干预要求（用户指定，务必优先遵循）】\n${opt.advice}\n请在重写本章时落实以上要求，其余不受影响的内容仍保持既有文风与世界观一致。`;
+    parts.push(`【人工干预要求（用户指定，务必优先遵循）】\n${opt.advice}\n请在重写本章时落实以上要求，其余不受影响的内容仍保持既有文风与世界观一致。`);
   }
-  return `${head}\n\n${tail}`;
+  return parts.join('\n\n');
 }
 // 章节生成状态机：chState[i] = 'idle'|'generating'|'done'|'error'（健壮性契约）
 const chState = {};
@@ -5029,10 +5302,10 @@ function openChapterRegenPanel(i){
         ${histHtml}
         <div class="rp-style">
           <div class="rp-style-head" data-rpov-fold role="button" tabindex="0">
-            <span>🎨 本章风格覆盖 <span class="rp-style-arrow">▾</span></span>
+            <span>🎨 本章风格覆盖 <span class="rp-style-arrow">▸</span></span>
             <span class="muted" style="font-size:11px;font-weight:400">默认跟随全书 · 一次性不保存</span>
           </div>
-          <div class="rp-style-body">
+          <div class="rp-style-body hidden">
             <label class="rp-radio-row"><input type="radio" name="rpov" value="off" checked> 跟随全书风格</label>
             <label class="rp-radio-row"><input type="radio" name="rpov" value="on"> 仅本章覆盖（重生成这章时用下面的风格，不保存）</label>
             <div class="rp-style-sub hidden" id="rpOvBox">
@@ -5042,13 +5315,14 @@ function openChapterRegenPanel(i){
             </div>
           </div>
         </div>
-        <div class="rp-style">
+        <div class="rp-style disabled" data-rpcmp-box>
           <div class="rp-style-head" data-rpcmp-fold role="button" tabindex="0">
-            <span>⚡ 双风格对比生成 <span class="rp-style-arrow">▾</span></span>
-            <span class="muted" style="font-size:11px;font-weight:400">两次调用 · 左右对照选稿</span>
+            <span>⚡ 双风格对比生成 <span class="rp-style-arrow">▸</span></span>
+            <span class="muted" style="font-size:11px;font-weight:400">需先开启上方本章覆盖</span>
           </div>
-          <div class="rp-style-body">
-            <p class="muted" style="font-size:12px;margin:4px 0 8px">A 稿 = 当前生效风格（含上方本章覆盖）；B 稿 = 下方所选（留空 = 无风格直白版）。</p>
+          <div class="rp-style-body hidden">
+            <p class="rp-cmp-lock-hint">🔒 未开启「仅本章覆盖」时不可用；先在上一区选择「仅本章覆盖」以解锁。</p>
+            <p class="muted" style="font-size:12px;margin:4px 0 8px">A 稿 = 本章覆盖风格；B 稿 = 下方所选（留空 = 无风格直白版）。</p>
             <div class="rp-style-label">B 稿对比风格</div>
             ${writeStyleChipsHtml(rpCmpB, 'rpcmp')}
             <div class="rp-style-label">B 稿浓度：${writeStyleIntHtml(rpCmpB, 'rpcmp')}</div>
@@ -5064,6 +5338,17 @@ function openChapterRegenPanel(i){
   document.body.appendChild(ov);
   ov.querySelector('[data-rp-close]').onclick = closeChapterRegenPanel;
   ov.addEventListener('click', e=>{ if(e.target===ov) closeChapterRegenPanel(); });
+  // v2.1 对比区可用性：未开启「仅本章覆盖」→ 整区置灰锁定
+  const rpCmpBox = ov.querySelector('[data-rpcmp-box]');
+  const refreshRpCmpState = ()=>{
+    if(!rpCmpBox) return;
+    const locked = !rpOv.on;
+    rpCmpBox.classList.toggle('disabled', locked);
+    const hint = rpCmpBox.querySelector('.rp-cmp-lock-hint');
+    if(hint) hint.style.display = locked ? 'block' : 'none';
+    const head = rpCmpBox.querySelector('.rp-style-head .muted');
+    if(head) head.textContent = locked ? '需先开启上方本章覆盖' : '两次调用 · 左右对照选稿';
+  };
   // v2.0 折叠区开关
   const foldOv = ov.querySelector('[data-rpov-fold]');
   if(foldOv) foldOv.onclick = ()=>{
@@ -5081,6 +5366,7 @@ function openChapterRegenPanel(i){
   ov.querySelectorAll('input[name="rpov"]').forEach(r=> r.onchange = ()=>{
     rpOv.on = r.value === 'on';
     const box = ov.querySelector('#rpOvBox'); if(box) box.classList.toggle('hidden', !rpOv.on);
+    refreshRpCmpState();
   });
   ov.querySelectorAll('[data-rpov-tag]').forEach(b=> b.onclick = ()=>{ toggleWriteTag(rpOv, b.dataset.rpovTag); ov.querySelectorAll('[data-rpov-tag]').forEach(x=> x.classList.toggle('on', rpOv.tags.includes(x.dataset.rpovTag))); });
   ov.querySelectorAll('[data-rpov-int]').forEach(b=> b.onclick = ()=>{ rpOv.intensity = +b.dataset.rpovInt; ov.querySelectorAll('[data-rpov-int]').forEach(x=> x.classList.toggle('on', rpOv.intensity===+x.dataset.rpovInt)); });
@@ -5108,6 +5394,7 @@ function openChapterRegenPanel(i){
     closeChapterRegenPanel();
     genChapterCompare(i, styleA, { tags: rpCmpB.tags.slice(), intensity: rpCmpB.intensity });
   };
+  refreshRpCmpState();   // v2.1 初始即按「跟随全书」置灰对比区
   // 历史条目点击回填
   ov.querySelectorAll('[data-rp-fill]').forEach(el=>{
     el.onclick = ()=>{
@@ -5204,7 +5491,7 @@ async function genOneChapter(i, btn, opt={}){
   const setPhase = msg => { if(st){ st.className='status'; st.textContent = `第 ${i+1}/${state.chapters.length} 章：${msg||''}`; } };
   setPhase('准备中…');
   try{
-    const user = buildChapterUser(i, {regenerating:true, advice:opt.advice});
+    const user = buildChapterUser(i, {regenerating:true, advice:opt.advice, styleOverride: opt.styleOverride});   // v2.4 本章覆盖时 user 风格重申同步
     // 实时进度（成本0）：仅 DeepSeek 才接 onStream 边收边显示字数；其他 AI 不流式、不反馈。
     const stStream = $('#chStatus');
     let _s = 0;
@@ -5583,6 +5870,7 @@ function renderHistList(){
           ${p.logline?`<span class="hist-desc">${esc(p.logline)}</span>`:''}
           <span class="hist-meta">${histProgress(p)} · ${fmtHistTime(p.updatedAt)}</span>
         </button>
+        <button class="hist-del" data-fypexp="${p.id}" title="导出 .fyp 项目">📤</button>
         <button class="hist-del" data-histdict="${p.id}" title="导出该作词典">📇</button>
         <button class="hist-del" data-del="${p.id}" title="删除作品">🗑</button>
       </div>
@@ -5593,10 +5881,13 @@ function renderHistList(){
   $$('#histList [data-del]').forEach(b=> b.onclick = (e)=>{ e.stopPropagation(); deleteProject(b.dataset.del); });
   // 历史作品一键导出该作词典（阶段5）
   $$('#histList [data-histdict]').forEach(b=> b.onclick = (e)=>{ e.stopPropagation(); exportWorkGlossaryJSON(b.dataset.histdict); });
+  // 历史作品一键导出整本 .fyp 项目
+  $$('#histList [data-fypexp]').forEach(b=> b.onclick = (e)=>{ e.stopPropagation(); exportProjectFile(b.dataset.fypexp); });
   // 折叠/展开单条项目详情：只影响当前项，不影响其它项的选择
   $$('#histList .hist-head').forEach(h=> h.onclick = (e)=>{
     if(e.target.closest('[data-switch]')) return;   // 点标题=切换项目，不折叠
     if(e.target.closest('[data-del]')) return;      // 删除按钮不触发折叠
+    if(e.target.closest('[data-fypexp]')) return;   // .fyp 导出按钮不触发折叠
     if(e.target.closest('[data-histdict]')) return; // 导出按钮不触发折叠
     const id = h.dataset.histToggle;
     histOpenId = (histOpenId===id) ? null : id;
@@ -5703,6 +5994,80 @@ function rebindHistPanel(){
   // 历史弹层头部「＋ 新建长篇」：确认后新建经典长篇小说项目
   const nlo = $('#histNewLong');
   if(nlo) nlo.onclick = (e)=>{ e.stopPropagation(); newLongProject(); };
+  // 历史弹层头部「📥 导入 .fyp」：触发隐藏 file input
+  const imp = $('#btnImportFyp');
+  if(imp) imp.onclick = (e)=>{ e.stopPropagation(); const fi = $('#fypImportInput'); if(fi) fi.click(); };
+  // 隐藏 file input 改变即解析导入
+  const fi = $('#fypImportInput');
+  if(fi) fi.onchange = (e)=>{ const f = e.target.files && e.target.files[0]; if(f) importProjectFile(f); e.target.value = ''; };
+}
+
+/* =========================================================
+ * 整本项目导入 / 导出（自创 .fyp 格式）
+ * 格式：{ format:'fyp-project', version:1, kind:'complete', exportedAt, app, book:{完整项目快照} }
+ * book 与 lib.items[i] 同结构，导入后整体还原到历史列表并可打开。
+ * ========================================================= */
+function buildFyp(project){
+  return {
+    format: 'fyp-project',
+    version: 1,
+    kind: 'complete',
+    exportedAt: new Date().toISOString(),
+    app: 'storyfactory',
+    book: project   // 完整项目快照（与 lib.items[i] 同结构）
+  };
+}
+function parseFyp(text){
+  const obj = JSON.parse(text);
+  if(!obj || typeof obj !== 'object') throw new Error('文件不是合法 JSON');
+  if(obj.format !== 'fyp-project') throw new Error('不是 .fyp 项目文件（format 字段不匹配）');
+  if(!obj.book || typeof obj.book !== 'object') throw new Error('.fyp 缺少 book 字段');
+  return obj.book;
+}
+// 导出指定 id 的整本项目为 .fyp 文件（含大纲/全部章节正文/梗概/词典/结构/角色/场景/分镜/版本历史/写作风格/进度）
+function exportProjectFile(id){
+  const p = lib.items.find(i=> i.id === id);
+  if(!p){ toast('未找到该作品'); return; }
+  const fyp = buildFyp(p);
+  const title = String(p.title || 'story').replace(/[\\/:*?"<>|\r\n]+/g, '_').slice(0, 40);
+  const blob = new Blob([JSON.stringify(fyp, null, 2)], { type:'application/json' });
+  downloadBlob(`${title}.fyp`, blob);
+  toast('已导出 .fyp 项目文件');
+}
+// 导入 .fyp 文件：解析后整体还原到历史列表，经 IDB 落盘并打开
+function importProjectFile(file){
+  if(!file) return;
+  const big = file.size > 5 * 1024 * 1024;
+  toast(big ? '文件较大，解析中…' : '正在导入项目…');
+  const r = new FileReader();
+  r.onload = function(){
+    try{
+      const book = parseFyp(String(r.result));
+      // 重新生成 id，避免与现有项目同 id 冲突覆盖
+      const newId = makeId();
+      const item = Object.assign({}, book, { id: newId, updatedAt: Date.now() });
+      if(!item.title) item.title = (item.outline && item.outline.title) || '导入的作品';
+      lib.items.unshift(item);
+      // 超限淘汰（与 newProject 一致）：删最旧非当前
+      if(lib.items.length > MAX_PROJECTS){
+        const others = lib.items.filter(i=> i.id !== lib.curId && i.id !== newId);
+        others.sort((a,b)=> (a.updatedAt||0) - (b.updatedAt||0));
+        const victim = others[0];
+        if(victim){ lib.items = lib.items.filter(i=> i.id !== victim.id); idbDelete(victim.id).catch(function(){}); }
+      }
+      lib.curId = newId;
+      applyProject(item);
+      saveLib(); // 经 IDB 落盘（fire-and-forget）
+      closeHistPanel();
+      render();
+      window.scrollTo(0,0);
+      toast(`已导入「${item.title}」并打开`);
+    }catch(err){
+      toast('导入失败：' + (err && err.message ? err.message : '文件格式错误'));
+    }
+  };
+  r.onerror = function(){ toast('读取文件失败'); };
+  r.readAsText(file);
 }
 
 /* =========================================================
@@ -5947,8 +6312,14 @@ async function testConn(){
 /* =========================================================
  * 初始化
  * ========================================================= */
-function init(){
-  loadState();
+// 启动加载遮罩（首次 await 读取 IDB，毫秒级，无感；IDB 失败也有兜底不卡死）
+function showBootLoading(show){
+  const el = $('#bootLoading'); if(!el) return;
+  el.classList.toggle('hidden', !show);
+}
+async function init(){
+  showBootLoading(true);
+  try{ await loadState(); }catch(e){ /* 兜底：保持空白 state，不卡死 */ }
   loadGlib();                        // v8 词典库（跨作品复用）
   // 应用已保存主题（统一走 applyTheme，保证 mecha nav 显隐等副作用一致）
   const c = getCfg();
@@ -6003,6 +6374,7 @@ function init(){
   // 底部导航
   $$('.tab').forEach(t=> t.onclick = ()=>{ currentStep = +t.dataset.step; render(); window.scrollTo(0,0); });
   // 首次进入直接渲染主界面（不再自动弹设置；用户可随时点右上角 ☰ 配置 API Key）
+  showBootLoading(false);
   render();
 }
 document.addEventListener('DOMContentLoaded', init);

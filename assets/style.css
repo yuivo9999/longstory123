@@ -841,3 +841,32 @@ textarea[readonly]::selection{ background:color-mix(in srgb, var(--accent2) 45%,
 .rp-style .ws-int{padding:3px 10px;font-size:11.5px}
 /* 双风格对比弹窗 */
 .cmp-pre{max-height:46vh}
+
+/* =========================================================
+ * v2.1 交互修订：主卡生效确认 + 弹窗折叠置灰
+ * ========================================================= */
+.ws-sum.dirty{color:var(--warn)}
+.ws-apply.disabled{opacity:.45;pointer-events:none}
+.ws-dirty-hint{font-size:11.5px;color:var(--warn);background:rgba(245,185,66,.1);border:1px dashed rgba(245,185,66,.4);border-radius:8px;padding:6px 9px;margin:6px 0 0}
+/* 重生成弹窗：对比区未解锁时整区置灰（标题仍可点开看说明） */
+.rp-style.disabled .rp-style-body{opacity:.42;pointer-events:none;user-select:none}
+.rp-style.disabled .rp-style-head{opacity:.55}
+.rp-style.disabled .rp-style-head:hover{background:var(--panel2)}
+.rp-cmp-lock-hint{display:none;font-size:12px;color:var(--warn);background:rgba(245,185,66,.1);border:1px dashed rgba(245,185,66,.4);border-radius:8px;padding:6px 9px;margin:0 0 8px}
+.rp-style.disabled .rp-cmp-lock-hint{display:block}
+
+/* =========================================================
+ * v2.4：词典字段检查 + 日志长度标注
+ * ========================================================= */
+.gs-check-badge{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;margin-left:4px;border-radius:20px;background:var(--warn);color:#fff;font-size:10px;font-weight:700;vertical-align:middle}
+.gs-miss{color:var(--warn);background:rgba(245,185,66,.14);border:1px solid rgba(245,185,66,.45);padding:0 6px;border-radius:6px;margin-right:6px;white-space:nowrap}
+.gs-unk{color:var(--accent2);background:color-mix(in srgb,var(--accent2) 14%, transparent);border:1px solid color-mix(in srgb,var(--accent2) 45%, transparent);padding:0 6px;border-radius:6px;white-space:nowrap}
+
+/* =========================================================
+ * 启动加载遮罩（fixed5：首次 await 读取 IndexedDB）
+ * ========================================================= */
+.boot-loading{ position:fixed; inset:0; z-index:9999; display:flex; align-items:center; justify-content:center;
+  background:rgba(15,17,21,.86); color:#e8eaed; font-size:15px; letter-spacing:.04em; }
+.boot-loading.hidden{ display:none; }
+.boot-loading-inner{ padding:18px 30px; border-radius:14px; background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.14); box-shadow:0 8px 30px rgba(0,0,0,.35); }
