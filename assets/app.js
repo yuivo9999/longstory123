@@ -238,6 +238,8 @@ function projectSnapshot(){
     gsCollapsed: state.gsCollapsed,
     stCollapsed: state.stCollapsed,
     cpCollapsed: state.cpCollapsed,   // v10.14 梗概卡折叠透传
+    polishOptions: state.polishOptions,   // v10.16 优化构想保留方案透传
+    polishAdopted: state.polishAdopted,   // v10.16 当前采用的方案名
     autoQC: (typeof state.autoQC === 'boolean') ? state.autoQC : true,
     chapters: state.chapters,
     characters: state.characters,
@@ -272,6 +274,8 @@ function applyProject(p){
   state.gsCollapsed = (typeof p.gsCollapsed === 'boolean') ? p.gsCollapsed : true;
   state.stCollapsed = !!p.stCollapsed;
   state.cpCollapsed = (typeof p.cpCollapsed === 'boolean') ? p.cpCollapsed : true;   // v10.14 梗概卡默认折叠
+  state.polishOptions = Array.isArray(p.polishOptions) ? p.polishOptions : undefined;   // v10.16 保留方案
+  state.polishAdopted = (typeof p.polishAdopted === 'string') ? p.polishAdopted : undefined;
   state.autoQC = (typeof p.autoQC === 'boolean') ? p.autoQC : true;   // 自动质检默认开
   state.chapters = p.chapters || [];
   state.characters = p.characters || [];
@@ -549,43 +553,20 @@ ${JSON_HEADER}
  * ========================================================= */
 const SIZE_DEFAULT = { min:3000, max:5000 };
 
-/* ---------- 预置示例点子库（固定 12 条，每次随机出现一条） ---------- */
-const IDEA_SAMPLES = [
-  { text:"现代都市，一个能听见别人心声的外卖员，意外卷进一起豪门遗产骗局……", tag:"都市 · 奇幻" },
-  { text:"仙侠世界，一个专测天劫的渡劫顾问帮人渡劫赚钱，自己却因从不受劫而引来天雷记恨……", tag:"仙侠 · 轻喜" },
-  { text:"悬疑刑侦，能看见死者最后三秒记忆的法医，追查连环悬案时发现所有死者都指向她的童年伙伴……", tag:"悬疑 · 刑侦" },
-  { text:"末世生存，粮仓守护者发现地下城其实是为富人修建的末日方舟，而自己只是唯一的过期补给员……", tag:"末世 · 生存" },
-  { text:"历史穿越，现代历史系学生穿成冷宫弃妃，靠课本知识预判宫廷权谋，却一步步改写了史书记载……", tag:"历史 · 穿越" },
-  { text:"科幻太空，资源枯竭的殖民舰上，负责修理冷藏舱的技工发现一批被故意下架的冬眠者名单……", tag:"科幻 · 太空" },
-  { text:"玄幻宗门，筑基失败、修为倒退的宗门杂役，反而成了唯一能看透渡心魔考核本质的人……", tag:"玄幻 · 宗门" },
-  { text:"都市职场，跨国公司的普通 HR 发现公司招人的真正目的，竟与一场惊天商业骗局有关……", tag:"都市 · 职场" },
-  { text:"宫斗权谋，被当作嫡女替代品培养的庶女，在嫡姐病逝后顶替入宫，卷入一场夺嫡阴谋……", tag:"宫斗 · 权谋" },
-  { text:"奇幻日常，开在传说妖孽必经之路上的小茶馆主人，每夜接待不同来客，用一盏茶化解恩怨……", tag:"奇幻 · 日常" },
-  { text:"赛博朋克，沉迷修复旧物的小镇修理工，在一台老录像机里发现的不是过去，而是尚未发生的未来……", tag:"赛博 · 设定" },
-  { text:"医学悬疑，屡遭误诊斥责的乡村赤脚大夫，用祖传中医救下重患，却被卷入一场针对他的医疗阴谋……", tag:"医学 · 悬疑" }
-];
-let _lastIdeaIdx = -1;
-let _curIdeaPh = '';
-function currentIdeaPhrase(){
-  if(!_curIdeaPh) _curIdeaPh = pickRandomIdea();
-  return _curIdeaPh;
-}
-function rerollIdeaPhrase(){
-  // 若用户已输入内容，则把新例子填入输入框；否则仅更新占位
-  _curIdeaPh = pickRandomIdea();
-  const ta = $('#ideaInput');
-  if(ta && !ta.value.trim()) ta.setAttribute('placeholder', _curIdeaPh);
-  else if(ta) ta.value = _curIdeaPh;
-}
-
 // v10.13 优化构想：调用 IDEA_POLISH_SYS 把粗糙构想优化为结构化高质量版本。
 // 极短输入（<15 字）由 AI 走「骨架展开模式」且强制多方案；空输入禁用。
 // 多方案模式（polishMulti 开）：AI 返回 JSON（advice + options[]），Tab 切换查看/编辑。
 let polishMulti = false;   // 多方案开关（内存态，不持久化；极短构想强制 true）
 
-async function polishIdea(btn){
+// v10.16 多方案留存：采用后不销毁方案（state.polishOptions/polishAdopted 随快照持久化），
+// 提示条提供「查看全部（零请求）/ 重新优化（force）/ 清除」；再次优化需 confirm 防误发请求。
+async function polishIdea(btn, force){
   const idea = (state.idea || '').trim();
   if(!idea){ toast('请先输入故事构想'); return; }
+  const kept = Array.isArray(state.polishOptions) && state.polishOptions.length;
+  if(kept && !force){
+    if(!confirm(`已有 ${kept} 个保留方案，重新优化将覆盖它们。继续？`)) return;
+  }
   const multi = polishMulti || idea.length < 15;   // 极短强制多方案
   if(btn) busy(btn,true, multi ? '生成多方案构想中…' : '优化构想中…');
   try{
@@ -611,6 +592,8 @@ function showPolishResult(out, multi){
     advice = String(j.advice || '');
     if(opts.length){
       state.polishOptions = opts;
+      state.polishAdopted = null;   // 新方案列表，尚未采用
+      persist();
       renderPolishTabs(tabs, ta, adv, advice);
       ta.value = opts[0].text;
       return;
@@ -636,6 +619,20 @@ function showPolishResult(out, multi){
   if(tabs) tabs.style.display = 'none';
 }
 
+// v10.16 用缓存方案重新展开优化区（零请求）：Tab + advice + 当前采用的方案
+function openPolishBox(){
+  const box = $('#polishBox'), ta = $('#polishText'), adv = $('#polishAdvice'), tabs = $('#polishTabs');
+  const opts = Array.isArray(state.polishOptions) ? state.polishOptions : [];
+  if(!box || !ta || !opts.length) return;
+  box.style.display = 'block';
+  const adoptedIdx = Math.max(0, opts.findIndex(o=> o.name===state.polishAdopted));
+  renderPolishTabs(tabs, ta, adv, '');
+  const cur = opts[adoptedIdx] || opts[0];
+  ta.value = cur ? cur.text : '';
+  const tabsArr = tabs ? [...tabs.querySelectorAll('.pol-tab')] : [];
+  if(tabsArr[adoptedIdx]){ tabsArr.forEach(x=>x.classList.remove('active')); tabsArr[adoptedIdx].classList.add('active'); }
+}
+
 // 多方案 Tab 渲染：固定短标签「方案A/B/C…」（杜绝省略号），完整方向名放 title 悬浮；点击切换 textarea 内容
 function renderPolishTabs(tabs, ta, adv, advice){
   if(!tabs) return;
@@ -657,7 +654,7 @@ function renderPolishTabs(tabs, ta, adv, advice){
   }
 }
 
-// v10.13 优化区绑定：复制 / 采用（替换构想框+清空）/ 放弃 / 多方案开关
+// v10.13/v10.16 优化区绑定：复制 / 采用此方案（可反复切换）/ 收起 / 多方案开关 / 提示条
 function bindPolishIdea(){
   const b = $('#btnPolishIdea');
   if(b) b.onclick = ()=> polishIdea(b);
@@ -679,6 +676,7 @@ function bindPolishIdea(){
     if(ta && ta.value.trim()) copyText(ta.value);
     else toast('优化区为空');
   };
+  // v10.16 采用此方案：更新构想 + 记录采用名 + persist + render（方案保留，提示条更新）
   const use = $('#btnPolishUse');
   if(use) use.onclick = ()=>{
     const ta = $('#polishText');
@@ -686,25 +684,54 @@ function bindPolishIdea(){
     const v = ta.value.trim();
     if(!v){ toast('优化区为空'); return; }
     state.idea = v;
+    const act = tabsActiveName();
+    if(act) state.polishAdopted = act;
     persist(); render();
-    toast('已采用优化后的构想');
+    toast(act ? '已采用：'+act : '已采用优化后的构想');
   };
+  // v10.16 收起：仅隐藏优化区（方案保留，提示条仍在）
   const disc = $('#btnPolishDiscard');
   if(disc) disc.onclick = ()=>{
     const box = $('#polishBox');
     if(box) box.style.display = 'none';
-    const ta = $('#polishText'); if(ta) ta.value = '';
-    const adv = $('#polishAdvice'); if(adv) adv.style.display = 'none';
-    const tabs = $('#polishTabs'); if(tabs) tabs.style.display = 'none';
-    toast('已放弃，构想保持原样');
+  };
+  // v10.16 提示条按钮：查看全部 / 重新优化 / 清除
+  const view = $('[data-pol-keep-view]');
+  if(view) view.onclick = (e)=>{ e.stopPropagation(); openPolishBox(); };
+  const again = $('[data-pol-keep-again]');
+  if(again) again.onclick = (e)=>{ e.stopPropagation(); polishIdea($('#btnPolishIdea'), true); };
+  const clear = $('[data-pol-keep-clear]');
+  if(clear) clear.onclick = (e)=>{
+    e.stopPropagation();
+    if(!confirm('清除全部保留方案？')) return;
+    delete state.polishOptions;
+    delete state.polishAdopted;
+    persist(); render();
+    toast('已清除保留方案');
   };
 }
-function pickRandomIdea(){
-  if(!IDEA_SAMPLES.length) return '';
-  let i = Math.floor(Math.random()*IDEA_SAMPLES.length);
-  if(i === _lastIdeaIdx && IDEA_SAMPLES.length > 1) i = (i+1)%IDEA_SAMPLES.length; // 避免与上一轮重复
-  _lastIdeaIdx = i;
-  return IDEA_SAMPLES[i].text;
+// 当前激活 Tab 对应的方案名（采用时记录）
+function tabsActiveName(){
+  const tabs = $('#polishTabs'); if(!tabs) return '';
+  const act = tabs.querySelector('.pol-tab.active');
+  const idx = act ? +act.dataset.polTab : -1;
+  const o = (state.polishOptions||[])[idx];
+  return o ? (o.name||'') : '';
+}
+
+// v10.16 方案提示条：采用后保留方案的可视入口（查看全部零请求 / 重新优化 / 清除）
+function polishKeepBar(){
+  const opts = Array.isArray(state.polishOptions) ? state.polishOptions : [];
+  if(!opts.length) return '';
+  const cur = state.polishAdopted || opts[0].name || '方案A';
+  return `<div class="pol-keep">
+    <span class="pol-keep-t">已保留 ${opts.length} 个优化方案（当前采用：${esc(cur)}）</span>
+    <span class="pol-keep-btns">
+      <button type="button" class="btn small ghost" data-pol-keep-view>🔍 查看全部</button>
+      <button type="button" class="btn small ghost" data-pol-keep-again>✨ 重新优化</button>
+      <button type="button" class="btn small ghost" data-pol-keep-clear>✕ 清除</button>
+    </span>
+  </div>`;
 }
 
 
@@ -1800,8 +1827,7 @@ function viewStory(){
       <h3>① 输入故事构想</h3>
       <p class="sub">${homeSub}</p>
       <div class="idea-row">
-        <textarea id="ideaInput" placeholder="${esc(currentIdeaPhrase())}">${esc(state.idea)}</textarea>
-        <button id="btnRerollIdea" class="btn ghost idea-reroll" title="换个示例">🎲</button>
+        <textarea id="ideaInput" placeholder="">${esc(state.idea)}</textarea>
       </div>
       <div class="btn-row">
         <button id="btnPolishIdea" class="btn ghost" title="把构想优化成结构化高质量版本">✨ 优化构想</button>
@@ -1811,14 +1837,15 @@ function viewStory(){
         <div class="pol-head"><b>✨ 优化稿</b>
           <span class="pol-tools">
             <button id="btnPolishCopy" class="btn small ghost">📋 复制</button>
-            <button id="btnPolishUse" class="btn small primary">✔ 采用</button>
-            <button id="btnPolishDiscard" class="btn small ghost">✕ 放弃</button>
+            <button id="btnPolishUse" class="btn small primary">✔ 采用此方案</button>
+            <button id="btnPolishDiscard" class="btn small ghost">✕ 收起</button>
           </span>
         </div>
         <div id="polishAdvice" class="pol-advice" style="display:none"></div>
         <div id="polishTabs" class="pol-tabs" style="display:none"></div>
         <textarea id="polishText" class="pol-text" placeholder="可直接编辑此优化稿"></textarea>
       </div>
+      ${ polishKeepBar() }
       ${ isLong() ? recipePicker() : specPickerHtml() }
       <div class="btn-row">
         <button id="btnGenOutline" class="btn primary block">${isLong()?'📚 生成长篇大纲':'✨ 生成故事大纲'}</button>
@@ -3399,7 +3426,6 @@ function bindView(){
   // P1
   const idea = $('#ideaInput'); if(idea){
     idea.oninput = ()=> state.idea = idea.value;
-    const rr = $('#btnRerollIdea'); if(rr) rr.onclick = (e)=>{ e.stopPropagation(); rerollIdeaPhrase(); };
     bindPolishIdea();   // v10.13 优化构想按钮 + 优化区绑定
     $('#btnGenOutline').onclick = genOutline;
   }

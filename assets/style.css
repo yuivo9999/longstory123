@@ -45,10 +45,8 @@ body{
 textarea,input,select{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:10px;padding:10px;font-size:14px;font-family:inherit;resize:vertical}
 textarea{min-height:90px;line-height:1.6}
 .idea-row{position:relative;margin-bottom:12px}
-.idea-row textarea{padding-right:46px;min-height:180px;background:color-mix(in srgb, var(--accent2) 10%, var(--panel2));border-color:color-mix(in srgb, var(--accent2) 45%, var(--line));transition:border-color .15s, box-shadow .15s}
+.idea-row textarea{min-height:180px;background:color-mix(in srgb, var(--accent2) 10%, var(--panel2));border-color:color-mix(in srgb, var(--accent2) 45%, var(--line));transition:border-color .15s, box-shadow .15s}
 .idea-row textarea:focus{border-color:var(--accent2);box-shadow:0 0 0 3px color-mix(in srgb, var(--accent2) 18%, transparent)}
-.idea-reroll{position:absolute;top:10px;right:10px;width:34px;height:34px;padding:0;border-radius:10px;background:var(--panel2);border:1px solid var(--line);font-size:16px}
-.idea-reroll:active{transform:scale(.95)}
 select{appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%239aa3b2' d='M6 8L1 3h10z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:34px}
 textarea:focus,input:focus,select:focus{outline:none;border-color:var(--accent2)}
 label.field{display:block;margin-bottom:12px}
@@ -556,6 +554,10 @@ body.reader-lock{overflow:hidden}
 .pol-text{min-height:120px;width:100%;padding:8px 10px;font-size:13px;line-height:1.7;box-sizing:border-box}
 .pol-multi{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--muted);cursor:pointer}
 .pol-multi input{width:14px;height:14px;cursor:pointer}
+/* v10.16 多方案保留提示条 */
+.pol-keep{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:2px 0 10px;padding:7px 10px;border:1px dashed var(--line);border-radius:8px;background:color-mix(in srgb,var(--accent) 6%, var(--panel2));font-size:12px}
+.pol-keep-t{color:var(--sub)}
+.pol-keep-btns{display:flex;gap:6px;flex-wrap:wrap}
 .pol-advice{margin:0 0 8px;padding:7px 10px;border-left:3px solid var(--accent);background:color-mix(in srgb,var(--accent) 8%, var(--panel2));border-radius:6px;font-size:12px;line-height:1.6;color:var(--text)}
 .pol-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
 .pol-tab{padding:4px 8px;border-radius:20px;border:1px solid var(--line);background:var(--panel2);color:var(--muted);font-size:12px;cursor:pointer;white-space:nowrap}
