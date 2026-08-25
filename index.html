@@ -43,8 +43,10 @@
     <div class="spec-head">
       <span>📚 历史作品</span>
       <span class="spec-actions">
+        <button id="btnImportFyp" class="hist-new-btn" type="button">📥 导入 .fyp</button>
         <button id="histNewLong" class="hist-new-btn" type="button">＋ 新建长篇</button>
         <button id="btnNewProject" class="hist-new-btn" type="button">＋ 新建小说</button>
+        <input type="file" id="fypImportInput" accept=".fyp,application/json" style="display:none">
       </span>
     </div>
     <div class="hist-list" id="histList"></div>
@@ -163,6 +165,9 @@
 <!-- 轻提示 -->
 <div id="toast" class="toast hidden"></div>
 
+<!-- 启动加载遮罩（首次 await 读取 IndexedDB，毫秒级后自动隐藏） -->
+<div id="bootLoading" class="boot-loading hidden"><div class="boot-loading-inner">加载中…</div></div>
+
 <!-- 沉浸式章节阅读浮层：点侧边空白 / ✕ / ESC 退出 -->
 <div id="readerOverlay" class="reader hidden">
   <div class="reader-backdrop" data-reader-close></div>
@@ -189,6 +194,7 @@
 <script src="assets/vendor/nouislider/nouislider.min.js"></script>
   <script src="assets/vendor/tom-select/tom-select.complete.min.js"></script>
 <script src="assets/vendor/jszip.min.js"></script>
+<script src="assets/idb.js"></script>
 <script src="assets/app.js?v=66"></script>
 </body>
 </html>
