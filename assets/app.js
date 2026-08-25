@@ -35,7 +35,7 @@ const state = {
   gsCollapsed: true,    // v8b：万物词典卡片是否整卡收缩（默认收缩，点圆形展开全部）
   stCollapsed: false,   // v10.3：长篇结构设计栏是否收缩（默认展开，点击标题收起）
   cpCollapsed: true,    // v10.14：逐章方向梗概卡是否收缩（默认折叠，点击标题展开）
-  autoQC: true,         // 自动质检开关（默认开，用户无需操心）：生成后自动两段式查错修正；关则直接落库
+  autoQC: false,        // 自动质检开关（默认关闭，v10.18）：生成后自动两段式查错修正；关则直接落库
   chapters: [],         // [{title, content, confirmed}]
   characters: [],       // [{name, role, profile:{...}, prompts:{...}}]
   scenes: [],           // [{name, 作用, description, prompt}]
@@ -240,7 +240,7 @@ function projectSnapshot(){
     cpCollapsed: state.cpCollapsed,   // v10.14 梗概卡折叠透传
     polishOptions: state.polishOptions,   // v10.16 优化构想保留方案透传
     polishAdopted: state.polishAdopted,   // v10.16 当前采用的方案名
-    autoQC: (typeof state.autoQC === 'boolean') ? state.autoQC : true,
+    autoQC: (typeof state.autoQC === 'boolean') ? state.autoQC : false,
     chapters: state.chapters,
     characters: state.characters,
     scenes: state.scenes,
@@ -276,7 +276,7 @@ function applyProject(p){
   state.cpCollapsed = (typeof p.cpCollapsed === 'boolean') ? p.cpCollapsed : true;   // v10.14 梗概卡默认折叠
   state.polishOptions = Array.isArray(p.polishOptions) ? p.polishOptions : undefined;   // v10.16 保留方案
   state.polishAdopted = (typeof p.polishAdopted === 'string') ? p.polishAdopted : undefined;
-  state.autoQC = (typeof p.autoQC === 'boolean') ? p.autoQC : true;   // 自动质检默认开
+  state.autoQC = (typeof p.autoQC === 'boolean') ? p.autoQC : false;   // 自动质检默认关闭（v10.18）
   state.chapters = p.chapters || [];
   state.characters = p.characters || [];
   state.scenes = p.scenes || [];
@@ -293,7 +293,7 @@ function clearState(){
   state.wordRange = null; state.chapterRange = null; state.totalWords = null; state.chapterCount = null;
   state.idea = ''; state.outline = null; state.coverPrompt = ''; state.coverWithTitle = false; state.outlineConfirmed = false;
   state.pendingGlossary = null; state.glossAdherence = 60; state.glossAllowFill = false; state.glossAutoFill = true; state.gsCollapsed = true;
-  state.autoQC = true;   // 自动质检默认开
+  state.autoQC = false;  // 自动质检默认关闭（v10.18）
   state.chapters = []; state.characters = []; state.scenes = []; state.storyboard = []; state.boardConcepts = []; state.titleHistory = []; state.raw = {};
   currentStep = 1;
 }
@@ -1427,8 +1427,9 @@ function glossaryDupNoteHtml(){
 function chapterGlossaryBlock(){
   const o = state.outline;
   if(!o) return '';
-  const content = storyContentBlock();
-  let body = `\n\n【全局创作上下文（严格服从，禁止自造新名）】\n${content?('·【内容】全局大纲与结构——请据此把握整个故事走向与本章在全书中的位置。\n'+content):''}`;
+  // v10.18 不再注入【内容】块（logline+长篇结构设计）——章节 AI 只收词典一致性基准；
+  // 结构定位改由 longChapterContext 以精简形式注入；storyContentBlock 保留给逐章梗概生成与📄面板。
+  let body = `\n\n【全局创作上下文（严格服从，禁止自造新名）】`;
   const g = (o && o.glossary) || {};
   if(sourceHasGlossary(g)){
     const rf = glossaryForAI();
@@ -2203,7 +2204,7 @@ function glossaryCardHtml(){
     </div>
     <div class="gs-card-body"${collapsed?' style="display:none"':''}>
     <p class="sub">全文一致性基准：生成正文时一律使用以下人名/地名/专名，不得自造新名。可小幅修改错名，保留为准则。</p>
-    <div class="gs-panel" id="gsContent" hidden><div class="gs-panel-title">📄 内容 · 全局大纲与结构（只读，生成时自动提供给 AI）</div><pre class="gs-pre">${esc(storyContentBlock()||'（暂无内容）')}</pre></div>
+    <div class="gs-panel" id="gsContent" hidden><div class="gs-panel-title">📄 内容 · 全局大纲与结构（只读参考；逐章梗概生成时提供给 AI，章节正文不再注入）</div><pre class="gs-pre">${esc(storyContentBlock()||'（暂无内容）')}</pre></div>
     <div class="gs-panel" id="gsHistory" hidden><div class="gs-panel-title">🕘 历史更改</div><div id="gsHistoryList"></div></div>
     <div class="gs-group" data-gs-type="char"><div class="gs-title">👤 人物（${g.characters.length}）</div>
       ${chars||'<span class="muted">（无）</span>'}</div>
