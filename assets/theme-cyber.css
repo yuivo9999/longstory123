@@ -322,3 +322,17 @@
   color: #fff;
   box-shadow: var(--cy-glow-cyan);
 }
+
+/* 阅读界面专属换肤（不动全局标准变量，弹窗/Toast 维持默认）：赛博霓虹 */
+[data-theme="cyber"] .reader-panel{
+  background: rgba(16, 14, 34, 0.92); color: var(--cy-text);
+  border: 1px solid var(--cy-line); box-shadow: 0 0 30px rgba(168,85,247,.25), 0 18px 60px rgba(0,0,0,.6);
+}
+[data-theme="cyber"] .reader-head{ background: rgba(28, 22, 54, 0.92); border-bottom-color: var(--cy-line); }
+[data-theme="cyber"] .reader-toc{ background: rgba(16, 14, 34, 0.95); border-left-color: var(--cy-line); }
+[data-theme="cyber"] .reader-body p:first-child::first-letter{ color: var(--cy-cyan); }
+[data-theme="cyber"] .reader-toc-btn.on{ background: var(--cy-cyan); color:#06222b; border-color: var(--cy-cyan); }
+[data-theme="cyber"] .reader-syn-btn{ background: rgba(28, 22, 54, 0.92); border-color: var(--cy-line); color: var(--cy-cyan); }
+[data-theme="cyber"] .reader-syn-btn:hover{ background: var(--cy-cyan); color:#06222b; }
+[data-theme="cyber"] .reader-syn-card{ background: rgba(16, 14, 34, 0.95); color: var(--cy-text); border: 1px solid var(--cy-line); box-shadow: 0 0 26px rgba(34,211,238,.22), 0 14px 44px rgba(0,0,0,.55); }
+[data-theme="cyber"] .reader-syn-card .syn-body.muted{ color: var(--cy-dim); }

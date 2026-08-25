@@ -683,9 +683,11 @@ body.reader-lock{overflow:hidden}
 /* v8b 整卡收缩/展开：标题栏右侧圆形按钮 + 卡片标题头 + 可收缩 body */
 .gs-card-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .gs-card-head .gs-card-title{flex:1 1 auto;min-width:0}
-.gs-collapse-btn{flex:0 0 auto;width:30px;height:30px;border-radius:50%;border:1px solid var(--line);background:var(--panel2);color:var(--sub);font-size:18px;line-height:1;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:transform .15s,color .15s}
-.gs-collapse-btn:hover{color:var(--accent);border-color:var(--accent)}
-.gs-collapse-btn:active{transform:scale(.92)}
+.gs-card-title{cursor:pointer}
+.gs-card-title:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+.gs-tools{cursor:default}
+.gs-card-arrow{display:inline-block;font-size:11px;color:var(--muted);margin-right:4px;transition:transform .15s}
+.gs-card-t{display:inline-flex;align-items:center}
 .gs-card-body{padding-top:2px}
 
 /* v8 辅轨词典面板（构想阶段）：可复用词典卡片 + 遵从度滑条 + 允许补充开关 */
@@ -824,21 +826,24 @@ textarea[readonly]::selection{ background:color-mix(in srgb, var(--accent2) 45%,
 .ws-lib-add{border:1px dashed var(--line);border-radius:10px;padding:10px;margin-bottom:14px}
 .ws-add-row{display:flex;gap:8px;margin-bottom:6px}
 .ws-add-row select,.ws-add-row input{padding:6px 8px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--text);font-size:12.5px}
-.ws-add-row select{flex:0 0 auto}
-.ws-add-row input{flex:1;min-width:0}
-.ws-lib-add textarea{width:100%;min-height:48px;padding:6px 8px;font-size:12.5px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--text);font-family:inherit;margin-bottom:6px}
+.ws-add-row select{flex:0 0 104px;width:104px;padding-right:28px}
+.ws-add-row input{flex:1 1 auto;min-width:0}
+.ws-lib-add textarea{width:100%;min-height:96px;padding:6px 8px;font-size:12.5px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--text);font-family:inherit;margin-bottom:6px}
 /* 重生成弹窗 · 风格折叠区 */
 .rp-style{border:1px solid var(--line);border-radius:10px;margin-top:10px;overflow:hidden}
 .rp-style-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 12px;font-size:13px;font-weight:600;cursor:pointer;background:var(--panel2);user-select:none}
 .rp-style-head:hover{background:color-mix(in srgb, var(--accent) 8%, var(--panel2))}
 .rp-style-arrow{color:var(--muted);font-size:12px}
 .rp-style-body{padding:10px 12px;background:var(--panel)}
-.rp-radio-row{display:flex;align-items:center;gap:6px;font-size:12.5px;padding:3px 0;cursor:pointer}
+.rp-radio-row{display:flex;align-items:center;justify-content:flex-start;gap:6px;font-size:12.5px;padding:3px 0;margin:0;width:100%;box-sizing:border-box;cursor:pointer}
 .rp-radio-row input{accent-color:var(--accent)}
 .rp-style-sub{margin-top:8px;border-top:1px dashed var(--line);padding-top:8px}
 .rp-style-label{font-size:11.5px;font-weight:700;color:var(--sub);margin:6px 0 4px}
 .rp-style .ws-chip{font-size:12px;padding:4px 9px}
 .rp-style .ws-int{padding:3px 10px;font-size:11.5px}
+.rp-apply-row{display:flex;align-items:center;gap:10px;margin-top:10px}
+.rp-apply-status{font-size:12px;font-weight:600;color:var(--warn)}
+.rp-apply-status.ok{color:var(--ok)}
 /* 双风格对比弹窗 */
 .cmp-pre{max-height:46vh}
 
@@ -870,3 +875,44 @@ textarea[readonly]::selection{ background:color-mix(in srgb, var(--accent2) 45%,
 .boot-loading.hidden{ display:none; }
 .boot-loading-inner{ padding:18px 30px; border-radius:14px; background:rgba(255,255,255,.06);
   border:1px solid rgba(255,255,255,.14); box-shadow:0 8px 30px rgba(0,0,0,.35); }
+
+/* =========================================================
+ * 阅读界面底部中央「概」按钮 + 本章梗概浮层（fixed8）
+ * 锚定在 .reader-panel（position:relative）内。
+ * ========================================================= */
+/* 底部中央方形按钮：上方两角小圆角、底边直线贴着面板底线、文字「概」 */
+.reader-syn-btn{
+  position:absolute; left:50%; transform:translateX(-50%);
+  bottom:0;                                  /* 底边贴着面板底边线（直线） */
+  width:54px; height:46px;
+  border:1px solid var(--line); border-bottom:none;   /* 底边无边框 → 与面板底边合成一条直线 */
+  border-radius:10px 10px 0 0;               /* 仅上方两角小圆角（下面直角贴底） */
+  background:var(--panel2); color:var(--accent);
+  font-size:18px; font-weight:800; line-height:1;
+  display:flex; align-items:center; justify-content:center; cursor:pointer;
+  transition:background .15s, color .15s; z-index:4;
+}
+.reader-syn-btn:hover{ background:var(--accent); color:#fff; }
+.reader-syn-btn:active{ transform:translateX(-50%) scale(.96); }
+/* 本章梗概浮层：半透明遮罩覆盖阅读面板 */
+.reader-syn-pop{
+  position:absolute; inset:0; z-index:6;
+  display:flex; align-items:center; justify-content:center;
+  background:rgba(0,0,0,.42);
+}
+.reader-syn-pop.hidden{ display:none; }
+/* 梗概卡片：正方形（aspect-ratio 1/1），宽度=阅读界面一半（相对 .reader-panel） */
+.reader-syn-card{
+  width:50%;
+  aspect-ratio:1 / 1;               /* 正方形 */
+  max-height:78%;                  /* 超高阅读界面时不被裁切 */
+  background:var(--panel); color:var(--txt);
+  border:1px solid var(--line); border-radius:14px;
+  padding:18px 20px; overflow:auto;             /* 超长梗概可滚动 */
+  box-shadow:0 14px 44px rgba(0,0,0,.5);
+  animation:synPopIn .18s ease;
+}
+@keyframes synPopIn{from{transform:scale(.92);opacity:.4}to{transform:none;opacity:1}}
+.reader-syn-card h4{ margin:0 0 10px; font-size:15px; font-weight:800; }
+.reader-syn-card .syn-body{ font-size:14px; line-height:1.8; white-space:pre-wrap; word-break:break-word; }
+.reader-syn-card .syn-body.muted{ color:var(--muted); }

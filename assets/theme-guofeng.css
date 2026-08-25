@@ -20,6 +20,13 @@
   --gf-line: rgba(212, 168, 75, 0.35);
   --gf-shadow: 0 6px 18px rgba(0,0,0,0.45);
   --gf-inset: inset 0 1px 0 rgba(255,255,255,0.08);
+  /* 标准变量契约：让阅读浮层 / 弹窗 / Toast 等自动适配国风皮肤（宣纸 + 墨字 + 金线） */
+  --panel: #f4ecd8;
+  --panel2: #ece2c8;
+  --txt: var(--gf-ink);
+  --muted: var(--gf-dim);
+  --line: var(--gf-line);
+  --accent: var(--gf-gold);
 }
 
 /* 背景：深红木纹（代码兜底）或用户提供的背景图 */

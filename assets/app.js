@@ -7,7 +7,7 @@
 'use strict';
 
 /* ---------- 全局状态 ---------- */
-const APP_VERSION = '1.0.7';   // 应用版本号（fixed7 基线）：index.html 的 ?v= 资源戳与之同步递增，用于标识产物已更新
+const APP_VERSION = '1.0.16';   // 应用版本号（fixed10 基线 + 收窄：国风保持全局标准变量映射；赛博/机甲仅阅读界面专属换肤、弹窗/Toast 维持默认）：index.html 的 ?v= 资源戳与之同步递增，用于标识产物已更新
 const KEY_CFG = 'fyp_cfg';
 const KEY_STATE = 'fyp_state';   // 旧版单项目 key（仅用于首次迁移）
 const KEY_LIB = 'fyp_lib';       // 新版多项目历史库
@@ -2224,8 +2224,9 @@ function writeStyleIntHtml(sel, dataPrefix){
 function toggleWriteTag(sel, id){
   const s = writeStyleById(id); if(!s) return;
   if(s.group === 'tone'){
+    const wasOn = sel.tags.includes(id);
     sel.tags = sel.tags.filter(x=>{ const o=writeStyleById(x); return o && o.group!=='tone'; });
-    if(!sel.tags.includes(id)) sel.tags.push(id);
+    if(!wasOn) sel.tags.push(id);
   } else {
     if(sel.tags.includes(id)) sel.tags = sel.tags.filter(x=>x!==id);
     else sel.tags.push(id);
@@ -2361,8 +2362,6 @@ function openStyleLibPanel(){
           <button class="gs-x" data-lib-close>✕</button>
         </span></div>
       <div class="cv-body">
-        <div class="cv-div">系统风格指令可修改（打"已改"标记），可新增自定义风格（归属某组）、可删除自定义项；「恢复默认」清空全部词库改动。改动即时生效。</div>
-        ${groupHtml}
         <div class="ws-lib-add">
           <div class="ws-group-t">＋ 新增风格</div>
           <div class="ws-add-row">
@@ -2373,9 +2372,11 @@ function openStyleLibPanel(){
             </select>
             <input type="text" id="wsAddName" placeholder="风格名称（如：民国腔调）" maxlength="20" />
           </div>
-          <textarea id="wsAddNote" rows="2" maxlength="500" placeholder="指令文本（≤500字）。推荐三行配方：&#10;写法：…&#10;避免：…&#10;自查：…"></textarea>
+          <textarea id="wsAddNote" rows="4" maxlength="500" placeholder="指令文本（≤500字）。推荐三行配方：&#10;写法：…&#10;避免：…&#10;自查：…"></textarea>
           <button type="button" class="btn small primary" data-lib-add>＋ 新增</button>
         </div>
+        <div class="cv-div">系统风格指令可修改（打"已改"标记），可新增自定义风格（归属某组）、可删除自定义项；「恢复默认」清空全部词库改动。改动即时生效。</div>
+        ${groupHtml}
         <div class="ws-lib-group">
           <div class="ws-group-t">⭐ 我的收藏</div>
           ${mine}
@@ -2922,8 +2923,10 @@ function glossaryCardHtml(){
   const total = (g.characters||[]).length + (g.places||[]).length + (g.propernouns||[]).length;
   return `<div class="card gs-card${collapsed?' gs-collapsed':''}">
     <div class="gs-card-head">
-      <h3 class="gs-card-title">📇 设定表 · 万物词典（${total} 条）${tools}</h3>
-      <button type="button" class="gs-collapse-btn" data-gs-collapse title="${collapsed?'展开全部':'收缩'}" aria-label="${collapsed?'展开':'收缩'}">${collapsed?'＋':'−'}</button>
+      <h3 class="gs-card-title" role="button" tabindex="0" data-gs-card-toggle>
+        <span class="gs-card-t"><span class="gs-card-arrow">${collapsed?'▸':'▾'}</span>📇 设定表 · 万物词典（${total} 条）</span>
+        ${tools}
+      </h3>
     </div>
     <div class="gs-card-body"${collapsed?' style="display:none"':''}>
     <p class="sub">全文一致性基准：生成正文时一律使用以下人名/地名/专名，不得自造新名。生成章节时，人物身份/岁数/性别/外貌/爱好/关系/性格会<b>完整注入</b>章节 AI（字段留空则不注入）；自动提取的新人物会带全 7 项设定（推断不出填「未知」）。建议用「🔍 字段检查」确认人物字段齐全，避免 AI 信息不足写错。</p>
@@ -2945,21 +2948,24 @@ function bindGlossary(){
   if(!state.outline || !state.outline.glossary) return;
   const g = state.outline.glossary;
   const getArr = t => t==='char'?(g.characters||[]):t==='place'?(g.places||[]):(g.propernouns||[]);
-  // 整卡收缩/展开：标题右侧圆形按钮；词条始终保持默认折叠，由用户逐个点击展开
-  $$('[data-gs-collapse]').forEach(b=>{
-    b.onclick = ()=>{
+  // 整卡收缩/展开：点击标题栏（与逐章梗概一致）；点工具按钮不触发折叠；词条始终保持默认折叠
+  const gsHead = $('[data-gs-card-toggle]');
+  if(gsHead){
+    const toggleCard = ()=>{
       state.gsCollapsed = !state.gsCollapsed;
       persist();
-      const card = b.closest('.gs-card');
+      const card = gsHead.closest('.gs-card');
       const body = card && card.querySelector('.gs-card-body');
       if(body){ body.style.display = state.gsCollapsed ? 'none' : ''; }
-      b.textContent = state.gsCollapsed ? '＋' : '−';
-      b.title = state.gsCollapsed ? '展开全部' : '收缩';
-      if(state.gsCollapsed){ // 收缩整卡时把所有词条一并折叠（词条默认折叠：展开整卡时词条保持折叠态，由用户逐个点击展开）
+      const arrow = gsHead.querySelector('.gs-card-arrow');
+      if(arrow) arrow.textContent = state.gsCollapsed ? '▸' : '▾';
+      if(state.gsCollapsed){ // 收缩整卡时把所有词条一并折叠（展开整卡时词条保持折叠态，由用户逐个点击展开）
         card && $$('.gs-entry', card).forEach(en=>{ en.classList.remove('open'); const h=en.querySelector('.gs-fold-ico'); if(h) h.textContent='▸'; });
       }
     };
-  });
+    gsHead.onclick = (e)=>{ if(e.target.closest('.gs-tools')) return; toggleCard(); };
+    gsHead.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); if(e.target.closest('.gs-tools')) return; toggleCard(); } };
+  }
   // 折叠/展开：仅点击折线图标或简介触发；点击名字输入框不折叠
   $$('[data-gs-toggle]').forEach(h=>{
     const toggle = ()=>{ const box=h.closest('.gs-entry'); const on=box.classList.toggle('open'); h.querySelector('.gs-fold-ico').textContent = on?'▾':'▸'; };
@@ -3562,10 +3568,13 @@ function openReader(i){
   readerCur = i;
   ov.classList.remove('hidden');
   document.body.classList.add('reader-lock'); // 锁定背景滚动
-  // P3-3 续读进度：恢复本章上次阅读位置（按项目 id + 章节存储）
+  // P3-3 续读进度（fixed8 修订）：打开时先归零——首开/切到未读过的章一律从开头显示，不再残留上一章滚动位置；
+  // 再尝试恢复「本章」上次关闭前的位置（按 项目id + 章节 分别记忆，弃用旧单章 key fyp_rp_${curId}）。
+  const body0 = $('#readerBody');
+  if(body0) body0.scrollTop = 0;
   try{
-    const rp = JSON.parse(localStorage.getItem('fyp_rp_' + (lib.curId||'x')) || 'null');
-    if(rp && rp.ch === i && rp.top){
+    const rp = JSON.parse(localStorage.getItem('fyp_rp_' + (lib.curId||'x') + '_' + i) || 'null');
+    if(rp && rp.top){
       requestAnimationFrame(()=>{ const b=$('#readerBody'); if(b) b.scrollTop = rp.top; });
     }
   }catch(e){}
@@ -3580,7 +3589,8 @@ function bindReaderScrollSave(){
     _t = setTimeout(()=>{
       _t = null;
       try{
-        localStorage.setItem('fyp_rp_' + (lib.curId||'x'), JSON.stringify({ ch: readerCur, top: b.scrollTop }));
+        // fixed8：按 项目id + 章节 分别记忆，每章各自续读上次关闭前位置
+        localStorage.setItem('fyp_rp_' + (lib.curId||'x') + '_' + readerCur, JSON.stringify({ top: b.scrollTop }));
       }catch(e){}
     }, 400);
   }, {passive:true});
@@ -3624,9 +3634,25 @@ function bindReader(){
     const item = e.target.closest('[data-toc]'); if(!item) return;
     openReader(+item.dataset.toc);
   };
+  // fixed8：底部中央「概」按钮 → 显示本章梗概（与「逐章梗概」卡片同源：state.outline.chapterPlans[章序号]）
+  const synBtn = $('#readerSynBtn'), synPop = $('#readerSynPop'), synCard = $('#readerSynCard');
+  if(synBtn && synPop && synCard){
+    synBtn.onclick = (e)=>{
+      e.stopPropagation();
+      const plan = (state.outline && Array.isArray(state.outline.chapterPlans) && state.outline.chapterPlans[readerCur])
+        ? String(state.outline.chapterPlans[readerCur]).trim() : '';
+      synCard.innerHTML = plan
+        ? `<h4>第${toCnNum(readerCur+1)}章 · 梗概</h4><div class="syn-body">${esc(plan)}</div>`
+        : `<h4>第${toCnNum(readerCur+1)}章 · 梗概</h4><div class="syn-body muted">（本章暂无梗概）</div>`;
+      synPop.classList.remove('hidden');
+    };
+    synPop.onclick = (e)=>{ if(e.target === synPop) synPop.classList.add('hidden'); };  // 点遮罩关闭
+  }
 }
 document.addEventListener('keydown', (e)=>{
   if(e.key === 'Escape'){
+    const sp = $('#readerSynPop');
+    if(sp && !sp.classList.contains('hidden')){ sp.classList.add('hidden'); return; }  // fixed8：先收起梗概浮层
     closeReader();
     const h = $('#histPanel'); if(h && !h.classList.contains('hidden')) closeHistPanel();
     const t = $('#themePanel'); if(t && !t.classList.contains('hidden')) closeThemePanel();
@@ -5259,6 +5285,8 @@ function openChapterRegenPanel(i){
   // v2.0 本章风格覆盖 + 双风格对比的局部状态（一次性，不持久化）
   const rpOv = { on:false, tags:[], intensity:2 };
   const rpCmpB = { tags:[], intensity:2 };
+  let rpOvApplied = null;     // 覆盖块「应用」确认快照 {on,tags,intensity}；null=未确认（未点应用则重生成不生效）
+  let rpCmpBApplied = null;   // 对比块「应用」确认快照 {tags,intensity}；null=未确认（未点应用则 B 稿不生效）
   const ov = document.createElement('div');
   ov.id = 'regenPanel'; ov.className = 'gs-overlay';
   ov.innerHTML = `
@@ -5281,6 +5309,10 @@ function openChapterRegenPanel(i){
               <div class="rp-style-label">覆盖风格（语气单选 · 质感/元素多选）</div>
               ${writeStyleChipsHtml(rpOv, 'rpov')}
               <div class="rp-style-label">浓度：${writeStyleIntHtml(rpOv, 'rpov')}</div>
+              <div class="rp-apply-row">
+                <button type="button" class="btn small primary" data-rpov-apply disabled title="确认本次覆盖风格，重生成时方才生效">✔ 应用</button>
+                <span class="rp-apply-status" id="rpOvStatus">⚠️ 待应用</span>
+              </div>
             </div>
           </div>
         </div>
@@ -5295,6 +5327,10 @@ function openChapterRegenPanel(i){
             <div class="rp-style-label">B 稿对比风格</div>
             ${writeStyleChipsHtml(rpCmpB, 'rpcmp')}
             <div class="rp-style-label">B 稿浓度：${writeStyleIntHtml(rpCmpB, 'rpcmp')}</div>
+            <div class="rp-apply-row">
+              <button type="button" class="btn small primary" data-rpcmp-apply disabled title="确认 B 稿对比风格，再点上方按钮生成两稿">✔ 应用</button>
+              <span class="rp-apply-status" id="rpCmpStatus">⚠️ 待应用 B 稿</span>
+            </div>
             <button class="btn blue" data-rp-compare>⚡ 生成 A/B 两稿并对比</button>
           </div>
         </div>
@@ -5331,37 +5367,76 @@ function openChapterRegenPanel(i){
     const on = body.classList.toggle('hidden');
     const arrow = foldCmp.querySelector('.rp-style-arrow'); if(arrow) arrow.textContent = on?'▸':'▾';
   };
-  // v2.0 本章覆盖：radio 切换 + chips + 浓度
+  // 默认折叠（与逐章梗概一致）：每次打开面板两块均折叠，箭头显示 ▸（模板已带 hidden，此处再次兜底）
+  ov.querySelectorAll('.rp-style-body').forEach(b=> b.classList.add('hidden'));
+  ov.querySelectorAll('.rp-style-arrow').forEach(a=> a.textContent = '▸');
+  // v2.x 风格块「应用」：确认当前选择，生成只读已确认快照（模仿顶部风格卡「应用并保存」的草稿→生效语义）
+  function refreshRpOvApply(){
+    const ap = ov.querySelector('[data-rpov-apply]'); const st = ov.querySelector('#rpOvStatus');
+    if(!ap) return;
+    ap.disabled = !rpOv.on; ap.classList.toggle('disabled', !rpOv.on);
+    if(st){ st.textContent = rpOvApplied ? '✔ 已确认' : (rpOv.on ? '⚠️ 待应用' : '跟随全书，无需应用'); st.classList.toggle('ok', !!rpOvApplied); }
+  }
+  function refreshRpCmpApply(){
+    const ap = ov.querySelector('[data-rpcmp-apply]'); const st = ov.querySelector('#rpCmpStatus');
+    if(!ap) return;
+    const locked = !rpOv.on;
+    ap.disabled = locked; ap.classList.toggle('disabled', locked);
+    if(st){ st.textContent = rpCmpBApplied ? '✔ 已确认 B 稿' : (locked ? '需先开启本章覆盖' : '⚠️ 待应用 B 稿'); st.classList.toggle('ok', !!rpCmpBApplied); }
+  }
+  const rpovApplyBtn = ov.querySelector('[data-rpov-apply]');
+  if(rpovApplyBtn) rpovApplyBtn.onclick = ()=>{
+    if(!rpOv.on) return;
+    rpOvApplied = { on:true, tags: rpOv.tags.slice(), intensity: rpOv.intensity };
+    refreshRpOvApply();
+    toast('本章风格覆盖已应用，重生成时生效（仅本次）');
+  };
+  const rpcmpApplyBtn = ov.querySelector('[data-rpcmp-apply]');
+  if(rpcmpApplyBtn) rpcmpApplyBtn.onclick = ()=>{
+    if(!rpOv.on) return;
+    rpCmpBApplied = { tags: rpCmpB.tags.slice(), intensity: rpCmpB.intensity };
+    refreshRpCmpApply();
+    toast('B 稿对比风格已应用，生成 A/B 两稿时生效');
+  };
+  // v2.0 本章覆盖：radio 切换 + chips + 浓度（任一改动后清空确认态，须重新点「应用」）
   ov.querySelectorAll('input[name="rpov"]').forEach(r=> r.onchange = ()=>{
     rpOv.on = r.value === 'on';
+    rpOvApplied = null;
     const box = ov.querySelector('#rpOvBox'); if(box) box.classList.toggle('hidden', !rpOv.on);
     refreshRpCmpState();
+    refreshRpOvApply(); refreshRpCmpApply();   // 覆盖开关影响两块的应用按钮可用性
   });
-  ov.querySelectorAll('[data-rpov-tag]').forEach(b=> b.onclick = ()=>{ toggleWriteTag(rpOv, b.dataset.rpovTag); ov.querySelectorAll('[data-rpov-tag]').forEach(x=> x.classList.toggle('on', rpOv.tags.includes(x.dataset.rpovTag))); });
-  ov.querySelectorAll('[data-rpov-int]').forEach(b=> b.onclick = ()=>{ rpOv.intensity = +b.dataset.rpovInt; ov.querySelectorAll('[data-rpov-int]').forEach(x=> x.classList.toggle('on', rpOv.intensity===+x.dataset.rpovInt)); });
-  // v2.0 对比 B 风格：chips + 浓度
-  ov.querySelectorAll('[data-rpcmp-tag]').forEach(b=> b.onclick = ()=>{ toggleWriteTag(rpCmpB, b.dataset.rpcmpTag); ov.querySelectorAll('[data-rpcmp-tag]').forEach(x=> x.classList.toggle('on', rpCmpB.tags.includes(x.dataset.rpcmpTag))); });
-  ov.querySelectorAll('[data-rpcmp-int]').forEach(b=> b.onclick = ()=>{ rpCmpB.intensity = +b.dataset.rpcmpInt; ov.querySelectorAll('[data-rpcmp-int]').forEach(x=> x.classList.toggle('on', rpCmpB.intensity===+x.dataset.rpcmpInt)); });
-  // 生成按钮：携带本章覆盖
+  ov.querySelectorAll('[data-rpov-tag]').forEach(b=> b.onclick = ()=>{ toggleWriteTag(rpOv, b.dataset.rpovTag); ov.querySelectorAll('[data-rpov-tag]').forEach(x=> x.classList.toggle('on', rpOv.tags.includes(x.dataset.rpovTag))); rpOvApplied = null; refreshRpOvApply(); });
+  ov.querySelectorAll('[data-rpov-int]').forEach(b=> b.onclick = ()=>{ rpOv.intensity = +b.dataset.rpovInt; ov.querySelectorAll('[data-rpov-int]').forEach(x=> x.classList.toggle('on', rpOv.intensity===+x.dataset.rpovInt)); rpOvApplied = null; refreshRpOvApply(); });
+  // v2.0 对比 B 风格：chips + 浓度（任一改动后清空确认态，须重新点「应用」）
+  ov.querySelectorAll('[data-rpcmp-tag]').forEach(b=> b.onclick = ()=>{ toggleWriteTag(rpCmpB, b.dataset.rpcmpTag); ov.querySelectorAll('[data-rpcmp-tag]').forEach(x=> x.classList.toggle('on', rpCmpB.tags.includes(x.dataset.rpcmpTag))); rpCmpBApplied = null; refreshRpCmpApply(); });
+  ov.querySelectorAll('[data-rpcmp-int]').forEach(b=> b.onclick = ()=>{ rpCmpB.intensity = +b.dataset.rpcmpInt; ov.querySelectorAll('[data-rpcmp-int]').forEach(x=> x.classList.toggle('on', rpCmpB.intensity===+x.dataset.rpcmpInt)); rpCmpBApplied = null; refreshRpCmpApply(); });
+  // 生成按钮：携带「已应用」的本章覆盖（未应用则不生效，回归全书风格）
   ov.querySelector('[data-rp-plain]').onclick = ()=>{
     const btn = document.querySelector('[data-regen="'+i+'"]');
     closeChapterRegenPanel();
     pushRegen('plain','');
-    genOneChapter(i, btn, rpOv.on ? { styleOverride: { tags: rpOv.tags.slice(), intensity: rpOv.intensity } } : {});
+    const ovr = rpOvApplied ? { styleOverride: { tags: rpOvApplied.tags.slice(), intensity: rpOvApplied.intensity } } : {};
+    if(rpOv.on && !rpOvApplied) toast('已按全书风格重生成（未点「✔ 应用」的覆盖不生效）');
+    genOneChapter(i, btn, ovr);
   };
   ov.querySelector('[data-rp-with]').onclick = ()=>{
     const advice = $('#rpAdvice').value.trim();
     const btn = document.querySelector('[data-regen="'+i+'"]');
     closeChapterRegenPanel();
     pushRegen('advice', advice);
-    genOneChapter(i, btn, rpOv.on ? { advice, styleOverride: { tags: rpOv.tags.slice(), intensity: rpOv.intensity } } : { advice });
+    const ovr = rpOvApplied ? { advice, styleOverride: { tags: rpOvApplied.tags.slice(), intensity: rpOvApplied.intensity } } : { advice };
+    if(rpOv.on && !rpOvApplied) toast('已按全书风格重生成（未点「✔ 应用」的覆盖不生效）');
+    genOneChapter(i, btn, ovr);
   };
-  // 对比生成
+  // 对比生成：A/B 均须先「应用」确认，未确认则提示
   ov.querySelector('[data-rp-compare]').onclick = ()=>{
+    if(!rpOvApplied){ toast('请先在「🎨 本章风格覆盖」点「✔ 应用」确认 A 稿风格'); return; }
+    if(!rpCmpBApplied){ toast('请先在「⚡ 双风格对比」点「✔ 应用」确认 B 稿风格'); return; }
     const btn = document.querySelector('[data-regen="'+i+'"]');
-    const styleA = rpOv.on ? { tags: rpOv.tags.slice(), intensity: rpOv.intensity } : null;   // null=全书风格
+    const styleA = { tags: rpOvApplied.tags.slice(), intensity: rpOvApplied.intensity };
     closeChapterRegenPanel();
-    genChapterCompare(i, styleA, { tags: rpCmpB.tags.slice(), intensity: rpCmpB.intensity });
+    genChapterCompare(i, styleA, { tags: rpCmpBApplied.tags.slice(), intensity: rpCmpBApplied.intensity });
   };
   refreshRpCmpState();   // v2.1 初始即按「跟随全书」置灰对比区
   // 历史条目点击回填
