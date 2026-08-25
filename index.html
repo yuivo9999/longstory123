@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="theme-color" content="#0f1115">
 <title>影视前期提示词生成器</title>
-<link rel="stylesheet" href="assets/style.css?v=37">
+<link rel="stylesheet" href="assets/style.css?v=43">
 <link rel="stylesheet" href="assets/vendor/nouislider/nouislider.min.css">
   <link rel="stylesheet" href="assets/vendor/tom-select/tom-select.css">
 <link rel="stylesheet" href="assets/theme-light.css">
@@ -62,6 +62,27 @@
       <button type="button" class="btn theme" data-theme="mecha">🦾 机甲科幻</button>
       <button type="button" class="btn theme" data-theme="cyber">🕹️ 赛博朋克</button>
       <button type="button" class="btn theme" data-theme="guofeng">🏮 古风国潮</button>
+    </div>
+    <!-- v10.16 分任务温度（从设置弹窗移入主题面板；id 不变、功能零影响） -->
+    <hr class="tp-sep">
+    <div class="set-block">
+      <div class="set-block-head"><span>🌡️ 分任务温度（留空用建议值）</span></div>
+      <label class="field"><span>全局（未细分任务）</span>
+        <input id="cfgTemp" type="number" step="0.1" min="0" max="1" placeholder="0.7"></label>
+      <label class="field"><span>生成大纲（发散，建议 0.7）</span>
+        <input id="cfgTempOutline" type="number" step="0.1" min="0" max="1" placeholder="0.7"></label>
+      <label class="field"><span>优化构想（折中，建议 0.5）</span>
+        <input id="cfgTempIdea" type="number" step="0.1" min="0" max="1" placeholder="0.5"></label>
+      <label class="field"><span>标题 AI（折中，建议 0.5）</span>
+        <input id="cfgTempTitle" type="number" step="0.1" min="0" max="1" placeholder="0.5"></label>
+      <label class="field"><span>生成梗概（忠实偏稳，建议 0.4）</span>
+        <input id="cfgTempPlan" type="number" step="0.1" min="0" max="1" placeholder="0.4"></label>
+      <label class="field"><span>生成章节（折中，建议 0.5）</span>
+        <input id="cfgTempChapter" type="number" step="0.1" min="0" max="1" placeholder="0.5"></label>
+      <label class="field"><span>质检/提取（严谨，建议 0.2）</span>
+        <input id="cfgTempQC" type="number" step="0.1" min="0" max="1" placeholder="0.2"></label>
+      <div class="tp-save-row"><button id="btnTempSave" class="btn small primary" type="button">💾 保存温度</button></div>
+      <p class="hint">改后点「保存温度」生效；各 AI 请求按任务类型取对应温度（大纲 0.7 / 优化构想 0.5 / 标题 0.5 / 梗概 0.4 / 章节 0.5 / 质检 0.2）。</p>
     </div>
   </div>
 
@@ -127,25 +148,6 @@
           <select id="c_selModel"></select>
         </label>
       </div>
-
-      <label class="field">
-        <span>温度（0.1 严谨 ~ 1.0 发散，建议 0.7）</span>
-        <input id="cfgTemp" type="number" step="0.1" min="0" max="1" placeholder="0.7">
-      </label>
-
-      <!-- v10.8 分任务温度：大纲/梗概/章节/质检独立设置（留空用建议值） -->
-      <div class="set-block">
-        <div class="set-block-head"><span>分任务温度（高级，可选；留空用建议值）</span></div>
-        <label class="field"><span>生成大纲（发散，建议 0.7）</span>
-          <input id="cfgTempOutline" type="number" step="0.1" min="0" max="1" placeholder="0.7"></label>
-        <label class="field"><span>生成梗概（忠实偏稳，建议 0.4）</span>
-          <input id="cfgTempPlan" type="number" step="0.1" min="0" max="1" placeholder="0.4"></label>
-        <label class="field"><span>生成章节（折中，建议 0.5）</span>
-          <input id="cfgTempChapter" type="number" step="0.1" min="0" max="1" placeholder="0.5"></label>
-        <label class="field"><span>质检/提取（严谨，建议 0.2）</span>
-          <input id="cfgTempQC" type="number" step="0.1" min="0" max="1" placeholder="0.2"></label>
-        <p class="hint">不填即用建议值；改后点「保存」生效，所有生成请求按任务类型取对应温度（大纲 0.7 / 梗概 0.4 / 章节 0.5 / 质检 0.2）。</p>
-      </div>
       <p class="hint">API Key 仅存本机浏览器，不会上传任何第三方；生成时只使用上方所选的账号与模型，避免多个 AI 并发导致费用激增。</p>
 
       <div class="modal-actions">
@@ -186,6 +188,6 @@
 <script src="assets/vendor/nouislider/nouislider.min.js"></script>
   <script src="assets/vendor/tom-select/tom-select.complete.min.js"></script>
 <script src="assets/vendor/jszip.min.js"></script>
-<script src="assets/app.js?v=54"></script>
+<script src="assets/app.js?v=63"></script>
 </body>
 </html>
