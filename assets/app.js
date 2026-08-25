@@ -34,6 +34,7 @@ const state = {
   glossAutoFill: true,   // v8c 词典自动补全（默认开）：批量生成章节后自动提取正文中的新人物/地名/专名并入词典；关则只保留手动「📥 提取新增」
   gsCollapsed: true,    // v8b：万物词典卡片是否整卡收缩（默认收缩，点圆形展开全部）
   stCollapsed: false,   // v10.3：长篇结构设计栏是否收缩（默认展开，点击标题收起）
+  cpCollapsed: true,    // v10.14：逐章方向梗概卡是否收缩（默认折叠，点击标题展开）
   autoQC: true,         // 自动质检开关（默认开，用户无需操心）：生成后自动两段式查错修正；关则直接落库
   chapters: [],         // [{title, content, confirmed}]
   characters: [],       // [{name, role, profile:{...}, prompts:{...}}]
@@ -165,6 +166,8 @@ function resolveActiveSpec(){
     model: model.name || 'deepseek-v4-pro',
     temperature: (cfg.temperature==null ? 0.7 : cfg.temperature),
     outlineTemp: (cfg.outlineTemp==null ? 0.7 : cfg.outlineTemp),   // v10.8 分任务温度：大纲
+    ideaTemp:    (cfg.ideaTemp==null ? 0.5 : cfg.ideaTemp),          // v10.13 分任务温度：优化构想
+    titleTemp:   (cfg.titleTemp==null ? 0.5 : cfg.titleTemp),        // v10.15 分任务温度：标题 AI
     chapterTemp: (cfg.chapterTemp==null ? 0.5 : cfg.chapterTemp),   // v10.8 分任务温度：章节
     qcTemp:      (cfg.qcTemp==null ? 0.2 : cfg.qcTemp),              // v10.8 分任务温度：质检/提取
     planTemp:    (cfg.planTemp==null ? 0.4 : cfg.planTemp)           // v10.11 分任务温度：逐章梗概
@@ -234,6 +237,7 @@ function projectSnapshot(){
     glossAutoFill: state.glossAutoFill,
     gsCollapsed: state.gsCollapsed,
     stCollapsed: state.stCollapsed,
+    cpCollapsed: state.cpCollapsed,   // v10.14 梗概卡折叠透传
     autoQC: (typeof state.autoQC === 'boolean') ? state.autoQC : true,
     chapters: state.chapters,
     characters: state.characters,
@@ -267,6 +271,7 @@ function applyProject(p){
   state.glossAutoFill = (typeof p.glossAutoFill === 'boolean') ? p.glossAutoFill : true;
   state.gsCollapsed = (typeof p.gsCollapsed === 'boolean') ? p.gsCollapsed : true;
   state.stCollapsed = !!p.stCollapsed;
+  state.cpCollapsed = (typeof p.cpCollapsed === 'boolean') ? p.cpCollapsed : true;   // v10.14 梗概卡默认折叠
   state.autoQC = (typeof p.autoQC === 'boolean') ? p.autoQC : true;   // 自动质检默认开
   state.chapters = p.chapters || [];
   state.characters = p.characters || [];
@@ -474,7 +479,7 @@ const PROMPTS = {
   outlineSys: `你是一位专业编剧与故事架构师，擅长短剧/短视频叙事。根据用户的一句或几句话构想，设计一部适合改编为短视频的故事。
 请严格只输出如下 JSON（不要任何解释、不要 markdown 代码块）：
 {"title":"故事标题","logline":"一句话梗概（含核心冲突）","chapters":[{"title":"第1章标题","summary":"该章核心事件与转折，1-2句"}]}
-要求：chapters 数量按故事体量在 6-12 章之间；标题有钩子感；summay 体现人物动机与情节推进。`,
+要求：chapters 数量按故事体量在 6-12 章之间；summay 体现人物动机与情节推进。`,
 
   chapterSys: `你是一位擅长网文与短剧的编剧。请根据「故事大纲」与「本章概要」写出本章完整正文。
 要求：有强画面感、对话自然、节奏明快、推进剧情；篇幅 800-1500 字；只输出正文，不要标题、不要解释。`,
@@ -516,7 +521,7 @@ const PROMPTS = {
   longOutlineSys: `你是一位能驾驭超长篇的小说架构师。
 【核心任务】根据用户的一句话或几句构想，设计一部经典的【长篇小说】骨架：全书主线走向、结构安排与逐章标题。不要用三幕流水的短剧套路来搭长篇，要用真正的长篇小说结构美学来设计。
 ${JSON_HEADER}
-{"title":"小说名","logline":"一句话梗概（含核心冲突与深层命题）","structure":{ ${MAIN_LINE_BLOCK} },"chapters":[{"title":"第1章标题（有钩子感）"}]}
+{"title":"小说名","logline":"一句话梗概（含核心冲突与深层命题）","structure":{ ${MAIN_LINE_BLOCK} },"chapters":[{"title":"第1章标题"}]}
 【硬性约束】
 1. structure 字段按上方 JSON 内联定义主线条四格（mainLine 必有；副/暗/汇合有则带、无则空，绝不硬造）；chapterPlan（全部章节按线索分组）由下方【长篇结构设计 · 章节计划】块补充，一章不落。
 2. **chapters 只需逐章列出标题，禁止输出任何逐章梗概、内容预告、章末钩子或阶段目标**——每章的正文与梗概在写正文阶段独立生成，不在大纲阶段预写。
@@ -528,7 +533,7 @@ ${JSON_HEADER}
 【硬性约束】
 1. 严格承接上一章真实正文推进本章，绝不悬空发散；保持人物/伏笔/时间线/专名的连续性（以【设定词典】为准，禁止自造新名）。
 2. 只输出正文，不要标题、不要"本章完/未完待续"之类片尾标注、不要任何解释。
-【自由发挥区】在满足以上约束的前提下，你可自由发挥：细腻的环境与心理描写、生动对话、符合人物弧光；节奏张弛有度（本章若是情绪高潮或转折则加压，若是过渡则蓄力）；章末留悬念或钩子，为后续章节/伏笔回落埋线。`,
+【自由发挥区】在满足以上约束的前提下，你可自由发挥：细腻的环境与心理描写、生动对话、符合人物弧光；节奏张弛有度（本章若是情绪高潮或转折则加压，若是过渡则蓄力）。`,
 
 };
 
@@ -572,6 +577,128 @@ function rerollIdeaPhrase(){
   if(ta && !ta.value.trim()) ta.setAttribute('placeholder', _curIdeaPh);
   else if(ta) ta.value = _curIdeaPh;
 }
+
+// v10.13 优化构想：调用 IDEA_POLISH_SYS 把粗糙构想优化为结构化高质量版本。
+// 极短输入（<15 字）由 AI 走「骨架展开模式」且强制多方案；空输入禁用。
+// 多方案模式（polishMulti 开）：AI 返回 JSON（advice + options[]），Tab 切换查看/编辑。
+let polishMulti = false;   // 多方案开关（内存态，不持久化；极短构想强制 true）
+
+async function polishIdea(btn){
+  const idea = (state.idea || '').trim();
+  if(!idea){ toast('请先输入故事构想'); return; }
+  const multi = polishMulti || idea.length < 15;   // 极短强制多方案
+  if(btn) busy(btn,true, multi ? '生成多方案构想中…' : '优化构想中…');
+  try{
+    const sys = IDEA_POLISH_SYS + (multi ? POLISH_MULTI_MODE : POLISH_SINGLE_MODE);
+    const txt = await callDeepSeek(sys, idea, {temperature: resolveActiveSpec().ideaTemp});
+    const out = String(txt||'').trim();
+    if(!out){ toast('优化失败，请重试'); return; }
+    showPolishResult(out, multi);
+    toast(multi ? '已生成多方案，可切换查看' : '优化完成，可编辑后采用');
+  }catch(e){ toast('优化失败：'+e.message); }
+  finally{ if(btn) busy(btn,false); }
+}
+
+// 展示优化结果：多方案（JSON）→ advice + Tab 切换；单稿（文本）→ 按 💡 行拆分 advice
+function showPolishResult(out, multi){
+  const box = $('#polishBox'), ta = $('#polishText'), adv = $('#polishAdvice'), tabs = $('#polishTabs');
+  if(!box || !ta) return;
+  box.style.display = 'block';
+  let advice = '';
+  if(multi){
+    const j = parseJson(out) || {};
+    const opts = Array.isArray(j.options) ? j.options.filter(o=>o && String(o.text||'').trim()) : [];
+    advice = String(j.advice || '');
+    if(opts.length){
+      state.polishOptions = opts;
+      renderPolishTabs(tabs, ta, adv, advice);
+      ta.value = opts[0].text;
+      return;
+    }
+    // JSON 解析失败降级：整体当文本
+    ta.value = out;
+    if(adv) adv.style.display = 'none';
+    if(tabs) tabs.style.display = 'none';
+    return;
+  }
+  // 单稿：按「💡 AI 编辑意见」行拆分
+  const m = out.match(/(^|\n)\s*💡\s*AI 编辑意见\s*[:：]?\s*/);
+  if(m){
+    ta.value = out.slice(0, m.index).trim();
+    advice = out.slice(m.index + m[0].length).trim();
+  }else{
+    ta.value = out;
+  }
+  if(adv){
+    if(advice){ adv.style.display = 'block'; adv.textContent = '💡 AI 编辑意见：'+advice; }
+    else adv.style.display = 'none';
+  }
+  if(tabs) tabs.style.display = 'none';
+}
+
+// 多方案 Tab 渲染：固定短标签「方案A/B/C…」（杜绝省略号），完整方向名放 title 悬浮；点击切换 textarea 内容
+function renderPolishTabs(tabs, ta, adv, advice){
+  if(!tabs) return;
+  const LETTERS = ['A','B','C','D','E'];
+  tabs.style.display = 'flex';
+  tabs.innerHTML = (state.polishOptions||[]).map((o,i)=>
+    `<button class="pol-tab${i===0?' active':''}" data-pol-tab="${i}" title="${esc(o.name||('方案'+(LETTERS[i]||(i+1))))}">${'方案'+(LETTERS[i]||(i+1))}</button>`
+  ).join('');
+  [...tabs.querySelectorAll('[data-pol-tab]')].forEach(b=>{
+    b.onclick = ()=>{
+      const o = (state.polishOptions||[])[+b.dataset.polTab]; if(!o) return;
+      if(ta) ta.value = o.text;
+      tabs.querySelectorAll('.pol-tab').forEach(x=> x.classList.toggle('active', x===b));
+    };
+  });
+  if(adv){
+    if(advice){ adv.style.display = 'block'; adv.textContent = '💡 AI 编辑意见：'+advice; }
+    else adv.style.display = 'none';
+  }
+}
+
+// v10.13 优化区绑定：复制 / 采用（替换构想框+清空）/ 放弃 / 多方案开关
+function bindPolishIdea(){
+  const b = $('#btnPolishIdea');
+  if(b) b.onclick = ()=> polishIdea(b);
+  const chk = $('#chkPolishMulti');
+  if(chk){
+    const sync = ()=>{
+      const short = (state.idea||'').trim().length < 15;
+      chk.checked = polishMulti || short;
+      chk.disabled = short;
+    };
+    sync();
+    chk.onchange = ()=>{ polishMulti = chk.checked; };
+    const idea = $('#ideaInput');
+    if(idea) idea.oninput = ()=>{ state.idea = idea.value; sync(); };
+  }
+  const cp = $('#btnPolishCopy');
+  if(cp) cp.onclick = ()=>{
+    const ta = $('#polishText');
+    if(ta && ta.value.trim()) copyText(ta.value);
+    else toast('优化区为空');
+  };
+  const use = $('#btnPolishUse');
+  if(use) use.onclick = ()=>{
+    const ta = $('#polishText');
+    if(!ta){ toast('优化区为空'); return; }
+    const v = ta.value.trim();
+    if(!v){ toast('优化区为空'); return; }
+    state.idea = v;
+    persist(); render();
+    toast('已采用优化后的构想');
+  };
+  const disc = $('#btnPolishDiscard');
+  if(disc) disc.onclick = ()=>{
+    const box = $('#polishBox');
+    if(box) box.style.display = 'none';
+    const ta = $('#polishText'); if(ta) ta.value = '';
+    const adv = $('#polishAdvice'); if(adv) adv.style.display = 'none';
+    const tabs = $('#polishTabs'); if(tabs) tabs.style.display = 'none';
+    toast('已放弃，构想保持原样');
+  };
+}
 function pickRandomIdea(){
   if(!IDEA_SAMPLES.length) return '';
   let i = Math.floor(Math.random()*IDEA_SAMPLES.length);
@@ -593,9 +720,9 @@ const STRUCTURES = [
     outlineSys: `你是深谙「单线因果式」经典结构的小说架构师。根据用户构想设计一部长篇小说。
 ${JSON_HEADER}
 {"title":"小说名","logline":"一句话梗概","structure":{ ${MAIN_LINE_BLOCK} },"chapters":[{"title":"章标题"}]}
-要求：遵循「单线因果式」经典结构（如《西游记》取经路）——一根主线贯穿始终，"因为所以"一环扣一环，打完一关进入下一关，前因后果清晰、易读性强；主线明确推进、尽量不铺开多线；章章之间有明确因果链，前一章结果成为后一章起因；整体呈引入→闯关/成长→高潮→收束的清晰线路；每章 title 有钩子感；**chapters 只需逐章列出标题，禁止输出任何逐章梗概、内容预告或章末钩子**——每章正文与梗概将在写正文阶段独立生成。structure 中的 chapterPlan（全部章节按关卡分组的写作安排）由下方【长篇结构设计 · 章节计划】块补充，一章不落。`,
+要求：遵循「单线因果式」经典结构（如《西游记》取经路）——一根主线贯穿始终，"因为所以"一环扣一环，打完一关进入下一关，前因后果清晰、易读性强；主线明确推进、尽量不铺开多线；章章之间有明确因果链，前一章结果成为后一章起因；整体呈引入→闯关/成长→高潮→收束的清晰线路；**chapters 只需逐章列出标题，禁止输出任何逐章梗概、内容预告或章末钩子**——每章正文与梗概将在写正文阶段独立生成。structure 中的 chapterPlan（全部章节按关卡分组的写作安排）由下方【长篇结构设计 · 章节计划】块补充，一章不落。`,
     chapterSys: `你是严格遵循既定大纲的章节执行写手。根据本章标题、前文承接与结构定位写出本章完整正文，做到因果衔接、章章推进。
-要求：遵循"因为所以"的单线因果推进——承接上一章的结果，作为本章起因，本章结束又为下一章留下因果钩子；主线单一清晰、少插枝节；有细腻的环境与心理描写、生动对话、鲜明的人物弧光与成长；节奏张弛有度；章末务必切在钩子上；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。`,
+要求：遵循"因为所以"的单线因果推进——承接上一章的结果，作为本章起因，本章结束又为下一章留下因果衔接；主线单一清晰、少插枝节；有细腻的环境与心理描写、生动对话、鲜明的人物弧光与成长；节奏张弛有度；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。`,
     desc:'经典「单线因果式」结构（如《西游记》取经路）：一根主线贯穿、"因为所以"一环扣一环、打完一关进下一关，主线清晰易读。',
     mech:'所有章节沿一根主线串成因果链：上一章结果是本章起因、本章结果接下一章，打怪闯关式推进。',
     fit:'常规冒险/成长爽文、连载稳定、怕写崩的稳健型作品；追求易读、主线清晰、读者不迷路。',
@@ -604,9 +731,9 @@ ${JSON_HEADER}
     outlineSys: `你是深谙「卷→部→章」分层递归结构的小说架构师。按【卷→部→章】分层递归地设计一部长篇小说。
 ${JSON_HEADER}
 {"title":"小说名","logline":"一句话梗概","structure":{ ${MAIN_LINE_BLOCK} },"volumes":[{"name":"第X卷卷名","theme":"本卷主题与情绪基调","chapters":[{"title":"章标题"}]}]}
-要求：整体分 2-4 卷，各卷有清晰主题与情绪递进；每卷内章节数合理；章节标题有钩子感，卷与书之间存在因果链；**volumes 内章节只需列出标题，禁止输出任何逐章梗概、内容预告或阶段目标**——每章正文与梗概将在写正文阶段独立生成。structure 主线条四格（mainLine 必有、副暗汇合有则带）由上方 JSON 定义，全书章节安排由 volumes（卷→章）承载。`,
+要求：整体分 2-4 卷，各卷有清晰主题与情绪递进；每卷内章节数合理；章节标题立意清晰，卷与书之间存在因果链；**volumes 内章节只需列出标题，禁止输出任何逐章梗概、内容预告或阶段目标**——每章正文与梗概将在写正文阶段独立生成。structure 主线条四格（mainLine 必有、副暗汇合有则带）由上方 JSON 定义，全书章节安排由 volumes（卷→章）承载。`,
     chapterSys: `你是严格遵循既定大纲的章节执行写手。根据本章标题、前文承接与结构定位写出本章完整正文，做到章章承接上卷、为后续蓄力。
-要求：围绕本章在卷内的位置推进（该引入就引入、该冲突就冲突、该转折就转折），承接上一卷已建立的人物与世界设定、不推倒重来；有细腻环境与心理描写、生动对话、人物弧光；章末留钩子或悬念；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。`,
+要求：围绕本章在卷内的位置推进（该引入就引入、该冲突就冲突、该转折就转折），承接上一卷已建立的人物与世界设定、不推倒重来；有细腻环境与心理描写、生动对话、人物弧光；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。`,
     desc:'借鉴 Long-Novel-GPT / AI_Gen_Novel 的“卷→部→章→节”分层递归：先生成全局卷章框架，再逐卷逐章填充目标。',
     mech:'自上而下先生成全局卷章框架（卷→部→章），再逐卷逐章填充阶段性目标，层级清晰、容量可控。',
     fit:'目标明确、分卷清晰、需要高可维护性的超长篇；世界观宏大、章节海量想保持不乱的类型文。',
@@ -615,9 +742,9 @@ ${JSON_HEADER}
     outlineSys: `你是深谙「英雄之旅」结构美学的小说架构师。根据用户构想设计一部长篇小说。
 ${JSON_HEADER}
 {"title":"小说名","logline":"一句话梗概","structure":{"mode":"英雄之旅","designReason":"为何采用此倒逼成长框架","stageChapters":{"平凡世界":["章标题",...],"召唤":["章标题",...],"拒绝":["章标题",...],"导师":["章标题",...],"跨过门槛":["章标题",...],"试炼/盟友/敌人":["章标题",...],"深渊":["章标题",...],"一搏":["章标题",...],"回报":["章标题",...],"归来":["章标题",...],"变更":["章标题",...]}, ${MAIN_LINE_BLOCK}},"chapters":[{"title":"章标题"}]}
-要求：遵循经典「英雄之旅」十二阶段（平凡世界→召唤→拒绝→导师→跨过门槛→试炼/盟友/敌人→深渊→一搏→回报→归来→变更），倒逼主角成长弧光；阶段不必逐一对应单独一章，可按体量合并或拆分，但整体要完整走完成长路径；每章 title 有钩子感；**chapters 只需逐章列出标题，禁止输出任何逐章梗概、内容预告或章末钩子**——每章正文与梗概将在写正文阶段独立生成。`,
+要求：遵循经典「英雄之旅」十二阶段（平凡世界→召唤→拒绝→导师→跨过门槛→试炼/盟友/敌人→深渊→一搏→回报→归来→变更），倒逼主角成长弧光；阶段不必逐一对应单独一章，可按体量合并或拆分，但整体要完整走完成长路径；**chapters 只需逐章列出标题，禁止输出任何逐章梗概、内容预告或章末钩子**——每章正文与梗概将在写正文阶段独立生成。`,
     chapterSys: `你是严格遵循既定大纲的章节执行写手。根据本章标题、前文承接与结构定位写出本章完整正文，做到章章推动英雄的成长弧光。
-要求：围绕本章所处的「英雄之旅」阶段推进角色弧光——该试炼就试炼、该受挫就受挫、该升华就升华；主角每次抉择都要有代价、有成长痕迹；细腻的环境与心理描写、生动对话；章末留钩子或悬念；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。`,
+要求：围绕本章所处的「英雄之旅」阶段推进角色弧光——该试炼就试炼、该受挫就受挫、该升华就升华；主角每次抉择都要有代价、有成长痕迹；细腻的环境与心理描写、生动对话；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。`,
     desc:'借鉴 Hero\'s Journey（《千面英雄》，NovelForger 支持）：12 阶段倒逼主角成长弧光，适合成长正气类长篇。',
     mech:'把全书章节映射到英雄之旅十二阶段（平凡世界→召唤→拒绝→导师→跨过门槛→试炼/盟友/敌人→深渊→一搏→回报→归来→变更），让成长弧光结构可预期。',
     fit:'主角成长型、冒险/奇幻类；希望有清晰#成长曲线#与情感爆发点的长篇。',
@@ -626,20 +753,20 @@ ${JSON_HEADER}
     outlineSys: `你是深谙「节拍表」结构美学的小说架构师。根据用户构想设计一部长篇小说。
 ${JSON_HEADER}
 {"title":"小说名","logline":"一句话梗概","structure":{"mode":"Save the Cat 节拍表","designReason":"如何用 15 拍控制节奏","beats":{"开场画面":["章标题",...],"催化剂":["章标题",...],"争执":["章标题",...],"进入第二幕":["章标题",...],"B故事":["章标题",...],"中点":["章标题",...],"坏人逼近":["章标题",...],"一切尽失":["章标题",...],"黑暗时刻":["章标题",...],"进入第三幕":["章标题",...],"终局":["章标题",...],"最终画面":["章标题",...]}, ${MAIN_LINE_BLOCK}},"chapters":[{"title":"章标题"}]}
-要求：遵循 Save the Cat 的 15 节拍（开场→催化剂→争执→B故事→中点→一切尽失→终局→最终画面等），把全书章节分配到各节拍上，节奏可预估；每章 title 有钩子感；**chapters 只需逐章列出标题，禁止输出任何逐章梗概、内容预告或章末钩子**——每章正文与梗概将在写正文阶段独立生成。`,
+要求：遵循 Save the Cat 的 15 节拍（开场→催化剂→争执→B故事→中点→一切尽失→终局→最终画面等），把全书章节分配到各节拍上，节奏可预估；**chapters 只需逐章列出标题，禁止输出任何逐章梗概、内容预告或章末钩子**——每章正文与梗概将在写正文阶段独立生成。`,
     chapterSys: `你是严格遵循既定大纲的章节执行写手。根据本章标题、前文承接与结构定位写出本章完整正文，做到章章贴合 Save the Cat 节拍曲线。
-要求：围绕本章所处的「节拍」推进节奏（平原蓄力、催化剂提速、黑暗时刻骤降、终局引爆等），情绪张力随节拍起伏；细腻的心理与场景描写、生动对话、人物弧光；章末留钩子或悬念；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。`,
+要求：围绕本章所处的「节拍」推进节奏（平原蓄力、催化剂提速、黑暗时刻骤降、终局引爆等），情绪张力随节拍起伏；细腻的心理与场景描写、生动对话、人物弧光；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。`,
     desc:'借鉴 Save the Cat 15 节拍法：三幕展开为 15 个可预估节拍点，适合商业向、节奏可控的长篇。',
     mech:'用 15 个固定节拍（开场/催化剂/争执/中点/一切尽失/终局…）标注全书情绪曲线，节奏可计算、可预估。',
-    fit:'商业类型文、需要稳定节奏与“可预估追读”的连载作品；编剧思维、强钩子驱动的长篇。',
+    fit:'商业类型文、需要稳定节奏与“可预估追读”的连载作品；编剧思维、悬念驱动的长篇。',
     effect:'节奏可预估、爽点位置明确、改编友好；代价是拍点分配若机械会产生套路感。' },
   { id:'seven', name:'七点结构', tag:'Seven-Point', short:'七点结构', src:'开源 · NovelForger',
     outlineSys: `你是深谙「七点结构」的小说架构师。根据用户构想设计一部长篇小说。
 ${JSON_HEADER}
 {"title":"小说名","logline":"一句话梗概","structure":{"mode":"七点结构","designReason":"七个锚点如何控制转折","points":{"Hook钩子":["章标题",...],"PlotTurn1一转折":["章标题",...],"Pinch1中点施压":["章标题",...],"Midpoint中点":["章标题",...],"Pinch2压力加码":["章标题",...],"PlotTurn2二转折":["章标题",...],"Resolution解局":["章标题",...]}, ${MAIN_LINE_BLOCK}},"chapters":[{"title":"章标题"}]}
-要求：遵循七点结构（Hook→Plot Turn 1→Pinch 1→Midpoint→Pinch 2→Plot Turn 2→Resolution），用七个锚点控制全书转折节奏；每章 title 有钩子感；**chapters 只需逐章列出标题，禁止输出任何逐章梗概、内容预告或章末钩子**——每章正文与梗概将在写正文阶段独立生成。`,
+要求：遵循七点结构（Hook→Plot Turn 1→Pinch 1→Midpoint→Pinch 2→Plot Turn 2→Resolution），用七个锚点控制全书转折节奏；**chapters 只需逐章列出标题，禁止输出任何逐章梗概、内容预告或章末钩子**——每章正文与梗概将在写正文阶段独立生成。`,
     chapterSys: `你是严格遵循既定大纲的章节执行写手。根据本章标题、前文承接与结构定位写出本章完整正文，做到章章朝七个锚点有序逼近。
-要求：围绕本章所在锚点推进（前段蓄力、Two Plot 转折、Pinch 施压、Midpoint 承转），每章都向“下一个转折点”收拢、不生枝节；细腻的心理与场景描写、生动对话、人物弧光；章末留钩子或悬念；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。`,
+要求：围绕本章所在锚点推进（前段蓄力、Two Plot 转折、Pinch 施压、Midpoint 承转），每章都向“下一个转折点”收拢、不生枝节；细腻的心理与场景描写、生动对话、人物弧光；只输出正文，不要标题、不要"本章完/未完待续"标注、不要任何解释。`,
     desc:'借鉴 Seven-Point Structure（NovelForger 支持）：Hook→转折→施压→中点→加码→再转折→解局，七个锚点控转折。',
     mech:'以七个固定锚点（Hook/PlotTurn/Pinch/Midpoint/Pinch/PlotTurn/Resolution）规划全书转折，前紧后强。',
     fit:'中短到中长篇、转折重戏剧性、希望#转折节奏#清晰的作品。',
@@ -648,49 +775,49 @@ ${JSON_HEADER}
 
 const RHYTHMS = [
   { id:'web', name:'黄金网文', tag:'爽点密集', short:'黄金网文', src:'经典 · 网文爆款体系',
-    outlineNote:'节奏遵循黄金网文强节奏——开篇尽快抛核心冲突与悬念（金手指/秘密）；因果链清晰、角色抉择有代价、实力或关系阶梯递进；情绪节奏有张有弛（爽点-压抑-爆发交替）；章节标题有钩子感；逐章梗概在写正文阶段独立生成。',
-    chapterNote:'严格遵循黄金网文强节奏——开篇(前1-2段)尽快进入事件或情绪；以对话与行动推动剧情、少冗长环境描写；本章须兑现一个"爽点/进展"，并为下章留强钩子（悬念/反转/危机）；因果清晰、有记忆点的人设；章末务必切在钩子上。',
+    outlineNote:'节奏遵循黄金网文强节奏——开篇尽快抛核心冲突与悬念（金手指/秘密）；因果链清晰、角色抉择有代价、实力或关系阶梯递进；情绪节奏有张有弛（爽点-压抑-爆发交替）；逐章梗概在写正文阶段独立生成。',
+    chapterNote:'严格遵循黄金网文强节奏——开篇(前1-2段)尽快进入事件或情绪；以对话与行动推动剧情、少冗长环境描写；本章须兑现一个"爽点/进展"；因果清晰、有记忆点的人设。',
     desc:'当前商业网文最有效的节奏配方，核心是“爽点管理”：全程用小高潮喂给读者，持续满足与追更。',
-    mech:'开篇抛冲突悬念；因果清晰、抉择有代价、实力/关系阶梯递进；情绪爽点-压抑-爆发交替；章末必留强钩子。',
+    mech:'开篇抛冲突悬念；因果清晰、抉择有代价、实力/关系阶梯递进；情绪爽点-压抑-爆发交替。',
     fit:'升级流、逆袭、热血爽文等重代入感连载；读者重爽感、重追更。',
     effect:'留存与追更率高、最懂市场；代价是易套路化，需靠人物与爽点创新破局。' },
   { id:'repress', name:'压抑反转流', tag:'现实虐文', short:'压抑反转', src:'现实 · 黑暗向节奏',
-    outlineNote:'节奏为压抑反转流——回报延迟、挫折长期，主角不会立刻打脸、苦难不马上消解；情绪是隐忍煎熬、积蓄良久才释放；困境层层叠加、主角反复受挫；章节标题有钩子感；逐章梗概在写正文阶段独立生成。',
+    outlineNote:'节奏为压抑反转流——回报延迟、挫折长期，主角不会立刻打脸、苦难不马上消解；情绪是隐忍煎熬、积蓄良久才释放；困境层层叠加、主角反复受挫；逐章梗概在写正文阶段独立生成。',
     chapterNote:'遵循压抑反转流——本段情绪以隐忍煎熬为主，不立刻给胜利与奖励；困境层层叠加、主角反复受挫；把发泄点压到很后，部分努力可以没有回报；章末压在反转来临前或苦难加剧处，勾着读者等释放。',
     desc:'与爽文相反：回报延迟、挫折长期、反转来得晚，部分努力无回报；情绪隐忍煎熬、积蓄良久才释放。',
     mech:'困境层层叠加、主角反复受挫、不会立刻打脸；冲突发生后不立刻给胜利，反转往往很晚、甚至部分努力无回报。',
     fit:'社会向、悬疑、悲剧、历史写实网文；追求真实沉重的情感冲击而非即时爽感。',
     effect:'压抑到极点的释放更有力量、人物弧光深；但需控节奏，避免“虐而无解”劝退读者。' },
   { id:'slice', name:'慢生活流', tag:'种田日常', short:'慢生活', src:'现实 · 治愈向节奏',
-    outlineNote:'节奏为慢生活流——低外部冲突、少大起大落，冲突是细碎生活矛盾；剧情推进极慢，聚焦人物感受、生活细节、人际关系；爽点来自安宁烟火与人物陪伴，非升级逆袭；章节标题有钩子感；逐章梗概在写正文阶段独立生成。',
+    outlineNote:'节奏为慢生活流——低外部冲突、少大起大落，冲突是细碎生活矛盾；剧情推进极慢，聚焦人物感受、生活细节、人际关系；爽点来自安宁烟火与人物陪伴，非升级逆袭；逐章梗概在写正文阶段独立生成。',
     chapterNote:'遵循慢生活流——聚焦日常生活与人物相处，不追求强冲突；剧情推进慢、冲突多为细碎小事；细腻刻画感官与情绪、烟火气与陪伴感；爽点来自安宁与温暖，而非打脸逆袭。',
     desc:'种田/日常/治愈：低外部冲突、少大起大落，冲突是细碎生活矛盾；推进极慢，聚焦感受、细节、关系。',
     mech:'以日常与生活矛盾代替强冲突，推进极慢；爽点来自安宁烟火与人物陪伴。',
     fit:'种田、日常、治愈、慢热的温馨长篇；读者追求沉浸与陪伴而非刺激。',
-    effect:'氛团队入手温柔治愈、黏性高、抗弃文；代价是无强钩子、追读节奏需靠情感维系。' },
+    effect:'氛团队入手温柔治愈、黏性高、抗弃文；代价是追读节奏需靠情感维系。' },
   { id:'mystery', name:'悬疑解谜流', tag:'悬念悬置', short:'悬疑解谜', src:'正统 · 悬疑推理节奏',
-    outlineNote:'节奏为悬疑解谜流——冲突不快速解决，故意压住答案、延迟兑现；不断抛谜团线索、危机接踵但不揭真相；旧问题搁置、释放留到中后期；章节标题有钩子感；逐章梗概在写正文阶段独立生成。',
-    chapterNote:'遵循悬疑解谜流——答案要压住，冲突不要立刻收束；不断抛谜团与线索，危机接踵但不揭真相；旧问题先搁置；本章结尾留悬念，勾着读者解谜。',
+    outlineNote:'节奏为悬疑解谜流——冲突不快速解决，故意压住答案、延迟兑现；不断抛谜团线索、危机接踵但不揭真相；旧问题搁置、释放留到中后期；逐章梗概在写正文阶段独立生成。',
+    chapterNote:'遵循悬疑解谜流——答案要压住，冲突不要立刻收束；不断抛谜团与线索，危机接踵但不揭真相；旧问题先搁置，答案压住不揭。',
     desc:'悬念悬置：冲突不快速解决、故意压住答案、延迟兑现；不断抛谜团线索、危机接踵但不揭真相。',
-    mech:'正统悬疑节奏是“悬置＞即时解决”：放下钩子、转开视角、旧问题搁置、释放拖到中后期。',
+    mech:'正统悬疑节奏是“悬置＞即时解决”：埋下悬念、转开视角、旧问题搁置、释放拖到中后期。',
     fit:'悬疑、推理、解谜、谍战类长篇；读者重“猜中/揭晓”的智力快感。',
     effect:'抓人、让人放不下、揭晓时爆点强；代价是伏笔回收要求高，烂尾风险大。' },
   { id:'epic', name:'群像史诗节奏', tag:'宏大史诗', short:'群像史诗', src:'历史 · 宏大奇幻节奏',
-    outlineNote:'节奏为群像史诗——不以单一主角得失为节奏开关，视角在多人间切换；主角会失败、配角命运独立；大事件周期长、一卷几十章才完成一次大起落；章节标题有钩子感；逐章梗概在写正文阶段独立生成。',
+    outlineNote:'节奏为群像史诗——不以单一主角得失为节奏开关，视角在多人间切换；主角会失败、配角命运独立；大事件周期长、一卷几十章才完成一次大起落；逐章梗概在写正文阶段独立生成。',
     chapterNote:'遵循群像史诗——视角在多人间切换，不以单一主角成败为节奏开关；主角也会失败、配角命运独立；大事件跨度长、不追求每章小爽点；多线并进、交织成时代洪流。',
     desc:'历史/宏大奇幻：不以单一主角得失为节奏开关，视角在多人间切换、配角命运独立、大事件周期长。',
     mech:'大事件以卷为单位起落，视角多线切换，主角可失败、配角命运独立，格局宏大。',
     fit:'历史演义、宏大奇幻、权谋群像类长篇；读者重世界构建与时代感。',
     effect:'格局与史诗感强、人物群像丰满、可承载大世界；代价是个体代入感弱、节奏偏慢。' },
   { id:'fatal', name:'悲剧宿命流', tag:'命运悲剧', short:'悲剧宿命', src:'文学 · 悲剧节奏',
-    outlineNote:'节奏为悲剧宿命——努力≠胜利、结局被命运预先约束；抗争不一定换来圆满，一次次抗争爬升迎短暂光亮再跌落；情绪很少彻底宣泄、留有怅然；章节标题有钩子感；逐章梗概在写正文阶段独立生成。',
+    outlineNote:'节奏为悲剧宿命——努力≠胜利、结局被命运预先约束；抗争不一定换来圆满，一次次抗争爬升迎短暂光亮再跌落；情绪很少彻底宣泄、留有怅然；逐章梗概在写正文阶段独立生成。',
     chapterNote:'遵循悲剧宿命——抗争不一定换来圆满，努力可能徒劳；爬升后迎短暂光亮再跌落；情绪很少彻底宣泄、刻意留怅然与无力感，让悲剧宿命感贯穿。',
     desc:'努力≠胜利、结局被命运预先约束：抗争不一定圆满，一次次爬升迎短暂光亮再跌落；情绪少有宣泄、留怅然。',
     mech:'以“命运不可抗”为底色，抗争服务于悲剧张力而非胜利；情绪罕有彻底宣泄。',
     fit:'悲剧、宿命、史诗型沉重作品；读者重情绪厚重感与命运叩问。',
     effect:'情感厚重、后劲足、文学性强；代价是致郁、不适配追求爽感的读者。' },
   { id:'inward', name:'文艺向内流', tag:'心理向内', short:'文艺向内', src:'文学 · 心理向节奏',
-    outlineNote:'节奏为文艺向内——节奏由内心驱动，外部事件只是载体；冲突多发生在心里，剧情推进慢、大事件少，重点是人物纠结、自我认知与情感变化；章节标题有钩子感；逐章梗概在写正文阶段独立生成。',
+    outlineNote:'节奏为文艺向内——节奏由内心驱动，外部事件只是载体；冲突多发生在心里，剧情推进慢、大事件少，重点是人物纠结、自我认知与情感变化；逐章梗概在写正文阶段独立生成。',
     chapterNote:'遵循文艺向内——节奏由人物内心驱动，外部事件仅是载体；冲突多在心理层面；推进慢、大事件少；着力刻画纠结、自我认知与情感变化、文笔细腻。',
     desc:'情绪/心理向：节奏由内心驱动，外部事件是载体；冲突多在心里，推进慢、大事件少，重纠结与自我认知。',
     mech:'以内心冲突代替外部事件驱动叙事，细腻刻画人物情绪与认知变化。',
@@ -971,9 +1098,9 @@ function outlineSizeNote(){
 const OUTLINE_GEN_SYS = `你是一位能驾驭超长篇的小说架构师。
 【核心任务】根据用户的一句话或几句构想，设计一部长篇小说的大纲骨架。
 ${JSON_HEADER}
-{"title":"小说名","logline":"一句话梗概（含核心冲突与深层命题）","chapters":[{"title":"第1章标题（有钩子感）"}]}
+{"title":"小说名","logline":"一句话梗概（含核心冲突与深层命题）","chapters":[{"title":"第1章标题"}]}
 【硬性约束】
-1. 每章 title 有钩子感、体现节奏走向。
+1. 每章 title 立意清晰、体现节奏走向。
 2. **chapters 只需逐章列出标题，禁止输出任何逐章梗概、内容预告、章末钩子或阶段目标**——每章的正文与梗概在写正文阶段独立生成，不在大纲阶段预写。
 【自由发挥区】在满足以上约束的前提下，章节标题的立意、措辞、节奏走向由你自由构思。`;
 
@@ -1009,6 +1136,44 @@ const ORIGINALITY_CHAPTER_SYS = `【原创性要求（防雷同）】本章内�
 1. 桥段防套路：避免无理由误会、工具人反派强行送头、为冲突而冲突的降智桥段；冲突应来自前文设定与人物动机的自然推进。
 2. 句式防高频：避免网文高频表达（"嘴角勾起一抹冷笑""眼神一凛"等），对话与描写尽量具体、贴合本作人物。
 3. 不硬塞元素：不引入与既有设定无关的常见套路元素（金手指/系统/穿越梗等），除非本作设定明确包含。`;
+
+// v10.15 重生成全部章节标题：保留大纲骨架，只重出标题；服从既有设定 + 用户建议 + 防套路第一优先。
+const REGEN_TITLES_SYS = `你是一位深谙标题艺术的章节标题策划师。
+【核心任务】根据给定的小说大纲（标题、一句话梗概、长篇结构设计、设定词典），在【不改变章节数量与结构安排】的前提下，为每一章重生成一个更有表现力的标题。
+【硬性约束】
+1. 章节数量与顺序必须与现有章节完全一致（一章不增、一章不减）；
+2. 标题必须服从现有设定：与一句话梗概、结构设计、设定词典保持一致，不引入新人物/地名/专名；
+3. 标题有表现力、立意新颖但不剧透：体现本章走向/情绪，不泄露后续反转与结局，不重复前文已用梗；
+4. **防套路第一优先**：避免"xx之怒/惊变/震惊"式流水线命名与网文高频句式，也不刻意追求"钩子感"（钩子感要求已废除，防套路优先）；立意从本作独特设定推导；
+5. 若用户提供了【重生成要求】，必须以要求为最高优先；
+6. 只输出 JSON 数组（不要解释、不要 markdown 代码块）：{"titles":["第1章标题","第2章标题",...]}
+【自由发挥区】标题的立意、措辞、角度由你把握，让每章标题读起来各有记忆点、整批标题风格错落。`;
+
+// v10.15 标题质检：重生成标题后自动跑一次（qcTemp 0.2），只提示不自动改。
+const TITLE_QC_SYS = `你是长篇小说的标题质检编辑。检查【标题列表】是否与【设定基准】一致，只判定以下问题并输出 JSON（不要解释、不要 markdown 代码块）：
+{"issues":[{"index":0,"type":"设定冲突|剧透|逻辑错位|套路化","fix":"一句话建议"}]}
+判定项：①设定冲突（出现词典外新名/与梗概或结构矛盾）；②剧透（泄露后续反转/结局）；③逻辑错位（标题顺序与结构安排不符）；④套路化（xx之怒/惊变式流水线命名）。无问题输出 {"issues":[]}。`;
+
+// v10.13 优化构想 AI：把用户粗糙构想优化为结构化高质量构想（通用核心要素 + 自适应分类要素）。
+// 极短输入（<15 字仅题材词）走「骨架展开模式」：给可改草稿 + 显式标注 + 反问清单引导补充独有设定。
+const IDEA_POLISH_SYS = `你是一位深谙网文与影视叙事的构想编辑。
+【核心任务】把用户输入的粗糙故事构想，优化成一段结构化的高质量构想——保留用户全部原始意图，补全可推导的具体细节，让后续大纲 AI 有明确的创作依据。
+【硬性约束】
+0. 输入极短（少于 15 字，仅题材/方向词，如"穿越文""重生复仇""校园"）时：切换到「骨架展开模式」——按该题材的经典类型惯例，展开成一份通用骨架构想（该题材常见的主角设定、典型主线阶段、常见风格落点），必须在文首标注"（基于题材惯例的通用展开，非用户原话）"，并在末尾附一行"💡 建议补充：主角身份？核心设定/金手指？结构阶段？风格基调？——补充后再优化效果更好"；不得把骨架设定表述成用户提供的，也不得声称这是唯一写法。
+1. 绝不删减、篡改用户明确表达的内容（题材/元素/风格都须保留），只能在原意上细化；
+2. 不替用户新增故事设定（不凭空加角色/势力/冲突/金手指），只补全"可推导的通用细节"；
+3. 输出结构 = 通用核心要素（题材 / 主角 / 结构（含阶段比例） / 风格（含落地方式） / 目标（读者体验））+ 自适应分类要素（分两层）：a. 预设类别：出现"系统/金手指/异能/穿越"→补「金手指（机制与限制）」；"爱情/CP"→补「感情线（关系与阻碍）」；"悬疑/推理/谜案"→补「谜题（核心悬念与线索布局）」；"权谋/宫斗/战争"→补「势力格局（阵营与博弈）」；"群像/家族/多主角"→补「人物关系网」；b. 开放补充：若构想含预设之外的核心题材词（如无限流/种田/娱乐圈/末世/星际/恐怖等），自行命名一个贴合该题材的分类要素（如「世界规则（副本形式/生存规则）」「资源系统（经济来源/发展目标）」「舞台体系（平台/流量/作品）」「生存法则」「科技体系」「恐惧来源」等）并给出关键内容，补充类别必须与该题材词直接对应；c. 用户构想中没有的类别一律不得输出（如无金手指的故事绝不写"金手指"要素）；自适应分类合计不超过 3 项，避免输出膨胀；
+4. 若用户构想含风格基调（轻松/诙谐/深沉/热血等），必须明确写出"风格"要素并给出 2-3 个落地方式；
+5. 篇幅 150-300 字，用简洁条目式，不要解释、不要 markdown 代码块、不要输出 JSON。
+【自由发挥区】核心要素的措辞、自适应分类的选择与颗粒度、补充方向由你把握，让优化稿读起来具体、可执行、贴合用户原意。`;
+
+// v10.13 优化构想·输出模式后缀：单稿（条目式文本 + 末尾💡编辑意见）
+const POLISH_SINGLE_MODE = `\n\n【本次输出模式：单稿】以条目式文本输出一份完整优化构想；末尾另起一行输出"💡 AI 编辑意见："+2-3 句（本稿补全了什么、还建议用户补充什么、可选的发散方向）。`;
+
+// v10.13 优化构想·输出模式后缀：多方案（JSON 载体，2-3 个方向方案 + 编辑意见）
+const POLISH_MULTI_MODE = `\n\n【本次输出模式：多方案】严格只输出如下 JSON（不要解释、不要 markdown 代码块）：
+{"advice":"2-3 句编辑意见（补全了什么 / 建议补充什么）","options":[{"name":"方案A 稳健向","text":"完整构想条目式文本"},{"name":"方案B 反差向","text":"完整构想条目式文本"},{"name":"方案C 猎奇向","text":"完整构想条目式文本"}]}
+要求：输出 2-3 个方案；每个方案的 text 都是完整独立的结构化构想（含通用核心要素 + 自适应分类），用户可直接编辑；方案差异仅在补全与走向（稳健/反差/猎奇），都必须保留用户明确表达的原意；options 的 name 带方向标签，text 不带 JSON 标记、为纯文本。`;
 
 // v8c 词典增量补全：从已生成章节正文中提取「现有词典未收录」的新人物/新地名/新专名，去重后并入词典。
 // 供批量生成章节后的自动补全与词典卡片的「📥 提取新增」共用；人物字段对齐词典契约（age/gender 必填）。
@@ -1470,11 +1635,11 @@ const SPECS = [
     desc:'生成全部章节的完整小说。默认行为，不选任何其他规范时即是此模式。',
     sys:'' },
   { id:'planfirst',   name:'先规划再动笔', short:'先规划',
-    desc:'先确立世界观、人物小传与伏笔架构再动笔；章章服务整体，章末留钩子。',
-    sys:'动笔前先确立清晰的世界观（时代/地理/力量或社会规则）、主要人物小传（动机/弧光/关系网）与贯穿全书的伏笔与核心冲突。每一章都须服务于整体架构，避免随意发散；章末务必留钩子。' },
+    desc:'先确立世界观、人物小传与伏笔架构再动笔；章章服务整体。',
+    sys:'动笔前先确立清晰的世界观（时代/地理/力量或社会规则）、主要人物小传（动机/弧光/关系网）与贯穿全书的伏笔与核心冲突。每一章都须服务于整体架构，避免随意发散。' },
   { id:'webnovel',    name:'黄金网文节奏', short:'网文节奏',
     desc:'开篇抛冲突与悬念；因果链清晰、抉择有代价、阶梯递进、情绪张弛有度。',
-    sys:'遵循强节奏网文写法：开篇尽快抛出核心冲突与悬念（金手指/秘密）；每章保证因果链清晰、角色抉择有代价、实力或关系阶梯递进、情绪节奏有张有弛（爽点-压抑-爆发交替）；以对话推动剧情、少冗长描写；章末必留钩子。' },
+    sys:'遵循强节奏网文写法：开篇尽快抛出核心冲突与悬念（金手指/秘密）；每章保证因果链清晰、角色抉择有代价、实力或关系阶梯递进、情绪节奏有张有弛（爽点-压抑-爆发交替）；以对话推动剧情、少冗长描写。' },
   { id:'consistency', name:'强一致性自检', short:'一致性',
     desc:'每章生成后自检时间线/性格/视角/伏笔/专名，与上文冲突即自我修正。',
     sys:'生成每一章后，自行核对并维持一致性：时间线不矛盾、人物性格与外貌前后统一、POV 视角不跳脱、已铺设伏笔需回收或有交代、地名与专有名词拼写统一；若与上文冲突须自我修正。' },
@@ -1638,6 +1803,22 @@ function viewStory(){
         <textarea id="ideaInput" placeholder="${esc(currentIdeaPhrase())}">${esc(state.idea)}</textarea>
         <button id="btnRerollIdea" class="btn ghost idea-reroll" title="换个示例">🎲</button>
       </div>
+      <div class="btn-row">
+        <button id="btnPolishIdea" class="btn ghost" title="把构想优化成结构化高质量版本">✨ 优化构想</button>
+        <label class="pol-multi" title="构想不完整时，生成多份不同方向的构想供选择"><input type="checkbox" id="chkPolishMulti"> 多方案</label>
+      </div>
+      <div id="polishBox" class="pol-box" style="display:none">
+        <div class="pol-head"><b>✨ 优化稿</b>
+          <span class="pol-tools">
+            <button id="btnPolishCopy" class="btn small ghost">📋 复制</button>
+            <button id="btnPolishUse" class="btn small primary">✔ 采用</button>
+            <button id="btnPolishDiscard" class="btn small ghost">✕ 放弃</button>
+          </span>
+        </div>
+        <div id="polishAdvice" class="pol-advice" style="display:none"></div>
+        <div id="polishTabs" class="pol-tabs" style="display:none"></div>
+        <textarea id="polishText" class="pol-text" placeholder="可直接编辑此优化稿"></textarea>
+      </div>
       ${ isLong() ? recipePicker() : specPickerHtml() }
       <div class="btn-row">
         <button id="btnGenOutline" class="btn primary block">${isLong()?'📚 生成长篇大纲':'✨ 生成故事大纲'}</button>
@@ -1657,6 +1838,7 @@ function viewStory(){
       </div>
       <p class="sub">${esc(o.logline||'')}</p>
       <div class="outline-strip">${ (o.chapters||[]).map((c,i)=>`<span class="outline-pill">${i+1}. ${esc(c.title)}</span>`).join('') }</div>
+      ${ chapterTitleBlock() }
       ${ structureCard(o) }
       ${ state.outlineConfirmed ? `
         <div class="btn-row"><span class="pill tag-ok">✓ 大纲已确认</span></div>
@@ -1737,11 +1919,153 @@ function bindStructureFold(){
     persist();
   };
 }
+// v10.14 章节标题管理：大纲生成后用户可编辑全部章节标题，一键同步两数据源 + 复制全部标题。
+// 数据源说明：o.chapters[i].title（大纲骨架）与 state.chapters[i].title（章节状态）在大纲确认时复制一次，
+// 之后各自独立——编辑必须经 setChapterTitle 同步两处，否则消费点错位。
+function setChapterTitle(i, title){
+  const t = String(title||'').trim();
+  const o = state.outline;
+  if(o && Array.isArray(o.chapters) && o.chapters[i]) o.chapters[i].title = t;
+  if(state.chapters && state.chapters[i]) state.chapters[i].title = t;
+  persist();
+}
+
+// 生成"第N章 标题"纯文本（仅章节+标题，无多余内容），供一键复制。
+// 标题常自带"第N章"前缀（cleanChapterTitle 去前缀后再统一加"第N章 "，避免"第1章 第1章 起点"）
+function chapterTitleListText(){
+  const o = state.outline;
+  const arr = (o && Array.isArray(o.chapters)) ? o.chapters : [];
+  return arr.map((c,i)=>`第${i+1}章 ${cleanChapterTitle((c&&c.title)||'')}`.replace(/\s+$/,'')).filter(Boolean).join('\n');
+}
+
+// v10.14 章节标题管理块：工具行（复制全部）+ 每行标题 + ✎ 编辑
+function chapterTitleBlock(){
+  const o = state.outline;
+  const arr = (o && Array.isArray(o.chapters)) ? o.chapters : [];
+  if(!arr.length) return '';
+  const rows = arr.map((c,i)=>`
+    <div class="ct-row" data-ct-row="${i}">
+      <span class="ct-no">第${i+1}章</span>
+      <span class="ct-title" title="${esc((c&&c.title)||'')}">${esc((c&&c.title)||('第'+(i+1)+'章'))}</span>
+      <button type="button" class="ct-edit" data-ct-edit="${i}" title="编辑标题">✎</button>
+    </div>`).join('');
+  return `<div class="ct-block">
+    <div class="ct-head">
+      <b>📚 章节标题</b>
+      <span class="ct-tools">
+        <button type="button" class="btn small ghost" data-ct-copy>📋 复制全部章节标题</button>
+        <button type="button" class="btn small ghost" data-rt-gen>🔄 重生成全部标题</button>
+      </span>
+    </div>
+    <input type="text" class="rt-input" id="rtInput" placeholder="重生成要求（选填）：如『标题更有悬念感』『避免剧透式标题』『每章标题用双字词』" />
+    <div class="ct-list">${rows}</div>
+  </div>`;
+}
+
+// v10.14 章节标题绑定：复制全部 / ✎ 进入编辑态（失焦或回车存、Esc 还原、同刻单行互斥）
+function bindChapterTitles(){
+  const cp = $('[data-ct-copy]');
+  if(cp) cp.onclick = ()=>{ copyText(chapterTitleListText()); };
+  const rg = $('[data-rt-gen]');
+  if(rg) rg.onclick = ()=> regenAllTitles(rg);   // v10.15 重生成全部标题
+  $$('[data-ct-edit]').forEach(btn=>{
+    btn.onclick = ()=>{
+      const i = +btn.dataset.ctEdit;
+      const row = $('[data-ct-row="'+i+'"]'); if(!row) return;
+      const span = row.querySelector('.ct-title'); if(!span) return;
+      // 先提交其他处于编辑态的行（单行互斥）
+      $$('.ct-edit-input').forEach(inp=> commitChapterTitle(inp));
+      const inp = document.createElement('input');
+      inp.className = 'ct-edit-input';
+      inp.value = span.textContent;
+      span.replaceWith(inp);
+      inp.focus(); inp.select();
+      inp.onkeydown = e=>{
+        if(e.key==='Enter'){ e.preventDefault(); commitChapterTitle(inp); }
+        else if(e.key==='Escape'){ commitChapterTitle(inp, true); }
+      };
+      inp.onblur = ()=> commitChapterTitle(inp);
+    };
+  });
+}
+function commitChapterTitle(inp, revert){
+  if(!inp || inp.dataset.done) return;
+  inp.dataset.done = '1';
+  const row = inp.closest('[data-ct-row]');
+  const i = row ? +row.dataset.ctRow : -1;
+  const o = state.outline;
+  const oldT = (o && o.chapters && o.chapters[i] && o.chapters[i].title) || ('第'+(i+1)+'章');
+  const val = inp.value.trim();
+  if(!revert && i>=0 && val) setChapterTitle(i, val);
+  const span = document.createElement('span');
+  span.className = 'ct-title';
+  const finalT = (revert||!val) ? oldT : val;
+  span.textContent = finalT;
+  span.title = finalT;
+  inp.replaceWith(span);
+}
+
+// v10.15 批量更新全部章节标题（复用 setChapterTitle 同步两数据源）；返回实际更新数
+function setAllTitles(titles){
+  const o = state.outline;
+  const n = (o && Array.isArray(o.chapters)) ? o.chapters.length : 0;
+  let cnt = 0;
+  (titles||[]).forEach((t,i)=>{ if(i<n && String(t||'').trim()){ setChapterTitle(i, String(t).trim()); cnt++; } });
+  persist();
+  return cnt;
+}
+
+// v10.15 重生成全部章节标题：保留梗概/结构/词典，只重出标题；可选用户建议；生成后自动标题质检（qcTemp）
+async function regenAllTitles(btn){
+  const o = state.outline;
+  if(!o || !Array.isArray(o.chapters) || !o.chapters.length){ toast('尚无章节标题'); return; }
+  if(!confirm('将覆盖全部章节标题，确认重生成？')) return;
+  const req = ($('#rtInput') && $('#rtInput').value.trim()) || '';
+  if(btn) busy(btn,true,'重生成标题中…');
+  try{
+    const spec = resolveActiveSpec();
+    const st = o.structure || {};
+    const gloss = chapterGlossaryBlock();
+    const user = `小说标题：${o.title||''}\n一句话梗概：${o.logline||''}\n\n【长篇结构设计】\n${JSON.stringify(st).slice(0,800)}\n\n【设定词典】\n${gloss}\n\n【现有章节标题】\n${(o.chapters||[]).map((c,i)=>`第${i+1}章 ${(c&&c.title)||''}`).join(' / ')}${req?`\n\n【重生成要求】\n${req}`:''}`;
+    const txt = await callDeepSeek(REGEN_TITLES_SYS, user, {temperature: spec.titleTemp});
+    const j = parseJson(txt) || {};
+    const titles = Array.isArray(j.titles) ? j.titles.map(t=>String(t||'').trim()).filter(Boolean) : [];
+    if(!titles.length){ toast('未解析到新标题，请重试'); return; }
+    const cnt = setAllTitles(titles);
+    // 自动标题质检（qcTemp 0.2）：只提示不自动改
+    runTitleQC(titles);
+    toast(`已重生成 ${cnt} 个章节标题`);
+  }catch(e){ toast('重生成标题失败：'+e.message); }
+  finally{ if(btn) busy(btn,false); }
+}
+
+// v10.15 标题质检：qcTemp 0.2 调用 TITLE_QC_SYS；问题标题行标红 + toast（失败静默跳过）
+async function runTitleQC(titles){
+  const o = state.outline;
+  if(!o) return;
+  try{
+    const spec = resolveActiveSpec();
+    const user = `【标题列表】\n${(titles||[]).map((t,i)=>`${i}. ${t}`).join('\n')}\n\n【设定基准】\n小说：${o.title||''}\n梗概：${o.logline||''}\n${chapterGlossaryBlock()}`;
+    const txt = await callDeepSeek(TITLE_QC_SYS, user, {temperature: spec.qcTemp});
+    const j = parseJson(txt) || {};
+    const issues = Array.isArray(j.issues) ? j.issues : [];
+    // 标红问题标题行
+    document.querySelectorAll('.ct-row').forEach(row=> row.classList.remove('ct-issue'));
+    (issues||[]).forEach(it=>{
+      const idx = +it.index;
+      const row = document.querySelector('[data-ct-row="'+idx+'"]');
+      if(row) row.classList.add('ct-issue');
+    });
+    if(issues.length) toast(`${issues.length} 个标题可能有问题（红色标记，可 ✎ 修改）`);
+  }catch(e){ /* 质检失败静默跳过，不影响标题使用 */ }
+}
+
 // v10.11 逐章梗概区块：大纲确认后的可选步骤。按钮生成全部章节方向梗概，每条可编辑（失焦即存）。
 function chapterPlanBlock(){
   const o = state.outline;
   const plans = (o && Array.isArray(o.chapterPlans)) ? o.chapterPlans : [];
   const hasPlans = plans.some(Boolean);
+  const collapsed = !!state.cpCollapsed;   // v10.14 默认折叠，点击标题行切换（同结构卡）
   const items = plans.map((t,i)=>`
     <div class="cp-item">
       <span class="cp-no">${i+1}</span>
@@ -1749,16 +2073,31 @@ function chapterPlanBlock(){
       <input type="text" class="cp-input" data-cp-set="${i}" data-orig="${esc(t)}" value="${esc(t)}" placeholder="本章方向（一句话，可选）" />
     </div>`).join('');
   return `<div class="card cp-card">
-    <div class="cp-head">
-      <h3 style="margin:0">🧭 逐章方向梗概 <span class="muted" style="font-size:11px;font-weight:400">（可选：生成后写正文会按方向走，对抗文风漂移）</span></h3>
+    <div class="cp-head" data-cp-fold role="button" tabindex="0" title="展开/收起">
+      <h3 style="margin:0">🧭 逐章方向梗概 <span class="cp-arrow">${collapsed?'▸':'▾'}</span> <span class="muted" style="font-size:11px;font-weight:400">（可选：生成后写正文会按方向走，对抗文风漂移）</span></h3>
       <span class="cp-tools">
         <button type="button" class="btn ghost gs-tool" data-cp-gen>${hasPlans?'🔄 重生成梗概':'📝 生成逐章梗概'}</button>
       </span>
     </div>
-    ${hasPlans ? `<div class="cp-list">${items}</div>
-      <p class="muted" style="margin:6px 0 0">每条可编辑，失焦即存；写正文时注入为【本章创作方向】。</p>`
-      : `<p class="sub">可选步骤：为每章规划一句话方向（核心事件/走向），写正文时据此执笔，统一各章走向。不做也不影响默认流程。</p>`}
+    <div class="cp-body"${collapsed?' hidden':''}>
+      ${hasPlans ? `<div class="cp-list">${items}</div>
+        <p class="muted" style="margin:6px 0 0">每条可编辑，失焦即存；写正文时注入为【本章创作方向】。</p>`
+        : `<p class="sub">可选步骤：为每章规划一句话方向（核心事件/走向），写正文时据此执笔，统一各章走向。不做也不影响默认流程。</p>`}
+    </div>
   </div>`;
+}
+
+// v10.14 梗概卡折叠绑定：点击标题行切换（与结构卡一致），状态持久化
+function bindChapterPlanFold(){
+  const head = $('[data-cp-fold]');
+  if(!head) return;
+  head.onclick = (e)=>{
+    if(e.target.closest('[data-cp-gen]')) return;   // 不拦截生成按钮
+    state.cpCollapsed = !state.cpCollapsed;
+    persist();
+    const body = $('.cp-body'); if(body) body.hidden = state.cpCollapsed;
+    const ico = head.querySelector('.cp-arrow'); if(ico) ico.textContent = state.cpCollapsed ? '▸' : '▾';
+  };
 }
 // v10.11 逐章梗概绑定：生成（含覆盖确认）/ 逐条编辑即存
 function bindChapterPlan(){
@@ -3061,6 +3400,7 @@ function bindView(){
   const idea = $('#ideaInput'); if(idea){
     idea.oninput = ()=> state.idea = idea.value;
     const rr = $('#btnRerollIdea'); if(rr) rr.onclick = (e)=>{ e.stopPropagation(); rerollIdeaPhrase(); };
+    bindPolishIdea();   // v10.13 优化构想按钮 + 优化区绑定
     $('#btnGenOutline').onclick = genOutline;
   }
   // 长篇：三维写作范式选择（结构单选 / 节奏单选 / 质量多选 / 体量二选一）
@@ -3108,6 +3448,8 @@ function bindView(){
   bindOrigIdea();     // v10.2 原始构想只读卡绑定
   bindStructureFold();// v10.3 长篇结构设计栏折叠绑定
   bindChapterPlan();  // v10.11 逐章梗概区块绑定
+  bindChapterPlanFold(); // v10.14 梗概卡折叠绑定
+  bindChapterTitles();// v10.14 章节标题编辑 + 复制绑定
   bindPendingGlossary();
   // 故事页内联规范选择器
   $$('.spec-opt').forEach(b=> b.onclick = ()=>{ selectSpec(b.dataset.spec); });
@@ -4265,6 +4607,9 @@ function openThemePanel(){
   // 同步高亮当前主题
   const cur = (document.documentElement.getAttribute('data-theme')) || 'dark';
   $$('.theme-btns .theme').forEach(b=> b.classList.toggle('active', b.dataset.theme===cur));
+  // v10.16 温度已移入主题面板：打开时回显当前配置
+  editCfg = JSON.parse(JSON.stringify(getCfg()));
+  echoTemps();
   p.classList.remove('hidden');
 }
 function closeThemePanel(){ const p=$('#themePanel'); if(p) p.classList.add('hidden'); }
@@ -4280,15 +4625,35 @@ function openSettings(){
   editCfg = JSON.parse(JSON.stringify(getCfg()));
   selGroupId = editCfg.active ? editCfg.active.groupId : (editCfg.groups[0] && editCfg.groups[0].id);
   $('#settingsModal').classList.remove('hidden');
-  $('#cfgTemp').value = (editCfg.temperature==null ? '' : editCfg.temperature);
-  $('#cfgTempOutline').value = (editCfg.outlineTemp==null ? '' : editCfg.outlineTemp);   // v10.8 分任务温度回显
-  $('#cfgTempPlan').value = (editCfg.planTemp==null ? '' : editCfg.planTemp);             // v10.11 梗概温度回显
-  $('#cfgTempChapter').value = (editCfg.chapterTemp==null ? '' : editCfg.chapterTemp);
-  $('#cfgTempQC').value = (editCfg.qcTemp==null ? '' : editCfg.qcTemp);
+  echoTemps();
   const st = $('#cfgStatus'); if(st){ st.className='status'; st.textContent=''; }
   renderGroupsList(); renderGroupDetail(); renderActiveSelects(); updateCfgBadge();
 }
 function closeSettings(){ $('#settingsModal').classList.add('hidden'); }
+
+// v10.16 温度回显（设置弹窗与主题面板共用；id 查找与 DOM 位置无关）
+function echoTemps(){
+  const c = editCfg || getCfg();
+  $('#cfgTemp').value = (c.temperature==null ? '' : c.temperature);
+  $('#cfgTempOutline').value = (c.outlineTemp==null ? '' : c.outlineTemp);
+  $('#cfgTempIdea').value = (c.ideaTemp==null ? '' : c.ideaTemp);
+  $('#cfgTempTitle').value = (c.titleTemp==null ? '' : c.titleTemp);
+  $('#cfgTempPlan').value = (c.planTemp==null ? '' : c.planTemp);
+  $('#cfgTempChapter').value = (c.chapterTemp==null ? '' : c.chapterTemp);
+  $('#cfgTempQC').value = (c.qcTemp==null ? '' : c.qcTemp);
+}
+
+// v10.16 温度保存（从 saveSettings 拆出，主题面板「保存温度」与设置弹窗「保存」共用）
+function saveTemps(){
+  const rd = (id, def)=>{ const v=parseFloat($(id) && $(id).value); return isNaN(v)?def:v; };
+  editCfg.temperature = rd('#cfgTemp', 0.7);
+  editCfg.outlineTemp = rd('#cfgTempOutline', 0.7);
+  editCfg.ideaTemp    = rd('#cfgTempIdea', 0.5);
+  editCfg.titleTemp   = rd('#cfgTempTitle', 0.5);
+  editCfg.planTemp    = rd('#cfgTempPlan', 0.4);
+  editCfg.chapterTemp = rd('#cfgTempChapter', 0.5);
+  editCfg.qcTemp      = rd('#cfgTempQC', 0.2);
+}
 
 function _curSpec(){
   const cfg = (editCfg && editCfg.groups) ? editCfg : getCfg();
@@ -4438,12 +4803,7 @@ function renderActiveSelects(){
 
 function saveSettings(){
   if(!editCfg){ return; }
-  const rd = (id, def)=>{ const v=parseFloat($(id) && $(id).value); return isNaN(v)?def:v; };
-  editCfg.temperature = rd('#cfgTemp', 0.7);
-  editCfg.outlineTemp = rd('#cfgTempOutline', 0.7);   // v10.8 分任务温度保存（留空=建议值）
-  editCfg.planTemp    = rd('#cfgTempPlan', 0.4);      // v10.11 梗概温度
-  editCfg.chapterTemp = rd('#cfgTempChapter', 0.5);
-  editCfg.qcTemp      = rd('#cfgTempQC', 0.2);
+  saveTemps();   // v10.16 温度保存已拆出（与主题面板共用）
   const selG=$('#c_selGroup'), selK=$('#c_selKey'), selM=$('#c_selModel');
   if(selG){
     const gId=selG.value || (editCfg.groups[0] && editCfg.groups[0].id);
@@ -4487,6 +4847,16 @@ function init(){
   // 主题按钮：展开/收起主题弹层
   const btnTheme = $('#btnTheme');
   if(btnTheme) btnTheme.onclick = (e)=>{ e.stopPropagation(); const p=$('#themePanel'); if(p.classList.contains('hidden')) openThemePanel(); else closeThemePanel(); };
+  // v10.16 主题面板「保存温度」：仅保存 7 个温度字段（独立于设置弹窗，不影响其他配置）
+  const btnTS = $('#btnTempSave');
+  if(btnTS) btnTS.onclick = (e)=>{
+    e.stopPropagation();
+    if(!editCfg) editCfg = JSON.parse(JSON.stringify(getCfg()));
+    saveTemps();
+    saveCfg(editCfg);
+    updateCfgBadge();
+    toast('温度已保存');
+  };
   // 点击空白处关闭主题/历史弹层
   document.addEventListener('click', (e)=>{
     const t = $('#themePanel'); if(t && !t.classList.contains('hidden') && !t.contains(e.target) && !e.target.closest('#btnTheme')) closeThemePanel();

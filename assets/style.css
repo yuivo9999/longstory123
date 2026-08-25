@@ -336,12 +336,14 @@ input.tw-in[data-first]::placeholder{color:color-mix(in srgb,var(--accent) 70%, 
   background:var(--panel); color:var(--txt);
   border:1px solid var(--line); border-radius:14px;
   box-shadow:0 10px 30px rgba(0,0,0,.45);
-  padding:10px; overflow:hidden;
-}
-#themePanel{ right:10px; }
+  padding:10px; overflow:hidden;}
+#themePanel{ right:10px; max-height:calc(100vh - 70px); overflow-y:auto; }   /* v10.16 温度移入后允许滚动 */
 #histPanel{ left:10px; }
 .spec-panel.hidden{display:none}
 .spec-head{display:flex; align-items:baseline; justify-content:space-between; gap:8px; padding:2px 4px 8px; border-bottom:1px solid var(--line); margin-bottom:6px}
+/* v10.16 主题面板内温度区块 */
+.tp-sep{border:none;border-top:1px dashed var(--line);margin:10px 0 8px}
+.tp-save-row{margin-top:8px;display:flex;justify-content:flex-end}
 .spec-head .spec-note{font-size:11px; color:var(--sub)}
 .spec-head .spec-actions{display:flex; gap:6px; flex-wrap:wrap}
 .spec-row{
@@ -546,15 +548,46 @@ body.reader-lock{overflow:hidden}
 .orig-actions{display:flex;align-items:center;gap:10px;margin-top:6px;flex-wrap:wrap}
 .orig-note{font-size:11px}
 
+/* v10.13 优化构想：优化区（按钮 + 可编辑文本框 + 复制/采用/放弃） */
+.pol-box{margin:10px 0 4px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--panel2)}
+.pol-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.pol-head b{font-size:13px}
+.pol-tools{display:flex;gap:6px;flex-wrap:wrap}
+.pol-text{min-height:120px;width:100%;padding:8px 10px;font-size:13px;line-height:1.7;box-sizing:border-box}
+.pol-multi{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--muted);cursor:pointer}
+.pol-multi input{width:14px;height:14px;cursor:pointer}
+.pol-advice{margin:0 0 8px;padding:7px 10px;border-left:3px solid var(--accent);background:color-mix(in srgb,var(--accent) 8%, var(--panel2));border-radius:6px;font-size:12px;line-height:1.6;color:var(--text)}
+.pol-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+.pol-tab{padding:4px 8px;border-radius:20px;border:1px solid var(--line);background:var(--panel2);color:var(--muted);font-size:12px;cursor:pointer;white-space:nowrap}
+.pol-tab.active{background:var(--accent);color:var(--panel2);border-color:var(--accent);font-weight:600}
+
 /* v10.11 逐章方向梗概 */
 .cp-card{margin-top:10px}
-.cp-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.cp-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;cursor:pointer}
+.cp-head .cp-arrow{display:inline-block;font-size:11px;color:var(--muted);margin-left:4px}
 .cp-tools{display:flex;gap:6px;flex-wrap:wrap}
 .cp-list{display:flex;flex-direction:column;gap:6px;margin-top:8px}
 .cp-item{display:flex;align-items:center;gap:8px}
 .cp-no{flex:0 0 auto;width:20px;height:20px;border-radius:50%;background:var(--accent2);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center}
 .cp-title{flex:0 0 auto;max-width:34%;font-size:12px;color:var(--sub);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cp-input{flex:1 1 auto;min-height:34px;padding:5px 8px;font-size:12px}
+
+/* v10.14 章节标题管理块 */
+.ct-block{margin:10px 0 2px;border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:color-mix(in srgb, var(--accent2) 6%, var(--panel2))}
+.ct-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+.ct-head b{font-size:13px}
+.ct-tools{display:flex;gap:6px;flex-wrap:wrap}
+.rt-input{width:100%;min-height:32px;padding:5px 8px;font-size:12px;box-sizing:border-box;margin-bottom:6px;border-radius:8px;border:1px solid var(--line);background:var(--panel2)}
+.ct-issue .ct-title{color:#e5534b}
+.ct-issue .ct-no{color:#e5534b;font-weight:700}
+.ct-list{max-height:220px;overflow:auto;display:flex;flex-direction:column;gap:2px}
+.ct-row{display:flex;align-items:center;gap:8px;padding:3px 4px;border-radius:6px}
+.ct-row:hover{background:color-mix(in srgb, var(--accent2) 8%, transparent)}
+.ct-no{flex:0 0 auto;font-size:12px;color:var(--sub)}
+.ct-title{flex:1 1 auto;font-size:13px;word-break:break-word;min-width:0}
+.ct-edit{flex:0 0 auto;width:26px;height:26px;border-radius:8px;border:1px solid var(--line);background:var(--panel2);color:var(--muted);font-size:13px;cursor:pointer;line-height:1}
+.ct-edit:hover{color:var(--accent2);border-color:var(--accent2)}
+.ct-edit-input{flex:1 1 auto;min-height:28px;padding:3px 8px;font-size:13px;min-width:0}
 
 /* v10.3 重生成干预历史 */
 .rp-hist{margin-top:10px;border-top:1px dashed var(--line);padding-top:8px}
