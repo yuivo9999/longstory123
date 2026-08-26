@@ -4,6 +4,7 @@
   --accent:#ff6a3d; --accent2:#3da9ff; --ok:#37c98b; --warn:#f5b942;
   --radius:14px;
 }
+.hidden{display:none!important}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;padding:0}
 body{
@@ -835,9 +836,11 @@ textarea[readonly]::selection{ background:color-mix(in srgb, var(--accent2) 45%,
 .rp-style-head:hover{background:color-mix(in srgb, var(--accent) 8%, var(--panel2))}
 .rp-style-arrow{color:var(--muted);font-size:12px}
 .rp-style-body{padding:10px 12px;background:var(--panel)}
-.rp-radio-row{display:flex;align-items:center;justify-content:flex-start;gap:6px;font-size:12.5px;padding:3px 0;margin:0;width:100%;box-sizing:border-box;cursor:pointer}
-.rp-radio-row input{accent-color:var(--accent)}
+.rp-radio-row{display:flex;align-items:flex-start;justify-content:flex-start;gap:6px;font-size:12.5px;padding:3px 0;margin:0;width:100%;box-sizing:border-box;cursor:pointer}
+.rp-radio-row input{accent-color:var(--accent);flex:0 0 auto;margin-top:2px}
 .rp-style-sub{margin-top:8px;border-top:1px dashed var(--line);padding-top:8px}
+.rp-style-sub .rp-style-label:first-child{margin-top:0}
+.rp-style-body .ws-group:first-child .ws-group-t{margin-top:0}
 .rp-style-label{font-size:11.5px;font-weight:700;color:var(--sub);margin:6px 0 4px}
 .rp-style .ws-chip{font-size:12px;padding:4px 9px}
 .rp-style .ws-int{padding:3px 10px;font-size:11.5px}
@@ -896,16 +899,17 @@ textarea[readonly]::selection{ background:color-mix(in srgb, var(--accent2) 45%,
 .reader-syn-btn:active{ transform:translateX(-50%) scale(.96); }
 /* 本章梗概浮层：半透明遮罩覆盖阅读面板 */
 .reader-syn-pop{
-  position:absolute; inset:0; z-index:6;
-  display:flex; align-items:center; justify-content:center;
-  background:rgba(0,0,0,.42);
+  position:absolute!important; inset:0!important; z-index:6!important;
+  display:flex!important; align-items:flex-end!important; justify-content:center!important;  /* 底部 + 水平居中 */
+  padding-bottom:54px!important;                                         /* 给底部「概」按钮(高46px)留空隙，再多 8px 间距 */
+  background:rgba(0,0,0,.42)!important;
 }
-.reader-syn-pop.hidden{ display:none; }
-/* 梗概卡片：正方形（aspect-ratio 1/1），宽度=阅读界面一半（相对 .reader-panel） */
+.reader-syn-pop.hidden{ display:none!important; }
+/* 梗概卡片：正方形（aspect-ratio 1/1），宽度=阅读界面 75%（相对 .reader-panel） */
 .reader-syn-card{
-  width:50%;
-  aspect-ratio:1 / 1;               /* 正方形 */
-  max-height:78%;                  /* 超高阅读界面时不被裁切 */
+  width:75%!important;
+  aspect-ratio:1 / 1!important;               /* 正方形 */
+  max-height:78%!important;                  /* 超高阅读界面时不被裁切 */
   background:var(--panel); color:var(--txt);
   border:1px solid var(--line); border-radius:14px;
   padding:18px 20px; overflow:auto;             /* 超长梗概可滚动 */

@@ -7,7 +7,7 @@
 'use strict';
 
 /* ---------- 全局状态 ---------- */
-const APP_VERSION = '1.0.16';   // 应用版本号（fixed10 基线 + 收窄：国风保持全局标准变量映射；赛博/机甲仅阅读界面专属换肤、弹窗/Toast 维持默认）：index.html 的 ?v= 资源戳与之同步递增，用于标识产物已更新
+const APP_VERSION = '1.0.20';   // 应用版本号（fixed11 基线 + 阅读梗概弹窗加 !important 兜底 + 强制刷新 style.css 缓存戳 ?v=54，确保底部对齐/75% 宽不被旧缓存或高优先级规则覆盖）：index.html 的 ?v= 资源戳与之同步递增，用于标识产物已更新
 const KEY_CFG = 'fyp_cfg';
 const KEY_STATE = 'fyp_state';   // 旧版单项目 key（仅用于首次迁移）
 const KEY_LIB = 'fyp_lib';       // 新版多项目历史库
@@ -2400,6 +2400,7 @@ function openStyleLibPanel(){
     b.onclick = ()=>{
       cfg.styleCustom.added = (cfg.styleCustom.added||[]).filter(x=>x.id!==b.dataset.libDel);
       saveCfg(cfg); render(); toast('已删除自定义风格');
+      closeStyleLibPanel(); openStyleLibPanel();   // 立即刷新面板，删除项即时消失
     };
   });
   // 删除收藏
@@ -2407,6 +2408,7 @@ function openStyleLibPanel(){
     b.onclick = ()=>{
       cfg.stylePresets.splice(+b.dataset.spDel,1);
       saveCfg(cfg); render(); toast('已删除收藏');
+      closeStyleLibPanel(); openStyleLibPanel();   // 立即刷新面板，删除项即时消失
     };
   });
   // 恢复默认
@@ -6075,7 +6077,7 @@ function exportProjectFile(id){
   if(!p){ toast('未找到该作品'); return; }
   const fyp = buildFyp(p);
   const title = String(p.title || 'story').replace(/[\\/:*?"<>|\r\n]+/g, '_').slice(0, 40);
-  const blob = new Blob([JSON.stringify(fyp, null, 2)], { type:'application/json' });
+  const blob = new Blob([JSON.stringify(fyp, null, 2)], { type:'application/octet-stream' });
   downloadBlob(`${title}.fyp`, blob);
   toast('已导出 .fyp 项目文件');
 }
