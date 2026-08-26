@@ -7,7 +7,7 @@
 'use strict';
 
 /* ---------- 全局状态 ---------- */
-const APP_VERSION = '1.0.22';   // 应用版本号（fixed11 基线 + 新增：① 逐章梗概受风格影响(默认开/随书/首位要求)；② 重生成全部标题受风格影响，独立开关 titleStyleOn 默认开、独占卡片第二行、rt-input 高度翻倍）：index.html 的 ?v= 资源戳与之同步递增，用于标识产物已更新
+const APP_VERSION = '1.0.25';   // 应用版本号（fixed11 基线 + 新增：① 逐章梗概受风格影响(默认开/随书/首位要求)；② 重生成全部标题受风格影响，独立开关 titleStyleOn 默认开、独占卡片第二行、rt-input 高度翻倍）：index.html 的 ?v= 资源戳与之同步递增，用于标识产物已更新
 const KEY_CFG = 'fyp_cfg';
 const KEY_STATE = 'fyp_state';   // 旧版单项目 key（仅用于首次迁移）
 const KEY_LIB = 'fyp_lib';       // 新版多项目历史库
@@ -1316,11 +1316,14 @@ function writeStyleLib(){
   const notes = (c && c.notes) || {};
   const removed = Array.isArray(c && c.removed) ? c.removed : [];
   const added = Array.isArray(c && c.added) ? c.added : [];
-  // v10.17 全部内置风格并入「章节风格(element)」；标题风格(tone)/梗概风格(texture)留空供用户自建。自定义项保留其既有分组
-  const base = WRITE_STYLES.filter(s=> !removed.includes(s.id)).map(s=>({ ...s, group:'element', note: notes[s.id] || s.note }));
+  // v10.19 系统内置词条保留原始来源 cat（语气基调/文风质感/语言元素），供章节风格组内分块展示
+  const base = WRITE_STYLES.filter(s=> !removed.includes(s.id)).map(s=>{
+    const cat = s.group==='tone' ? 'tone' : (s.group==='texture' ? 'texture' : 'element');
+    return { ...s, group:'element', cat, note: notes[s.id] || s.note };
+  });
   const customs = added.map(a=>{
     const parsed = parseCustomStyleNote(a.note||'');
-    return { id:a.id, group:a.group, name:a.name||'未命名', note:a.note||'', custom:true, tips:parsed.tips, avoid:parsed.avoid, check:parsed.check };
+    return { id:a.id, group:a.group, name:a.name||'未命名', note:a.note||'', custom:true, cat:'custom', tips:parsed.tips, avoid:parsed.avoid, check:parsed.check };
   });
   // v10.18 标题风格（tone 组）内置项迁入顶部「写作风格 → ① 标题风格」；梗概风格（texture 组）内置五段骨架归入「② 梗概风格」；均受 removed/notes 管理
   const toneTitles = TONE_TITLE_STYLES.filter(s=> !removed.includes(s.id)).map(s=>({ ...s, note: notes[s.id] || s.note }));
@@ -1614,15 +1617,15 @@ const GLOSSARY_SYS = `\n\n【glossary 万物词典（必须一并输出）】请
 · relation 关系 = 她/他和谁是什么关联：血缘/姻亲/友伴/主仆，必须带"谁的"才成立——「林晚的妹妹」「她的仆人」「朋友：陈默」；禁止把身份词（捕快/市长/船女）写进 relation；
 人物条目中不设"职能/角色定位"字段。trait 归纳稳定性格以便后续各章保持一致。`;
 
-// v10.11 逐章梗概：章节规划师身份提示词。大纲确认后可选生成"每章一句话方向"（chapterPlans），
-// 写正文时注入【本章创作方向】对抗文风漂移；标题归大纲 AI，本 AI 只翻译方向、不写标题。
+// v10.18 逐章梗概：章节规划师身份提示词。大纲确认后可选生成"每章本章梗概"（chapterPlans），
+// 写正文时注入【本章梗概】对抗文风漂移；标题归大纲 AI，本 AI 只写本章梗概、不写标题。
 const CHAPTER_PLAN_SYS = `你是一位深谙叙事节奏的章节规划师。
 【核心任务】根据给定的小说大纲（标题、一句话梗概、长篇结构设计、设定词典），为每一章规划一条【一句话方向梗概】——提炼本章要发生的核心事件与走向，供章节写手据此执笔。
 【硬性约束】
 0. 若用户提示中出现【写作风格约束（首位要求，须优先遵循）】块，必须将其中语气/质感/元素/浓度要求作为首位硬约束执行——每条章方向都必须体现该风格基调（如要求"严肃"则方向措辞庄重不轻佻，"温情细腻"则带关系温度），不得忽略或降级为可选建议。
-1. 输出与章节数完全一致的 JSON 数组，顺序对应每一章：{"chapterPlans":["第1章：本章方向…","第2章：本章方向…"]}
-2. 每条 1-2 句、只给方向不给细节（禁止具体对话/描写/情节细则，留给正文阶段自由展开）；与设定词典、结构设计保持一致，不引入词典外的新人名/地名/专名。
-3. 每条方向必须与本章标题呼应（标题是方向的上位锚；标题由大纲架构师定，你不改写标题）。
+1. 输出与章节数完全一致的 JSON 数组，顺序对应每一章：{"chapterPlans":["第1章：本章梗概…","第2章：本章梗概…"]}
+2. 为每一章写出【完整本章梗概】——写清本章发生什么：起因→经过→结果，可含关键反转、细节与伏笔；但不展开具体对话/描写/情节细则，留给正文阶段自由展开（篇幅不限，按内容需要自然成稿）。
+3. 本章梗概须与本章标题呼应（标题是梗概的上位锚；标题由大纲架构师定，你不改写标题）。
 4. 前章的梗概不得剧透后章的关键转折；相邻章节方向衔接自然、避免断档。
 5. 不输出任何解释、不要 markdown 代码块。
 【自由发挥区】在满足以上约束的前提下，各章方向的侧重点与措辞由你把握（本卷蓄力则写蓄力方向，本卷高潮则写加压方向）。`;
@@ -2348,25 +2351,93 @@ function refreshWsUI(){
 }
 // 通用 chips / 浓度段选渲染（主卡片与重生成弹窗复用；dataPrefix 区分绑定域）
 // opts.plus：每组末尾加「＋」添加入口；opts.cardFold：主卡启用「章节风格」折叠（默认收拢）
+// v10.19 写作风格三组配色方案：色序固定 [标题(tone), 梗概(texture), 章节(element)]（即上/中/下）
+// 来自用户提供的 11 套三色搭配图；空字符串代表「默认无配色」。存入 cfg.styleCustom.colorScheme（存索引，''=默认）
+const WS_COLOR_SCHEMES = [
+  { id:'none',    name:'默认（无配色）', c:[] },
+  { id:'s1',  name:'活力橙紫青', c:['#f84914','#59187e','#2fb4af'] },
+  { id:'s2',  name:'海洋蓝青',   c:['#1e95d4','#78cede','#b1e4e7'] },
+  { id:'s3',  name:'皇家蓝绛红', c:['#0176bb','#c42536','#dcb582'] },
+  { id:'s4',  name:'蔷薇粉紫',   c:['#f6afad','#c49ee4','#e2d8ef'] },
+  { id:'s5',  name:'绯红玫紫',   c:['#f83177','#c6979c','#fcbed4'] },
+  { id:'s6',  name:'绯红钢青',   c:['#fa2742','#7384af','#f8b79a'] },
+  { id:'s7',  name:'青黄珊瑚',   c:['#54d5c7','#edba38','#f65150'] },
+  { id:'s8',  name:'深蓝明黄',   c:['#17519e','#f7dd2f','#4fcbe9'] },
+  { id:'s9',  name:'薄荷明黄',   c:['#8fedc2','#fdd741','#24b4a5'] },
+  { id:'s10', name:'暖金珊瑚',   c:['#f4d474','#ef5a56','#f9e9da'] },
+  { id:'s11', name:'自然翠金',   c:['#67d47e','#efeb86','#f5b11e'] },
+];
+/* ===== 配色管理（v10.20）：内置11套 + 我的自定义；支持删除 / 撤销 / 恢复全部 / 新建三色 ===== */
+function wsColorCfgOf(c){ c.styleCustom = c.styleCustom || { notes:{},added:[],removed:[] }; c.styleCustom.colorSchemes = c.styleCustom.colorSchemes || { custom:[], removedCustom:[], removedBuiltin:[], undo:[] }; return c.styleCustom.colorSchemes; }
+function wsColorCfg(){ return wsColorCfgOf(getCfg()); }               // 只读访问
+function wsCustomColors(){ return wsColorCfg().custom || []; }        // 未删除的自定义
+function wsRemovedBuiltin(){ return wsColorCfg().removedBuiltin || []; }
+function wsRemovedCustom(){ return wsColorCfg().removedCustom || []; }
+function wsUndoLog(){ return wsColorCfg().undo || []; }
+// 展示用完整方案列表：内置（未删）+ 我的自定义（未删）
+function wsColorSchemesList(){
+  const rm = wsRemovedBuiltin();
+  return WS_COLOR_SCHEMES.filter(s=>!rm.includes(s.id)).concat(wsCustomColors());
+}
+// 取某方案的三色（含已删除的自定义，供撤销恢复用）；无配色返回空数组
+function wsSchemeColors(id){
+  if(id==='none') return [];
+  const s = WS_COLOR_SCHEMES.find(x=>x.id===id) || wsCustomColors().find(x=>x.id===id) || wsRemovedCustom().find(x=>x.id===id);
+  return s ? (s.c||[]) : [];
+}
+function wsSchemeName(id){
+  if(id==='none') return '默认（无配色）';
+  const s = WS_COLOR_SCHEMES.find(x=>x.id===id) || wsCustomColors().find(x=>x.id===id);
+  return s ? s.name : id;
+}
+// 当前选中方案；若所选配色已被删除则回落「默认」
+function wsColorSchemeId(){
+  const sc = getCfg().styleCustom||{};
+  const id = sc.colorScheme || 'none';
+  if(id==='none') return 'none';
+  if(WS_COLOR_SCHEMES.find(s=>s.id===id) && !wsRemovedBuiltin().includes(id)) return id;
+  if(wsCustomColors().find(s=>s.id===id)) return id;
+  return 'none';
+}
+// 重建「我的自定义」配色的注入 CSS（[data-cs="cu_*"] → 三色变量），供卡片/重生成弹窗即时着色
+function rebuildCustomColorCss(){
+  let el = document.getElementById('wsCustomCss');
+  if(!el){ el = document.createElement('style'); el.id='wsCustomCss'; document.head.appendChild(el); }
+  el.textContent = wsCustomColors().map(s=>`[data-cs="${s.id}"]{--c-tone:${s.c[0]};--c-texture:${s.c[1]};--c-element:${s.c[2]}}`).join('\n');
+}
 function writeStyleChipsHtml(sel, dataPrefix, opts){
   opts = opts || {};
   const lib = writeStyleLib();
   const st = writeStyleState();
   const elemOpen = !!st.elemOpen;   // 章节风格默认收拢
+  // v10.19 章节风格(element)组内按来源分类：语气基调(tone)/文风质感(texture)/语言元素(element)/自定义(custom)
+  const CAT_LABEL = { tone:'▍语气基调', texture:'▍文风质感', element:'▍语言元素', custom:'▍我的自定义' };
+  const CAT_ORDER = ['tone','texture','element','custom'];
   return ['tone','texture','element'].map(g=>{
     const items = lib.filter(s=>s.group===g);
-    const chips = items.map(s=>`
-      <button type="button" class="ws-chip ${(sel.tags||[]).includes(s.id)?'on':''}" data-${dataPrefix}-tag="${s.id}" title="${esc(s.note)}">${esc(s.name)}</button>`).join('');
+    const mkChip = s=>`<button type="button" class="ws-chip ${(sel.tags||[]).includes(s.id)?'on':''}" data-${dataPrefix}-tag="${s.id}" title="${esc(s.note)}">${esc(s.name)}</button>`;
     const plus = opts.plus ? `<button type="button" class="ws-chip ws-chip-plus" data-${dataPrefix}-add="${g}" title="点击新建「${WRITE_GROUP_LABEL[g].replace(/^\d+[.、]?\s*/,'')}」词条">＋</button>` : '';
-    if(opts.cardFold && g==='element'){
-      return `<div class="ws-group ws-fold-group">
-        <div class="ws-group-t" data-ws-elemfold role="button" tabindex="0" title="展开/收起">${WRITE_GROUP_LABEL[g]}<span class="sc-fold-ico">${elemOpen?'▾':'▸'}</span></div>
-        <div class="ws-chips"${elemOpen?'':' hidden'}>${chips}${plus}</div>
+    // 章节风格：额外按 cat 分块，块与块间加分隔标题，块尾保留「＋」
+    if(g==='element'){
+      const blocks = CAT_ORDER.map(cat=>{
+        const its = items.filter(s=>(s.cat||'element')===cat);
+        if(!its.length) return '';
+        return `<div class="ws-subcat"><div class="ws-subcat-t">${CAT_LABEL[cat]||cat}</div><div class="ws-chips">${its.map(mkChip).join('')}</div></div>`;
+      }).filter(Boolean).join('');
+      if(opts.cardFold){
+        return `<div class="ws-group ws-fold-group" data-g="element">
+          <div class="ws-group-t" data-ws-elemfold role="button" tabindex="0" title="展开/收起">${WRITE_GROUP_LABEL[g]}<span class="sc-fold-ico">${elemOpen?'▾':'▸'}</span></div>
+          <div class="ws-chips-list"${elemOpen?'':' hidden'}>${blocks}<div class="ws-chips">${plus}</div></div>
+        </div>`;
+      }
+      return `<div class="ws-group" data-g="element">
+        <div class="ws-group-t">${WRITE_GROUP_LABEL[g]}${opts.plus?`<span class="ws-group-tip">可多选</span>`:''}</div>
+        <div class="ws-chips-list">${blocks}<div class="ws-chips">${plus}</div></div>
       </div>`;
     }
-    return `<div class="ws-group">
+    return `<div class="ws-group" data-g="${g}">
       <div class="ws-group-t">${WRITE_GROUP_LABEL[g]}${opts.plus?`<span class="ws-group-tip">可多选</span>`:''}</div>
-      <div class="ws-chips">${chips}${plus}</div>
+      <div class="ws-chips">${items.map(mkChip).join('')}${plus}</div>
     </div>`;
   }).join('');
 }
@@ -2398,7 +2469,7 @@ function writeStyleCard(){
   const intTxt = ['','轻','中','重'][draft.intensity] || '中';
   const selName = (draft.tags||[]).map(id=>{ const s=writeStyleById(id); return s?s.name:id; }).join(' + ') || '无';
   const sumTxt = (dirty?'⚠️ 待应用':'✔ 已生效')+' · '+(draft.tags||[]).length+' 项 · '+intTxt+' · '+selName;
-  return `<div class="card ws-card${st.collapsed?' ws-collapsed':''}">
+  return `<div class="card ws-card${st.collapsed?' ws-collapsed':''}" data-cs="${wsColorSchemeId()}">
     <div class="ws-head" data-ws-fold role="button" tabindex="0" title="展开/收起">
       <h3 style="margin:0">✍️ 写作风格</h3>
       <span class="ws-sum${dirty?' dirty':''}">${sumTxt}</span>
@@ -2470,7 +2541,7 @@ function bindWriteStyle(){
   const ef = $('[data-ws-elemfold]');
   if(ef) ef.onclick = ()=>{
     const s = writeStyleState(); s.elemOpen = !s.elemOpen; persist();
-    const body = ef.parentNode && ef.parentNode.querySelector('.ws-chips');
+    const body = ef.parentNode && ef.parentNode.querySelector('.ws-chips-list');
     if(body) body.hidden = !s.elemOpen;
     const ico = ef.querySelector('.sc-fold-ico'); if(ico) ico.textContent = s.elemOpen?'▾':'▸';
   };
@@ -2554,7 +2625,9 @@ function openStyleLibPanel(){
         <div class="ws-lib-item">
           <div class="ws-lib-name">${esc(s.name)}${notes[s.id]?'<span class="ws-changed">已改</span>':''}${s.custom?'<span class="ws-custom">自定义</span>':''}</div>
           <textarea class="ws-lib-note" data-lib-note="${s.id}" rows="2" maxlength="500" placeholder="指令文本（≤500字；可用 写法:/避免:/自查: 三行写配方）">${esc(s.note||'')}</textarea>
-          ${s.custom?`<button type="button" class="btn small ghost del" data-lib-del="${s.id}">删</button>`:''}
+          <div class="ws-lib-tools">
+            ${s.custom?`<button type="button" class="btn small ghost" data-lib-del="${s.id}" title="删除该自定义词条">🗑 删除</button>`:`<button type="button" class="btn small ghost" data-lib-hide="${s.id}" title="从选择中移除该词条（「恢复默认」可还原）">🚫 停用</button>`}
+          </div>
         </div>`).join('')}
         ${its.length?'':`<p class="muted" style="margin:4px 0">该组暂无词条：回到写作风格卡片点该组「＋」新建，或在上方「新增风格」选择本组添加。</p>`}
       </div>
@@ -2588,7 +2661,7 @@ function openStyleLibPanel(){
           <textarea id="wsAddNote" rows="4" maxlength="500" placeholder="指令文本（≤500字）。推荐三行配方：&#10;写法：…&#10;避免：…&#10;自查：…"></textarea>
           <button type="button" class="btn small primary" data-lib-add>＋ 新增</button>
         </div>
-        <div class="cv-div">系统风格指令可修改（打"已改"标记），可新增自定义风格（归属某组）、可删除自定义项；「恢复默认」清空全部词库改动。改动即时生效。</div>
+        <div class="cv-div">每组词条均可修改指令（打"已改"标记）、可停用内置项（🚫）、可删除自定义项（🗑）；也可在卡片内该组「＋」或此处新增自定义风格。内置项被停用后由「恢复默认」一并还原；「恢复默认」清空全部词库改动。改动即时生效。</div>
         ${groupHtml}
         <div class="ws-lib-group ws-lib-fold">
           <div class="ws-lib-fold-t" data-lib-fold="mine" role="button" tabindex="0" title="展开/收起">
@@ -2630,6 +2703,16 @@ function openStyleLibPanel(){
       cfg.styleCustom.added = (cfg.styleCustom.added||[]).filter(x=>x.id!==b.dataset.libDel);
       saveCfg(cfg); render(); toast('已删除自定义风格');
       closeStyleLibPanel(); openStyleLibPanel();   // 立即刷新面板，删除项即时消失
+    };
+  });
+  // v10.19 停用系统词条：加入 removed（从选择中移除；「恢复默认」可还原）
+  ov.querySelectorAll('[data-lib-hide]').forEach(b=>{
+    b.onclick = ()=>{
+      if(!window.confirm('停用后该词条将从选择中移除，可通过「恢复默认」还原。确定停用？')) return;
+      cfg.styleCustom.removed = cfg.styleCustom.removed || [];
+      if(!cfg.styleCustom.removed.includes(b.dataset.libHide)) cfg.styleCustom.removed.push(b.dataset.libHide);
+      saveCfg(cfg); render(); toast('已停用该词条');
+      closeStyleLibPanel(); openStyleLibPanel();
     };
   });
   // 删除收藏
@@ -3127,7 +3210,7 @@ async function runTitleQC(titles){
   }catch(e){ /* 质检失败静默跳过，不影响标题使用 */ }
 }
 
-// v10.11 逐章梗概区块：大纲确认后的可选步骤。按钮生成全部章节方向梗概，每条可编辑（失焦即存）。
+// v10.18 逐章梗概区块：大纲确认后的可选步骤。按钮生成全部章节本章梗概，每条可编辑（失焦即存）。
 function chapterPlanBlock(){
   const o = state.outline;
   const plans = (o && Array.isArray(o.chapterPlans)) ? o.chapterPlans : [];
@@ -3137,11 +3220,11 @@ function chapterPlanBlock(){
     <div class="cp-item">
       <span class="cp-no">${i+1}</span>
       <span class="cp-title">${esc((o.chapters&&o.chapters[i]&&o.chapters[i].title)||('第'+(i+1)+'章'))}</span>
-      <input type="text" class="cp-input" data-cp-set="${i}" data-orig="${esc(t)}" value="${esc(t)}" placeholder="本章方向（一句话，可选）" />
+      <textarea class="cp-input" rows="3" data-cp-set="${i}" data-orig="${esc(t)}" placeholder="本章梗概（可编辑）">${esc(t)}</textarea>
     </div>`).join('');
   return `<div class="card cp-card">
     <div class="cp-head" data-cp-fold role="button" tabindex="0" title="展开/收起">
-      <h3 style="margin:0">🧭 逐章方向梗概 <span class="cp-arrow">${collapsed?'▸':'▾'}</span> <span class="muted" style="font-size:11px;font-weight:400">（可选：生成后写正文会按方向走，对抗文风漂移）</span></h3>
+      <h3 style="margin:0">🧭 逐章梗概 <span class="cp-arrow">${collapsed?'▸':'▾'}</span> <span class="muted" style="font-size:11px;font-weight:400">（可选：生成后写正文会按梗概走，对抗文风漂移）</span></h3>
       <span class="cp-tools">
         <label class="cp-style-toggle" title="开启后，生成逐章梗概会以顶部写作风格（语气/质感/元素/浓度）作为首位硬要求约束 AI；关闭则不受风格影响（开关随本书保存）">
           <input type="checkbox" data-cp-style ${state.planStyleOn?'checked':''}/> 风格约束
@@ -3152,8 +3235,8 @@ function chapterPlanBlock(){
     </div>
     <div class="cp-body"${collapsed?' hidden':''}>
       ${hasPlans ? `<div class="cp-list">${items}</div>
-        <p class="muted" style="margin:6px 0 0">每条可编辑，失焦即存；写正文时注入为【本章创作方向】。</p>`
-        : `<p class="sub">可选步骤：为每章规划一句话方向（核心事件/走向），写正文时据此执笔，统一各章走向。不做也不影响默认流程。</p>`}
+        <p class="muted" style="margin:6px 0 0">每条可编辑，失焦即存；写正文时注入为【本章梗概】。</p>`
+        : `<p class="sub">可选步骤：为每章写一段本章梗概（核心事件/起因经过结果/走向），写正文时据此执笔，统一各章走向。不做也不影响默认流程。</p>`}
     </div>
   </div>`;
 }
@@ -3197,7 +3280,7 @@ function bindChapterPlan(){
       o.chapterPlans[i] = inp.value;
       inp.dataset.orig = inp.value;
       persist();
-      toast('本章方向已保存，后续生成章节生效');
+      toast('本章梗概已保存，后续生成章节生效');
     };
   });
 }
@@ -3921,11 +4004,11 @@ function openReader(i){
   const ov = $('#readerOverlay'); if(!ov) return;
   $('#readerTitle').textContent = `第${toCnNum(i+1)}章 · ${cleanChapterTitle(c.title)}`;
   const paras = String(c.content||'').split(/\n+/).map(p=>p.trim()).filter(Boolean);
-  // 无正文时：展示本章创作方向（逐章梗概 chapterPlans），让「空章也可预览剧情定位」
+  // 无正文时：展示本章梗概（逐章梗概 chapterPlans），让「空章也可预览剧情定位」
   let fallback = `<p class="muted">（本章尚未生成正文）</p>`;
   const plan = (state.outline && Array.isArray(state.outline.chapterPlans) && state.outline.chapterPlans[i])
     ? String(state.outline.chapterPlans[i]).trim() : '';
-  if(plan) fallback = `<p class="muted">🧭 本章创作方向：${esc(plan)}</p>
+  if(plan) fallback = `<p class="muted">🧭 本章梗概：${esc(plan)}</p>
     <p class="muted" style="margin-top:6px">生成正文后将在此展示全文。可用下方「重生成」或「一键批量生成」补写。</p>`;
   $('#readerBody').innerHTML = paras.length ? paras.map(p=>`<p>${esc(p)}</p>`).join('') : fallback;
   // 构建目录并定位当前章
@@ -4461,10 +4544,10 @@ function buildLongMarkdown(){
   let md = `# ${o?.title||'未命名长篇小说'}\n\n`;
   md += `## 一、故事大纲\n**梗概**：${o?.logline||''}\n\n`;
   (o?.chapters||[]).forEach((c,i)=>{
-    // v10.11 逐章方向梗概（chapterPlans，计划）优先展示；实际发生以章节正文为准（事后回填已去除）
+    // v10.18 逐章梗概（chapterPlans）优先展示；实际发生以章节正文为准（事后回填已去除）
     const plan = (Array.isArray(o.chapterPlans) && o.chapterPlans[i] && String(o.chapterPlans[i]).trim())
       ? String(o.chapterPlans[i]).trim() : '';
-    md += `${i+1}. **${c.title||''}**${plan?` — 方向：${plan}`:'（未生成方向梗概）'}\n`;
+    md += `${i+1}. **${c.title||''}**${plan?` — 梗概：${plan}`:'（未生成梗概）'}\n`;
   });
   md += `\n## 二、章节正文\n`;
   // 长篇：仅列出已写章；大纲刚生成、尚未写正文时给占位提示，大纲/梗概仍可先行导出
@@ -5025,7 +5108,7 @@ async function genOutline(){
   }finally{ busy(btn,false); }
 }
 
-// v10.11 逐章梗概生成：一次请求产出全部章节的一句话方向（chapterPlans）。
+// v10.18 逐章梗概生成：一次请求产出全部章节的本章梗概（chapterPlans，非一句话方向，写清本章发生之事）。
 // 输入 = 标题列表 + logline + 结构设计 + 设定词典，保证与全局一致。
 // 失败保持原值不清空；覆盖由调用方 confirm 把关。
 async function genChapterPlans(btn){
@@ -5577,10 +5660,10 @@ function buildChapterUser(i, opt={}){
   } else {
     parts.push(`【开篇说明】本章为全书第一章，无前文，请直接开篇立住基调。`);
   }
-  // ③ 本章任务 + 本章梗概（创作方向）
+  // ③ 本章任务 + 本章梗概
   let task = `【本章任务】第 ${curN} 章《${chap.title}》`;
   const plan = (Array.isArray(o.chapterPlans) && o.chapterPlans[i]) ? String(o.chapterPlans[i]).trim() : '';
-  if(plan) task += `\n【本章创作方向（本章梗概）】\n${plan}\n按此方向写本章，细节自行展开、可合理微调。`;
+  if(plan) task += `\n【本章梗概】\n${plan}\n按此梗概写本章，细节自行展开、可合理微调。`;
   parts.push(task);
   // ④ 本章边界 + 下一章边界（禁越界）/ 末章收束
   const isLast = (i + 1) >= (o.chapters||[]).length;
@@ -5590,7 +5673,7 @@ function buildChapterUser(i, opt={}){
   } else {
     const nextC = o.chapters[i+1];
     const nextPlan = (Array.isArray(o.chapterPlans) && o.chapterPlans[i+1]) ? String(o.chapterPlans[i+1]).trim() : '';
-    boundary += `\n【下一章边界】下一章为第 ${i+2} 章《${(nextC&&nextC.title)||''}》${nextPlan?`，其创作方向：${nextPlan}`:''}。\n本章严禁展开、暗示或提前完成下一章内容；下一章的情节一律留到下一章再写。`;
+    boundary += `\n【下一章边界】下一章为第 ${i+2} 章《${(nextC&&nextC.title)||''}》${nextPlan?`，其梗概：${nextPlan}`:''}。\n本章严禁展开、暗示或提前完成下一章内容；下一章的情节一律留到下一章再写。`;
   }
   parts.push(boundary);
   // ⑤ 大纲 / 结构（无标题版）/ 词典（全字段）
@@ -5669,6 +5752,7 @@ function openChapterRegenPanel(i){
   let rpCmpBApplied = null;   // 对比块「应用」确认快照 {tags,intensity}；null=未确认（未点应用则 B 稿不生效）
   const ov = document.createElement('div');
   ov.id = 'regenPanel'; ov.className = 'gs-overlay';
+  ov.setAttribute('data-cs', wsColorSchemeId());   // v10.19 让重生成弹窗内 chips 跟随所选配色
   ov.innerHTML = `
     <div class="gs-modal">
       <div class="gs-modal-head"><b>🔄 重生成 · 第${i+1}章「${esc(cleanChapterTitle(title))}」</b>
@@ -6224,7 +6308,7 @@ async function genStoryboard(){
       const ch = state.chapters[i];
       const oc = (state.outline&&state.outline.chapters&&state.outline.chapters[i])||{};
       const content = ch.content||'';
-      const user = `【本章】第${i+1}章 ${ch.title||oc.title||''}\n本章创作方向：${(state.outline&&Array.isArray(state.outline.chapterPlans)&&state.outline.chapterPlans[i])||''}\n本章正文：\n${content.slice(0,1500)}${content.length>1500?'…':''}\n\n${base}`;
+      const user = `【本章】第${i+1}章 ${ch.title||oc.title||''}\n本章梗概：${(state.outline&&Array.isArray(state.outline.chapterPlans)&&state.outline.chapterPlans[i])||''}\n本章正文：\n${content.slice(0,1500)}${content.length>1500?'…':''}\n\n${base}`;
       try{
         const txt = await callDeepSeek(PROMPTS.storyboardSys, user);
         const j = parseJson(txt);
@@ -6504,7 +6588,114 @@ function selectSpec(id){
   if(currentStep===1) render(); // 刷新故事页规范高亮
 }
 
-/* 主题弹层（顶栏 🎨 入口） */
+/* ===== 配色弹层（顶栏 🎨 颜色）：选择 / 删除 / 撤销 / 恢复全部 / 新建三色 v10.20 ===== */
+function wsColorToolbarHtml(){
+  const undoN = wsUndoLog().length, rmB = wsRemovedBuiltin().length;
+  return `<div class="ws-cs-toolbar">
+    <button type="button" class="cs-tool" data-cs-undo ${undoN?'':'disabled'} title="撤销上一步删除">↩ 撤销</button>
+    <button type="button" class="cs-tool" data-cs-restore ${rmB?'':'disabled'} title="仅恢复项目自带的 11 套内置配色（不影响你自建的配色）">↺ 恢复全部</button>
+    <span class="ws-cs-spacer"></span>
+    <button type="button" class="cs-tool cs-tool-new" data-cs-new title="新建一套三色配色">＋ 新建配色</button>
+  </div>`;
+}
+function wsColorGridHtml(){
+  const cur = wsColorSchemeId();
+  const customIds = wsCustomColors().map(s=>s.id);
+  return wsColorSchemesList().map(s=>{
+    const isCustom = customIds.includes(s.id);
+    return `<div class="ws-cs-item${cur===s.id?' active':''}" data-cs="${s.id}" title="点击应用「${esc(s.name)}」">
+      <div class="ws-cs-top">
+        <span class="ws-cs-name">${esc(s.name)}${isCustom?'<i class="ws-cs-tag">我的</i>':''}</span>
+        ${s.id==='none'?'':`<button type="button" class="ws-cs-del" data-cs-del="${s.id}" title="删除此配色">✕</button>`}
+      </div>
+      <div class="ws-cs-bars">
+        ${(s.c&&s.c.length)? s.c.map(c=>`<i style="background:${c}"></i>`).join('') : `<i class="ws-cs-none">无</i>`}
+      </div>
+    </div>`;
+  }).join('');
+}
+function wsColorNewFormHtml(){
+  return `<div id="wsCsForm" class="ws-cs-form hidden">
+    <div class="ws-cs-form-row"><label>名称</label><input id="csName" class="cs-inp" type="text" maxlength="12" placeholder="例如：晚霞粉蓝"></div>
+    <div class="ws-cs-form-row"><label>上 · 标题</label><input id="csC0" class="cs-color" type="color" value="#e25a6a"></div>
+    <div class="ws-cs-form-row"><label>中 · 梗概</label><input id="csC1" class="cs-color" type="color" value="#5b8def"></div>
+    <div class="ws-cs-form-row"><label>下 · 章节</label><input id="csC2" class="cs-color" type="color" value="#3fc6a0"></div>
+    <div class="ws-cs-form-ops">
+      <button type="button" class="btn" data-cs-cancel>取消</button>
+      <button type="button" class="btn primary" data-cs-confirm>确认新建</button>
+    </div>
+  </div>`;
+}
+function renderWsColorPanel(){
+  const box = $('#wsColorBody'); if(!box) return;
+  box.innerHTML = wsColorToolbarHtml() + `<div class="ws-cs-grid">${wsColorGridHtml()}</div>` + wsColorNewFormHtml();
+}
+function openWsColorPanel(){ const p=$('#wsColorPanel'); if(!p) return; renderWsColorPanel(); p.classList.remove('hidden'); }
+function closeWsColorPanel(){ const p=$('#wsColorPanel'); if(p) p.classList.add('hidden'); }
+// 保存 → 重建自定义css → 重渲面板 + 主卡
+function wsColorRepaint(){ rebuildCustomColorCss(); renderWsColorPanel(); render(); }
+// —— 动作 ——
+function wsColorSelect(id){
+  const c=getCfg(); c.styleCustom = c.styleCustom||{};
+  c.styleCustom.colorScheme = id; saveCfg(c);
+  wsColorRepaint(); toast('已切换写作风格配色：'+wsSchemeName(id));
+}
+function wsColorDelete(id){
+  if(id==='none') return;
+  const c=getCfg(); const cs=wsColorCfgOf(c);
+  const active=(c.styleCustom||{}).colorScheme;
+  const bi=WS_COLOR_SCHEMES.find(x=>x.id===id);
+  if(bi){
+    if(cs.removedBuiltin.includes(id)) return;
+    cs.removedBuiltin.push(id); cs.undo.push({type:'builtin',id:id});
+  } else {
+    const s=cs.custom.find(x=>x.id===id); if(!s) return;
+    cs.custom=cs.custom.filter(x=>x.id!==id);
+    cs.removedCustom=cs.removedCustom.concat([s]); cs.undo.push({type:'custom',id:id});
+  }
+  if(active===id) c.styleCustom.colorScheme='none';
+  saveCfg(c); wsColorRepaint();
+  toast('已删除配色：'+wsSchemeName(id)+(active===id?'（当前配色已回退默认）':''));
+}
+function wsColorUndo(){
+  const c=getCfg(); const cs=wsColorCfgOf(c); const last=cs.undo.pop(); if(!last) return;
+  let label=last.id;
+  if(last.type==='builtin'){ cs.removedBuiltin=cs.removedBuiltin.filter(x=>x!==last.id); }
+  else { const s=cs.removedCustom.find(x=>x.id===last.id); if(s){ cs.custom=cs.custom.concat([s]); cs.removedCustom=cs.removedCustom.filter(x=>x.id!==last.id); label=s.name; } }
+  saveCfg(c); wsColorRepaint(); toast('已撤销删除：'+label);
+}
+function wsColorRestoreAll(){
+  const c=getCfg(); const cs=wsColorCfgOf(c);
+  cs.removedBuiltin=[];
+  cs.undo = cs.undo.filter(u=>u.type!=='builtin');   // 内置已全部恢复，仅清除其对应的撤销记录；保留自建配色的删除与撤销记录
+  saveCfg(c); wsColorRepaint(); toast('已恢复全部内置配色（自建配色不受影响）');
+}
+function wsColorCreate(){
+  const name=((($('#csName')||{}).value)||'').trim();
+  const c0=(($('#csC0')||{}).value)||'', c1=(($('#csC1')||{}).value)||'', c2=(($('#csC2')||{}).value)||'';
+  if(!name){ toast('请先填写配色名称'); return; }
+  const c=getCfg(); const cs=wsColorCfgOf(c);
+  cs.custom=cs.custom.concat([{id:'cu_'+(Date.now()), name:name, c:[c0,c1,c2]}]);
+  saveCfg(c); rebuildCustomColorCss();
+  const f=$('#wsCsForm'); if(f) f.classList.add('hidden');
+  wsColorRepaint(); toast('已新建配色：'+name);
+}
+// 绑定配色面板：面板内容会被动态重建，故在容器上做事件委托
+function rebindWsColorPanel(){
+  const btn = $('#btnWsColor');
+  if(btn) btn.onclick = (e)=>{ e.stopPropagation(); const p=$('#wsColorPanel'); if(p.classList.contains('hidden')) openWsColorPanel(); else closeWsColorPanel(); };
+  const body = $('#wsColorBody');
+  if(body) body.onclick = (e)=>{
+    const del = e.target.closest('[data-cs-del]'); if(del){ e.stopPropagation(); wsColorDelete(del.dataset.csDel); return; }
+    const item = e.target.closest('.ws-cs-item[data-cs]'); if(item){ e.stopPropagation(); if(!item.classList.contains('active')) wsColorSelect(item.dataset.cs); return; }
+    if(e.target.closest('[data-cs-new]')){ e.stopPropagation(); const f=$('#wsCsForm'); if(f) f.classList.toggle('hidden'); return; }
+    if(e.target.closest('[data-cs-undo]')){ e.stopPropagation(); wsColorUndo(); return; }
+    if(e.target.closest('[data-cs-restore]')){ e.stopPropagation(); wsColorRestoreAll(); return; }
+    if(e.target.closest('[data-cs-confirm]')){ e.stopPropagation(); wsColorCreate(); return; }
+    if(e.target.closest('[data-cs-cancel]')){ e.stopPropagation(); const f=$('#wsCsForm'); if(f) f.classList.add('hidden'); return; }
+  };
+  rebuildCustomColorCss();   // 刷新后自定义配色仍能正确上色
+}
 function openThemePanel(){
   const p = $('#themePanel'); if(!p) return;
   // 同步高亮当前主题
@@ -6756,6 +6947,8 @@ async function init(){
   if(btnLog) btnLog.onclick = (e)=>{ e.stopPropagation(); openAiLogPanel(); };
   // 历史作品按钮：展开/收起弹层；新建小说 / 新建长篇按钮
   rebindHistPanel();
+  // 写作风格配色按钮（顶栏 🎨）：展开/收起配色弹层 + 选择即着色
+  rebindWsColorPanel();
   // 主题按钮：展开/收起主题弹层
   const btnTheme = $('#btnTheme');
   if(btnTheme) btnTheme.onclick = (e)=>{ e.stopPropagation(); const p=$('#themePanel'); if(p.classList.contains('hidden')) openThemePanel(); else closeThemePanel(); };
@@ -6769,10 +6962,11 @@ async function init(){
     updateCfgBadge();
     toast('温度已保存');
   };
-  // 点击空白处关闭主题/历史弹层
+  // 点击空白处关闭主题/历史/配色弹层
   document.addEventListener('click', (e)=>{
     const t = $('#themePanel'); if(t && !t.classList.contains('hidden') && !t.contains(e.target) && !e.target.closest('#btnTheme')) closeThemePanel();
     const h = $('#histPanel'); if(h && !h.classList.contains('hidden') && !h.contains(e.target) && !e.target.closest('#btnHist')) closeHistPanel();
+    const col = $('#wsColorPanel'); if(col && !col.classList.contains('hidden') && !col.contains(e.target) && !e.target.closest('#btnWsColor')) closeWsColorPanel();
   });
   $$('[data-close]').forEach(b=> b.onclick = closeSettings);
   $('#btnCfgSave').onclick = ()=>{ saveSettings(); closeSettings(); };   // v10.10 保存后自动关闭设置窗口（测试连接仍走 testConn，不关窗）
