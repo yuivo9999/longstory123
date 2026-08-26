@@ -86,8 +86,10 @@ function esc(s){ return String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt
 function download(name, text){
   const blob = new Blob([text], {type:'text/markdown;charset=utf-8'});
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob); a.download = name; a.click();
-  URL.revokeObjectURL(a.href);
+  a.rel = 'noopener';
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=> URL.revokeObjectURL(a.href), 1200);   // 延迟回收，避免下载被中途撤销
 }
 
 /* ---------- 字数统计：中文按字、英文按单词，分别统计再合计（纯前端，本地算） ---------- */
@@ -4573,8 +4575,10 @@ function syncExpChecks(){
 }
 function downloadBlob(name, blob){
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob); a.download = name; a.click();
-  setTimeout(()=> URL.revokeObjectURL(a.href), 1000);
+  a.rel = 'noopener';
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=> URL.revokeObjectURL(a.href), 1200);
 }
 function expText(){
   const idx = activeChapters(); if(!idx.length){ toast('没有可导出的已写章节'); return; }

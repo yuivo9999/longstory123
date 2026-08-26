@@ -823,7 +823,7 @@ textarea[readonly]::selection{ background:color-mix(in srgb, var(--accent2) 45%,
 .ws-group{margin-bottom:10px}
 .ws-group-t{font-size:11.5px;font-weight:700;color:var(--sub);margin-bottom:6px;letter-spacing:.3px}
 /* v10.19 写作风格三组区块配色（[data-cs=方案id] 由顶栏「🎨 颜色」选择，默认无色） */
-.ws-group[data-g]{border-left:3px solid transparent}
+.ws-group[data-g]{border-left:3px solid transparent;padding:10px 12px;border-radius:10px;background:transparent}
 [data-cs="s1"]{--c-tone:#f84914;--c-texture:#59187e;--c-element:#2fb4af}
 [data-cs="s2"]{--c-tone:#1e95d4;--c-texture:#78cede;--c-element:#b1e4e7}
 [data-cs="s3"]{--c-tone:#0176bb;--c-texture:#c42536;--c-element:#dcb582}
@@ -835,9 +835,9 @@ textarea[readonly]::selection{ background:color-mix(in srgb, var(--accent2) 45%,
 [data-cs="s9"]{--c-tone:#8fedc2;--c-texture:#fdd741;--c-element:#24b4a5}
 [data-cs="s10"]{--c-tone:#f4d474;--c-texture:#ef5a56;--c-element:#f9e9da}
 [data-cs="s11"]{--c-tone:#67d47e;--c-texture:#efeb86;--c-element:#f5b11e}
-[data-cs] .ws-group[data-g="tone"]{border-left-color:var(--c-tone)}
-[data-cs] .ws-group[data-g="texture"]{border-left-color:var(--c-texture)}
-[data-cs] .ws-group[data-g="element"]{border-left-color:var(--c-element)}
+[data-cs] .ws-group[data-g="tone"]{border-left-color:var(--c-tone);background:color-mix(in srgb, var(--c-tone) 12%, var(--panel2))}
+[data-cs] .ws-group[data-g="texture"]{border-left-color:var(--c-texture);background:color-mix(in srgb, var(--c-texture) 12%, var(--panel2))}
+[data-cs] .ws-group[data-g="element"]{border-left-color:var(--c-element);background:color-mix(in srgb, var(--c-element) 12%, var(--panel2))}
 [data-cs] .ws-group[data-g="tone"] .ws-group-t{color:var(--c-tone)}
 [data-cs] .ws-group[data-g="texture"] .ws-group-t{color:var(--c-texture)}
 [data-cs] .ws-group[data-g="element"] .ws-group-t{color:var(--c-element)}
