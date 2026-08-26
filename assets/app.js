@@ -7,7 +7,7 @@
 'use strict';
 
 /* ---------- 全局状态 ---------- */
-const APP_VERSION = '1.0.20';   // 应用版本号（fixed11 基线 + 阅读梗概弹窗加 !important 兜底 + 强制刷新 style.css 缓存戳 ?v=54，确保底部对齐/75% 宽不被旧缓存或高优先级规则覆盖）：index.html 的 ?v= 资源戳与之同步递增，用于标识产物已更新
+const APP_VERSION = '1.0.22';   // 应用版本号（fixed11 基线 + 新增：① 逐章梗概受风格影响(默认开/随书/首位要求)；② 重生成全部标题受风格影响，独立开关 titleStyleOn 默认开、独占卡片第二行、rt-input 高度翻倍）：index.html 的 ?v= 资源戳与之同步递增，用于标识产物已更新
 const KEY_CFG = 'fyp_cfg';
 const KEY_STATE = 'fyp_state';   // 旧版单项目 key（仅用于首次迁移）
 const KEY_LIB = 'fyp_lib';       // 新版多项目历史库
@@ -36,6 +36,8 @@ const state = {
   gsCollapsed: true,    // v8b：万物词典卡片是否整卡收缩（默认收缩，点圆形展开全部）
   stCollapsed: false,   // v10.3：长篇结构设计栏是否收缩（默认展开，点击标题收起）
   cpCollapsed: true,    // v10.14：逐章方向梗概卡是否收缩（默认折叠，点击标题展开）
+  planStyleOn: true,    // 逐章梗概是否受顶部写作风格影响（默认开；作为生成时的首位硬要求；随每本书）
+  titleStyleOn: true,   // 重生成全部标题是否受顶部写作风格影响（默认开；独立开关、首位硬要求、随每本书）
   autoQC: false,        // 自动质检开关（默认关闭，v10.18）：生成后自动两段式查错修正；关则直接落库
   chapters: [],         // [{title, content, confirmed, editHistory:[], qcRecord:{}}]
   characters: [],       // [{name, role, profile:{...}, prompts:{...}}]
@@ -243,6 +245,8 @@ function projectSnapshot(){
     gsCollapsed: state.gsCollapsed,
     stCollapsed: state.stCollapsed,
     cpCollapsed: state.cpCollapsed,   // v10.14 梗概卡折叠透传
+    planStyleOn: (typeof state.planStyleOn === 'boolean') ? state.planStyleOn : true,   // 逐章梗概受写作风格影响开关（随书）
+    titleStyleOn: (typeof state.titleStyleOn === 'boolean') ? state.titleStyleOn : true,   // 重生成标题受写作风格影响开关（独立、随书）
     polishOptions: state.polishOptions,   // v10.16 优化构想保留方案透传
     polishAdopted: state.polishAdopted,   // v10.16 当前采用的方案名
     autoQC: (typeof state.autoQC === 'boolean') ? state.autoQC : false,
@@ -283,6 +287,8 @@ function applyProject(p){
   state.gsCollapsed = (typeof p.gsCollapsed === 'boolean') ? p.gsCollapsed : true;
   state.stCollapsed = !!p.stCollapsed;
   state.cpCollapsed = (typeof p.cpCollapsed === 'boolean') ? p.cpCollapsed : true;   // v10.14 梗概卡默认折叠
+  state.planStyleOn = (typeof p.planStyleOn === 'boolean') ? p.planStyleOn : true;     // 逐章梗概风格约束默认开（随书）
+  state.titleStyleOn = (typeof p.titleStyleOn === 'boolean') ? p.titleStyleOn : true;   // 重生成标题风格约束默认开（独立、随书）
   state.polishOptions = Array.isArray(p.polishOptions) ? p.polishOptions : undefined;   // v10.16 保留方案
   state.polishAdopted = (typeof p.polishAdopted === 'string') ? p.polishAdopted : undefined;
   state.autoQC = (typeof p.autoQC === 'boolean') ? p.autoQC : false;   // 自动质检默认关闭（v10.18）
@@ -1477,6 +1483,7 @@ const GLOSSARY_SYS = `\n\n【glossary 万物词典（必须一并输出）】请
 const CHAPTER_PLAN_SYS = `你是一位深谙叙事节奏的章节规划师。
 【核心任务】根据给定的小说大纲（标题、一句话梗概、长篇结构设计、设定词典），为每一章规划一条【一句话方向梗概】——提炼本章要发生的核心事件与走向，供章节写手据此执笔。
 【硬性约束】
+0. 若用户提示中出现【写作风格约束（首位要求，须优先遵循）】块，必须将其中语气/质感/元素/浓度要求作为首位硬约束执行——每条章方向都必须体现该风格基调（如要求"严肃"则方向措辞庄重不轻佻，"温情细腻"则带关系温度），不得忽略或降级为可选建议。
 1. 输出与章节数完全一致的 JSON 数组，顺序对应每一章：{"chapterPlans":["第1章：本章方向…","第2章：本章方向…"]}
 2. 每条 1-2 句、只给方向不给细节（禁止具体对话/描写/情节细则，留给正文阶段自由展开）；与设定词典、结构设计保持一致，不引入词典外的新人名/地名/专名。
 3. 每条方向必须与本章标题呼应（标题是方向的上位锚；标题由大纲架构师定，你不改写标题）。
@@ -1505,8 +1512,9 @@ const REGEN_TITLES_SYS = `你是一位深谙标题艺术的章节标题策划师
 2. 标题必须服从现有设定：与一句话梗概、结构设计、设定词典保持一致，不引入新人物/地名/专名；
 3. 标题有表现力、立意新颖但不剧透：体现本章走向/情绪，不泄露后续反转与结局，不重复前文已用梗；
 4. **防套路第一优先**：避免"xx之怒/惊变/震惊"式流水线命名与网文高频句式，也不刻意追求"钩子感"（钩子感要求已废除，防套路优先）；立意从本作独特设定推导；
-5. 若用户提供了【重生成要求】，必须以要求为最高优先；
-6. 只输出 JSON 数组（不要解释、不要 markdown 代码块）：{"titles":["第1章标题","第2章标题",...]}
+5. 若用户提示中出现【写作风格约束（首位要求，须优先遵循）】块，必须将其中语气/质感/元素/浓度要求作为首位硬约束执行——每条标题的措辞基调都须贴合该风格（如"严肃"则标题庄重不轻佻、"温情细腻"则带温度、"冷峻克制"则惜字如金），不得忽略或降级；
+6. 若用户提供了【重生成要求】，须以要求为最高优先；
+7. 只输出 JSON 数组（不要解释、不要 markdown 代码块）：{"titles":["第1章标题","第2章标题",...]}
 【自由发挥区】标题的立意、措辞、角度由你把握，让每章标题读起来各有记忆点、整批标题风格错落。`;
 
 // v10.15 标题质检：重生成标题后自动跑一次（qcTemp 0.2），只提示不自动改。
@@ -2620,6 +2628,9 @@ function chapterTitleBlock(){
         <button type="button" class="btn small ghost" data-rt-gen>🔄 重生成全部标题</button>
       </span>
     </div>
+    <label class="rt-style-row" title="开启后，重生成全部标题会按顶部写作风格（语气/质感/元素/浓度）作为首位硬要求约束 AI；关闭则不受风格影响（开关随本书保存）">
+      <input type="checkbox" data-rt-style ${state.titleStyleOn?'checked':''}/> 标题风格约束
+    </label>
     <input type="text" class="rt-input" id="rtInput" placeholder="重生成要求（选填）：如『标题更有悬念感』『避免剧透式标题』『每章标题用双字词』" />
     <div class="ct-list">${rows}</div>
   </div>`;
@@ -2633,6 +2644,13 @@ function bindChapterTitles(){
   if(ch) ch.onclick = ()=> openChTitleHistoryPanel();
   const rg = $('[data-rt-gen]');
   if(rg) rg.onclick = ()=> regenAllTitles(rg);   // v10.15 重生成全部标题
+  // 标题风格约束开关：写回 state.titleStyleOn（独立、随本书），即时生效
+  const ts = $('[data-rt-style]');
+  if(ts) ts.onchange = ()=>{
+    state.titleStyleOn = !!ts.checked;
+    persist();
+    toast(state.titleStyleOn ? '重生成标题：已开启写作风格约束（首位要求）' : '重生成标题：已关闭写作风格约束');
+  };
   $$('[data-ct-edit]').forEach(btn=>{
     btn.onclick = ()=>{
       const i = +btn.dataset.ctEdit;
@@ -2731,13 +2749,20 @@ async function regenAllTitles(btn){
   const o = state.outline;
   if(!o || !Array.isArray(o.chapters) || !o.chapters.length){ toast('尚无章节标题'); return; }
   if(!confirm('将覆盖全部章节标题，确认重生成？')) return;
-  const req = ($('#rtInput') && $('#rtInput').value.trim()) || '';
-  if(btn) busy(btn,true,'重生成标题中…');
-  try{
-    const spec = resolveActiveSpec();
-    const st = o.structure || {};
-    const gloss = chapterGlossaryBlock();
-    const user = `小说标题：${o.title||''}\n一句话梗概：${o.logline||''}\n\n【长篇结构设计】\n${JSON.stringify(st).slice(0,800)}\n\n【设定词典】\n${gloss}\n\n【现有章节标题】\n${(o.chapters||[]).map((c,i)=>`第${i+1}章 ${(c&&c.title)||''}`).join(' / ')}${req?`\n\n【重生成要求】\n${req}`:''}`;
+    const req = ($('#rtInput') && $('#rtInput').value.trim()) || '';
+    if(btn) busy(btn,true,'重生成标题中…');
+    try{
+      const spec = resolveActiveSpec();
+      const st = o.structure || {};
+      const gloss = chapterGlossaryBlock();
+      const parts = [];
+      // ★ 首位要求：若开启标题风格约束且已选风格，把写作风格插到最前（复用 chapterStyleNote，与正文/梗概同源；tags 为空自动降级为空串）
+      if(state.titleStyleOn){
+        const sb = chapterStyleNote(null);
+        if(sb) parts.push('【写作风格约束（首位要求，须优先遵循）】\n'+sb);
+      }
+      parts.push(`小说标题：${o.title||''}\n一句话梗概：${o.logline||''}\n\n【长篇结构设计】\n${JSON.stringify(st).slice(0,800)}\n\n【设定词典】\n${gloss}\n\n【现有章节标题】\n${(o.chapters||[]).map((c,i)=>`第${i+1}章 ${(c&&c.title)||''}`).join(' / ')}${req?`\n\n【重生成要求】\n${req}`:''}`);
+      const user = parts.join('\n\n');
     const txt = await callDeepSeek(REGEN_TITLES_SYS, user, {temperature: spec.titleTemp});
     const j = parseJson(txt) || {};
     const titles = Array.isArray(j.titles) ? j.titles.map(t=>String(t||'').trim()).filter(Boolean) : [];
@@ -2790,6 +2815,9 @@ function chapterPlanBlock(){
     <div class="cp-head" data-cp-fold role="button" tabindex="0" title="展开/收起">
       <h3 style="margin:0">🧭 逐章方向梗概 <span class="cp-arrow">${collapsed?'▸':'▾'}</span> <span class="muted" style="font-size:11px;font-weight:400">（可选：生成后写正文会按方向走，对抗文风漂移）</span></h3>
       <span class="cp-tools">
+        <label class="cp-style-toggle" title="开启后，生成逐章梗概会以顶部写作风格（语气/质感/元素/浓度）作为首位硬要求约束 AI；关闭则不受风格影响（开关随本书保存）">
+          <input type="checkbox" data-cp-style ${state.planStyleOn?'checked':''}/> 风格约束
+        </label>
         ${hasChapterPlansHistory()?`<button type="button" class="btn ghost gs-tool" data-cp-hist>📚 版本(${chapterPlansHistoryCount()})</button>`:''}
         <button type="button" class="btn ghost gs-tool" data-cp-gen>${hasPlans?'🔄 重生成梗概':'📝 生成逐章梗概'}</button>
       </span>
@@ -2822,6 +2850,13 @@ function bindChapterPlan(){
     const has = o && Array.isArray(o.chapterPlans) && o.chapterPlans.some(Boolean);
     if(has && !confirm('将覆盖现有逐章梗概（旧版会存入历史），继续？')) return;
     genChapterPlans(gen);
+  };
+  // 风格约束开关：写回 state.planStyleOn（随本书），即时生效（下次生成生效，不回填已生成梗概）
+  const tog = $('[data-cp-style]');
+  if(tog) tog.onchange = ()=>{
+    state.planStyleOn = !!tog.checked;
+    persist();
+    toast(state.planStyleOn ? '逐章梗概：已开启写作风格约束（首位要求）' : '逐章梗概：已关闭写作风格约束');
   };
   const hist = $('[data-cp-hist]');
   if(hist) hist.onclick = ()=> openChapterPlansHistoryPanel();
@@ -4678,6 +4713,11 @@ async function genChapterPlans(btn){
     const titles = (o.chapters||[]).map((c,i)=> `第${i+1}章《${c&&c.title||''}》`).filter(Boolean).join(' / ');
     if(!titles){ toast('尚无章节标题'); return; }
     const parts = [];
+    // ★ 首位要求：若开启风格约束且已选风格，把写作风格指令插到最前（与章节正文生成同源，实时读 state.chapterStyle）。tags 为空时 chapterStyleNote 返回空串，自动降级为无约束。
+    if(state.planStyleOn){
+      const styleBlock = chapterStyleNote(null);
+      if(styleBlock) parts.push('【写作风格约束（首位要求，须优先遵循）】\n'+styleBlock);
+    }
     parts.push(`小说标题：${o.title||''}\n一句话梗概：${o.logline||''}\n全部章节标题：${titles}`);
     parts.push(structurePlanBlockNoTitles(o));   // 长篇结构设计（主线/副线/暗线/汇合，不含章节标题清单，避免与上方「全部章节标题」重复夹带，遵 v2.3）
     parts.push(chapterGlossaryBlock());
