@@ -261,6 +261,14 @@ label.field>span{display:block;font-size:12px;color:var(--sub);margin-bottom:6px
 .recipe-summary .rs-item b{color:var(--txt);margin-left:6px;font-weight:700}
 .poly-dim{margin-bottom:16px}
 .poly-head{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+/* v10.18 生成大纲前「结构骨架 / 可复用词典」可折叠维度 */
+.recipe-fold{border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--panel2)}
+.recipe-fold .poly-head{margin-bottom:0}
+.recipe-fold-t{cursor:pointer;user-select:none}
+.recipe-fold-t:hover b{color:var(--accent)}
+.rec-fold-ico{font-size:12px;color:var(--muted);margin-left:auto;transition:transform .15s}
+.recipe-fold-t:hover .rec-fold-ico{color:var(--accent)}
+.recipe-fold-b{margin-top:10px}
 .poly-ic{font-size:16px}
 .poly-head b{font-size:14px;color:var(--txt)}
 .poly-rule{font-size:11px;color:var(--muted)}
@@ -422,6 +430,10 @@ input.tw-in[data-first]::placeholder{color:color-mix(in srgb,var(--accent) 70%, 
 .hist-empty{font-size:12px; color:var(--muted); text-align:center; padding:14px 4px}
 .hist-new-btn{font-size:12px; font-weight:700; background:var(--accent); color:#fff; border:none; border-radius:8px; padding:4px 10px; cursor:pointer; white-space:nowrap}
 .hist-new-btn:hover{filter:brightness(1.08)}
+/* v10.17 历史弹层第二行最左：导入项目（原「导入 .fyp」改名改蓝） */
+.hist-import-row{display:flex; align-items:center; justify-content:flex-start; padding:0 4px 10px}
+.hist-import-btn{background:var(--accent2)}
+.hist-import-btn:hover{filter:brightness(1.08)}
 
 /* ---------- 沉浸式章节阅读浮层（跨主题，用 CSS 变量自动适配） ---------- */
 body.reader-lock{overflow:hidden}
@@ -834,6 +846,17 @@ textarea[readonly]::selection{ background:color-mix(in srgb, var(--accent2) 45%,
 .ws-add-row select{flex:0 0 104px;width:104px;padding-right:28px}
 .ws-add-row input{flex:1 1 auto;min-width:0}
 .ws-lib-add textarea{width:100%;min-height:96px;padding:6px 8px;font-size:12.5px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--text);font-family:inherit;margin-bottom:6px}
+/* v10.17 写作风格：分组折叠 + 每组＋号添加入口 */
+.ws-group-t[data-ws-elemfold]{display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none}
+.ws-group-t[data-ws-elemfold]:hover{color:var(--accent)}
+.ws-group-tip{font-weight:400;color:var(--muted);font-size:11px;margin-left:6px}
+.ws-chip-plus{background:transparent;border-style:dashed;color:var(--accent2);font-weight:700;font-size:15px;line-height:1}
+.ws-chip-plus:hover{border-color:var(--accent2);background:color-mix(in srgb,var(--accent2) 8%, transparent)}
+/* v10.17 管理面板折叠区：分组与我的收藏（默认折叠，点击展开） */
+.ws-lib-fold{border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-bottom:10px;background:var(--panel2)}
+.ws-lib-fold-t{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;font-size:12.5px;font-weight:700;color:var(--sub);cursor:pointer;user-select:none}
+.ws-lib-fold-t:hover{color:var(--accent)}
+.ws-lib-fold-b{padding:6px 10px 10px;border-top:1px solid var(--line)}
 /* 重生成弹窗 · 风格折叠区 */
 .rp-style{border:1px solid var(--line);border-radius:10px;margin-top:10px;overflow:hidden}
 .rp-style-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 12px;font-size:13px;font-weight:600;cursor:pointer;background:var(--panel2);user-select:none}
