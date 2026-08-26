@@ -86,10 +86,8 @@ function esc(s){ return String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt
 function download(name, text){
   const blob = new Blob([text], {type:'text/markdown;charset=utf-8'});
   const a = document.createElement('a');
-  a.rel = 'noopener';
-  a.href = URL.createObjectURL(blob); a.download = name;
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(()=> URL.revokeObjectURL(a.href), 1200);   // 延迟回收，避免下载被中途撤销
+  a.href = URL.createObjectURL(blob); a.download = name; a.click();
+  URL.revokeObjectURL(a.href);
 }
 
 /* ---------- 字数统计：中文按字、英文按单词，分别统计再合计（纯前端，本地算） ---------- */
@@ -1626,7 +1624,7 @@ const CHAPTER_PLAN_SYS = `你是一位深谙叙事节奏的章节规划师。
 【硬性约束】
 0. 若用户提示中出现【写作风格约束（首位要求，须优先遵循）】块，必须将其中语气/质感/元素/浓度要求作为首位硬约束执行——每条章方向都必须体现该风格基调（如要求"严肃"则方向措辞庄重不轻佻，"温情细腻"则带关系温度），不得忽略或降级为可选建议。
 1. 输出与章节数完全一致的 JSON 数组，顺序对应每一章：{"chapterPlans":["第1章：本章梗概…","第2章：本章梗概…"]}
-2. 为每一章写出【完整本章梗概】——写清本章发生什么：起因→经过→结果，可含关键反转、细节与伏笔；但不展开具体对话/描写/情节细则，留给正文阶段自由展开（篇幅不限，按内容需要自然成稿）。
+2. 为每一章写出【完整本章梗概】——写清本章发生什么：起因→经过→结果，可含关键反转、细节与伏笔；但不展开具体对话/描写/情节细则，留给正文阶段自由展开。每条梗概严格控制在 200 字以内，精炼所有核心信息。
 3. 本章梗概须与本章标题呼应（标题是梗概的上位锚；标题由大纲架构师定，你不改写标题）。
 4. 前章的梗概不得剧透后章的关键转折；相邻章节方向衔接自然、避免断档。
 5. 不输出任何解释、不要 markdown 代码块。
@@ -2475,6 +2473,7 @@ function writeStyleCard(){
     <div class="ws-head" data-ws-fold role="button" tabindex="0" title="展开/收起">
       <h3 style="margin:0">✍️ 写作风格</h3>
       <span class="ws-sum${dirty?' dirty':''}">${sumTxt}</span>
+      <button type="button" class="btn ghost ws-manage-btn" data-ws-lib title="编辑风格词库与我的收藏">⚙️ 管理</button>
       <span class="sc-fold-ico">${st.collapsed?'▸':'▾'}</span>
     </div>
     <div class="ws-body"${st.collapsed?' hidden':''}>
@@ -2486,7 +2485,6 @@ function writeStyleCard(){
         </label>
         <button type="button" class="btn small primary ws-apply${dirty?'':' disabled'}" data-ws-apply ${dirty?'':'disabled'} title="把当前草稿设为生效配置（从此生成用这套风格）">✔ 应用并保存</button>
         <button type="button" class="btn small ghost" data-ws-save title="把当前草稿收藏为预设（跨作品可用）">💾 收藏当前</button>
-        <button type="button" class="btn small ghost" data-ws-lib title="编辑风格词库与我的收藏">⚙️ 管理</button>
         <button type="button" class="btn small ghost" data-ws-clear>✕ 清空</button>
       </div>
       <p class="ws-dirty-hint" style="display:${dirty?'':'none'}">⚠️ 当前为草稿（${(draft.tags||[]).length} 项未生效），点「✔ 应用并保存」后开始生效；生成章节读的是已生效配置。</p>
@@ -2535,7 +2533,7 @@ function bindWriteStyle(){
     toast('已收藏：'+name.trim());
   };
   const lb = $('[data-ws-lib]');
-  if(lb) lb.onclick = ()=> openStyleLibPanel();
+  if(lb) lb.onclick = (e)=>{ e.stopPropagation(); openStyleLibPanel(); };
   // 清空：只清草稿，点应用才生效（语义统一）
   const cl = $('[data-ws-clear]');
   if(cl) cl.onclick = ()=>{ const d = wsDraftInit(); d.tags=[]; d.intensity=2; refreshWsUI(); toast('已清空草稿，点「✔ 应用并保存」生效'); };
@@ -2591,9 +2589,8 @@ function openStyleNewDialog(group){
     toast('已新建并加入「'+name+'」');
   };
   const inp = $('#wsnName'); if(inp) inp.focus();
-  window.scrollTo(0,0); // 弹窗时背后页面顶到顶部
 }
-function closeStyleNewDialog(){ const p=$('#wsNewPanel'); if(p) p.remove(); window.scrollTo(0,0); }
+function closeStyleNewDialog(){ const p=$('#wsNewPanel'); if(p) p.remove(); }
 // v2.1 预设 → 填入草稿（不直接生效）
 function applyWritePresetDraft(v){
   const d = wsDraftInit();
@@ -2931,16 +2928,14 @@ function chapterTitleBlock(){
     <div class="ct-head">
       <b>📚 章节标题</b>
       <span class="ct-tools">
-        <button type="button" class="btn small ghost" data-ct-hist>🕘 曾用标题(${chTitleHistory().length})</button>
-        <button type="button" class="btn small ghost" data-ct-batch title="查看并可整批回退「重生成全部标题」的历史版本">🔁 标题版本(${chTitleBatches().length}/5)</button>
+        <label class="cp-style-toggle" title="开启后，重生成全部标题会按顶部写作风格（语气/质感/元素/浓度）作为首位硬要求约束 AI；关闭则不受风格影响（开关随本书保存）">
+          <input type="checkbox" data-rt-style ${state.titleStyleOn?'checked':''}/> 标题风格约束
+        </label>
+        ${hasChTitleHistory()?`<button type="button" class="btn small ghost" data-ct-hist>🕘 曾用标题(${chTitleHistory().length})</button>`:''}
+        ${chTitleBatches().length?`<button type="button" class="btn small ghost" data-ct-batch title="查看并可整批回退「重生成全部标题」的历史版本">🔁 标题版本(${chTitleBatches().length}/5)</button>`:''}
         <button type="button" class="btn small ghost" data-ct-copy>📋 复制全部章节标题</button>
+        <button type="button" class="btn small ghost" data-rt-gen>🔄 重生成全部标题</button>
       </span>
-    </div>
-    <div class="rt-style-row">
-      <label title="开启后，重生成全部标题会按顶部写作风格（语气/质感/元素/浓度）作为首位硬要求约束 AI；关闭则不受风格影响（开关随本书保存）">
-        <input type="checkbox" data-rt-style ${state.titleStyleOn?'checked':''}/> 标题风格约束
-      </label>
-      <button type="button" class="btn small ghost" data-rt-gen>🔄 重生成全部标题</button>
     </div>
     <input type="text" class="rt-input" id="rtInput" placeholder="重生成要求（选填）：如『标题更有悬念感』『避免剧透式标题』『每章标题用双字词』" />
     <div class="ct-list">${rows}</div>
@@ -3215,43 +3210,46 @@ async function runTitleQC(titles){
   }catch(e){ /* 质检失败静默跳过，不影响标题使用 */ }
 }
 
-// v10.18 逐章梗概区块：大纲确认后的可选步骤。按钮生成全部章节本章梗概，每条可编辑（失焦即存）。
+// v10.19 逐章梗概区块：暗红渐变色卡片，独立设计通用于所有主题
 function chapterPlanBlock(){
   const o = state.outline;
   const plans = (o && Array.isArray(o.chapterPlans)) ? o.chapterPlans : [];
   const hasPlans = plans.some(Boolean);
-  const collapsed = !!state.cpCollapsed;   // v10.14 默认折叠，点击标题行切换（同结构卡）
+  const collapsed = !!state.cpCollapsed;
   const items = plans.map((t,i)=>`
     <div class="cp-item">
       <span class="cp-no">${i+1}</span>
       <span class="cp-title">${esc((o.chapters&&o.chapters[i]&&o.chapters[i].title)||('第'+(i+1)+'章'))}</span>
       <textarea class="cp-input" rows="3" data-cp-set="${i}" data-orig="${esc(t)}" placeholder="本章梗概（可编辑）">${esc(t)}</textarea>
+      <span class="cp-wc">${t.length}字</span>
     </div>`).join('');
   return `<div class="card cp-card">
     <div class="cp-head" data-cp-fold role="button" tabindex="0" title="展开/收起">
-      <h3 style="margin:0">🧭 逐章梗概 <span class="cp-arrow">${collapsed?'▸':'▾'}</span> <span class="muted" style="font-size:11px;font-weight:400">（可选：生成后写正文会按梗概走，对抗文风漂移）</span></h3>
+      <div class="cp-head-left">
+        <h3>🧭 逐章梗概 <span class="cp-arrow">${collapsed?'▸':'▾'}</span></h3>
+      </div>
       <span class="cp-tools">
         <label class="cp-style-toggle" title="开启后，生成逐章梗概会以顶部写作风格（语气/质感/元素/浓度）作为首位硬要求约束 AI；关闭则不受风格影响（开关随本书保存）">
           <input type="checkbox" data-cp-style ${state.planStyleOn?'checked':''}/> 风格约束
         </label>
-        <button type="button" class="btn ghost gs-tool" data-cp-hist>📚 版本(${chapterPlansHistoryCount()})</button>
-        <button type="button" class="btn ghost gs-tool" data-cp-gen>${hasPlans?'🔄 重生成梗概':'📝 生成逐章梗概'}</button>
+        ${hasChapterPlansHistory()?`<button type="button" class="btn ghost" data-cp-hist>📚 版本(${chapterPlansHistoryCount()})</button>`:''}
       </span>
     </div>
     <div class="cp-body"${collapsed?' hidden':''}>
       ${hasPlans ? `<div class="cp-list">${items}</div>
         <p class="muted" style="margin:6px 0 0">每条可编辑，失焦即存；写正文时注入为【本章梗概】。</p>`
         : `<p class="sub">可选步骤：为每章写一段本章梗概（核心事件/起因经过结果/走向），写正文时据此执笔，统一各章走向。不做也不影响默认流程。</p>`}
+      <button type="button" class="cp-gen-btn" data-cp-gen>${hasPlans?'🔄 重生成梗概':'📝 生成逐章梗概'}</button>
     </div>
   </div>`;
 }
 
-// v10.14 梗概卡折叠绑定：点击标题行切换（与结构卡一致），状态持久化
+// v10.19 梗概卡折叠绑定：点击标题行切换，状态持久化
 function bindChapterPlanFold(){
   const head = $('[data-cp-fold]');
   if(!head) return;
   head.onclick = (e)=>{
-    if(e.target.closest('[data-cp-gen]')) return;   // 不拦截生成按钮
+    if(e.target.closest('.cp-style-toggle') || e.target.closest('[data-cp-hist]')) return;   // 不拦截风格约束/版本按钮
     state.cpCollapsed = !state.cpCollapsed;
     persist();
     const body = $('.cp-body'); if(body) body.hidden = state.cpCollapsed;
@@ -3277,6 +3275,11 @@ function bindChapterPlan(){
   const hist = $('[data-cp-hist]');
   if(hist) hist.onclick = ()=> openChapterPlansHistoryPanel();
   $$('[data-cp-set]').forEach(inp=>{
+    // 实时更新字数
+    inp.oninput = ()=>{
+      const wc = inp.parentNode && inp.parentNode.querySelector('.cp-wc');
+      if(wc) wc.textContent = inp.value.length + '字';
+    };
     inp.onchange = ()=>{
       const o = state.outline; if(!o) return;
       if(!Array.isArray(o.chapterPlans)) o.chapterPlans = [];
@@ -4578,10 +4581,8 @@ function syncExpChecks(){
 }
 function downloadBlob(name, blob){
   const a = document.createElement('a');
-  a.rel = 'noopener';
-  a.href = URL.createObjectURL(blob); a.download = name;
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(()=> URL.revokeObjectURL(a.href), 1200);
+  a.href = URL.createObjectURL(blob); a.download = name; a.click();
+  setTimeout(()=> URL.revokeObjectURL(a.href), 1000);
 }
 function expText(){
   const idx = activeChapters(); if(!idx.length){ toast('没有可导出的已写章节'); return; }
@@ -5137,8 +5138,8 @@ async function genChapterPlans(btn){
     const user = parts.join('\n\n') + '\n\n' + ORIGINALITY_OUTLINE_SYS;   // v10.12 防套路：方向防套路 + 人名规避（复用大纲侧）
     const txt = await callDeepSeek(CHAPTER_PLAN_SYS, user, {temperature: resolveActiveSpec().planTemp});
     const j = parseJson(txt) || {};
-    const arr = Array.isArray(j.chapterPlans) ? j.chapterPlans.map(x=>String(x||'').trim()).filter(Boolean) : [];
-    if(!arr.length){ toast('未解析到梗概，请重试'); return; }
+    const arr = Array.isArray(j.chapterPlans) ? j.chapterPlans.map(x=>String(x||'').trim()) : [];
+    if(!arr.length || !arr.some(Boolean)){ toast('未解析到梗概，请重试'); return; }
     // 数量与章节对齐：不足补齐占位，超出截断
     const n = (o.chapters||[]).length;
     const plans = Array.from({length:n},(_,i)=> arr[i] || '');
@@ -5146,7 +5147,7 @@ async function genChapterPlans(btn){
     pushChapterPlansSnapshot();
     o.chapterPlans = plans;
     persist(); render();
-    toast(`已生成 ${arr.length} 条逐章梗概`);
+    toast(`已生成 ${plans.filter(Boolean).length} 条逐章梗概`);
   }catch(e){ toast('梗概生成失败：'+e.message); }
   finally{ if(btn) busy(btn,false); }
 }
@@ -5334,21 +5335,12 @@ function recipePicker(){
       <div class="poly-grid recipe-fold-b" ${open?'':'hidden'}>${cardsHtml}</div>
     </div>`;
   };
-  // 章节数必填后，范式区解锁；整体默认折叠（可在“写作范式”总标题展开）
-  const mainFold = (state.recipeSet && state.recipeSet.recFold) || {};
-  const mainOpen = !!mainFold['main'];
+  // 章节数必填后，范式区才展开
   const core = ccOn ? `
-    <div class="poly-dim recipe-fold">
-      <div class="poly-head recipe-fold-t" data-rec-fold="main" role="button" tabindex="0" aria-expanded="${mainOpen}">
-        <span class="poly-ic">🗂️</span><b>写作范式</b><span class="poly-rule">结构 · 质量 · 词典（默认折叠，点击展开）</span><span class="rec-fold-ico">${mainOpen?'▾':'▸'}</span>
-      </div>
-      <div class="poly-grid recipe-fold-b" ${mainOpen?'':'hidden'}>
-        ${fold('🏗️','结构骨架','单选 · 可选其一', 'structure', STRUCTURES.map(it=>card(it,'structure', it.id===rs.structure)).join(''))}
-        ${qualityToggleHtml()}
-        ${fold('📇','可复用词典','跨作品词典作一致性底稿', 'glossary', pendingGlossaryPanel())}
-        <p class="muted" style="margin:8px 0 0">结构、质量均可选可不选；全部不选时 AI 将按构想自由发挥。章节数已在「全书章节数」填定。结构骨架/可复用词典默认折叠，点标题展开。</p>
-      </div>
-    </div>`
+    ${fold('🏗️','结构骨架','单选 · 可选其一', 'structure', STRUCTURES.map(it=>card(it,'structure', it.id===rs.structure)).join(''))}
+    ${qualityToggleHtml()}
+    ${fold('📇','可复用词典','跨作品词典作一致性底稿', 'glossary', pendingGlossaryPanel())}
+    <p class="muted" style="margin:8px 0 0">结构、质量均可选可不选；全部不选时 AI 将按构想自由发挥。章节数已在「全书章节数」填定。结构骨架/可复用词典默认折叠，点标题展开。</p>`
     : `<div class="tw-lock"><span class="tw-lock-ic">🔒</span><span>待填写全书章节数后，此处才展开“写作范式”设定。</span></div>`;
   return `<div class="card recipe-card poly-card">
     <div class="tw-panel">

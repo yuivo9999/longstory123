@@ -617,28 +617,59 @@ body.reader-lock{overflow:hidden}
 .pol-tab{padding:4px 8px;border-radius:20px;border:1px solid var(--line);background:var(--panel2);color:var(--muted);font-size:12px;cursor:pointer;white-space:nowrap}
 .pol-tab.active{background:var(--accent);color:var(--panel2);border-color:var(--accent);font-weight:600}
 
-/* v10.11 逐章方向梗概 */
-.cp-card{margin-top:10px}
-.cp-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;cursor:pointer}
-.cp-head .cp-arrow{display:inline-block;font-size:11px;color:var(--muted);margin-left:4px}
-.cp-tools{display:flex;gap:6px;flex-wrap:wrap}
+/* =============================================
+   v10.19 逐章梗概卡片 - 独立暗红设计（通用于所有主题）
+   ============================================= */
+.cp-card{margin-top:10px;border:none;border-radius:18px;overflow:hidden;background:#1a0a0a;box-shadow:0 4px 24px rgba(80,10,10,0.3);padding:0}
+/* 头部：深红渐变 */
+.cp-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;cursor:pointer;background:linear-gradient(135deg,#8b1a1a 0%,#5c1010 100%);padding:10px 14px;border-radius:18px 18px 0 0;user-select:none}
+.cp-head:hover{background:linear-gradient(135deg,#9e2020 0%,#6a1414 100%)}
+/* 头部标题区 */
+.cp-head-left{display:flex;align-items:center;gap:6px;min-width:0}
+.cp-head-left h3{margin:0;font-size:14px;font-weight:700;color:#fff;letter-spacing:.4px;white-space:nowrap}
+.cp-arrow{display:inline-block;font-size:10px;color:rgba(255,255,255,.55);margin-left:1px;transition:transform .2s}
+.cp-head-sub{font-size:10.5px;font-weight:400;color:rgba(255,255,255,.5);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* 头部工具区 */
+.cp-tools{display:flex;gap:5px;flex-wrap:wrap;align-items:center}
+/* 风格约束 - 在深红头部内的变体 */
+.cp-head .cp-style-toggle{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.15);color:rgba(255,255,255,.85)}
+.cp-head .cp-style-toggle:hover{background:rgba(255,255,255,.18)}
+.cp-head .cp-style-toggle input{accent-color:#ff6b6b}
+/* 风格约束 - 基础类（通用于章节标题卡等） */
 .cp-style-toggle{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;color:var(--txt);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:3px 8px;cursor:pointer;user-select:none;white-space:nowrap}
 .cp-style-toggle input{accent-color:var(--accent);margin:0}
-.cp-list{display:flex;flex-direction:column;gap:6px;margin-top:8px}
-.cp-item{display:flex;align-items:flex-start;gap:8px}
-.cp-no{flex:0 0 auto;width:20px;height:20px;border-radius:50%;background:var(--accent2);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:3px}
-.cp-title{flex:0 0 auto;max-width:34%;font-size:12px;color:var(--sub);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:2.4}
-.cp-input{flex:1 1 auto;min-height:34px;padding:5px 8px;font-size:12px;resize:vertical;line-height:1.6;font-family:inherit;background:var(--panel2);border:1px solid var(--line);border-radius:8px;color:var(--txt)}
-.cp-input:focus{outline:none;border-color:var(--accent)}
+/* 头部按钮 */
+.cp-tools .btn{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.15);color:rgba(255,255,255,.8);border-radius:8px;font-size:11.5px;padding:3px 8px;cursor:pointer;transition:all .2s}
+.cp-tools .btn:hover{background:rgba(255,255,255,.2);color:#fff}
+/* 卡片体 */
+.cp-body{padding:12px 14px 14px;background:#1a0a0a;border-radius:0 0 18px 18px}
+.cp-body .sub{color:rgba(255,255,255,.5);font-size:13px;line-height:1.6;margin:0}
+/* 章节列表 */
+.cp-list{display:flex;flex-direction:column;gap:8px}
+/* 每行 */
+.cp-item{display:flex;align-items:flex-start;gap:8px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:8px 10px}
+/* 序号圆 */
+.cp-no{flex:0 0 auto;width:20px;height:20px;border-radius:50%;background:linear-gradient(135deg,#8b1a1a,#5c1010);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:3px;flex-shrink:0}
+/* 章节标题 */
+.cp-title{flex:0 0 auto;max-width:34%;font-size:12px;color:rgba(255,255,255,.55);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:2.4;flex-shrink:0}
+/* 输入框 */
+.cp-input{flex:1 1 auto;min-height:34px;padding:5px 8px;font-size:12px;resize:vertical;line-height:1.6;font-family:inherit;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:8px;color:rgba(255,255,255,.82);transition:border-color .2s}
+.cp-input:focus{outline:none;border-color:#ff6b6b;box-shadow:0 0 0 2px rgba(255,107,107,.15)}
+/* 字数统计 */
+.cp-wc{font-size:10px;color:rgba(255,255,255,.3);flex:0 0 auto;white-space:nowrap;align-self:flex-end;padding:0 0 3px 2px;line-height:1;font-variant-numeric:tabular-nums}
+/* 底部提示 */
+.cp-body .muted{color:rgba(255,255,255,.38);font-size:11px;margin:6px 0 0}
+/* 生成按钮 - 仿图片设计：全宽渐变 + 灯泡 */
+.cp-gen-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;margin-top:12px;padding:13px 20px;background:linear-gradient(135deg,#a02525 0%,#6a1414 100%);border:1px solid rgba(255,255,255,.1);border-radius:14px;color:#fff;font-size:15px;font-weight:600;cursor:pointer;transition:all .25s;box-shadow:0 4px 16px rgba(100,20,20,.35);letter-spacing:.3px;font-family:inherit}
+.cp-gen-btn:hover{background:linear-gradient(135deg,#b52e2e 0%,#7a1818 100%);box-shadow:0 6px 24px rgba(100,20,20,.5);transform:translateY(-1px)}
+.cp-gen-btn:active{transform:translateY(0);box-shadow:0 2px 8px rgba(100,20,20,.3)}
 
 /* v10.14 章节标题管理块 */
 .ct-block{margin:10px 0 2px;border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:color-mix(in srgb, var(--accent2) 6%, var(--panel2))}
 .ct-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px}
 .ct-head b{font-size:13px}
 .ct-tools{display:flex;gap:6px;flex-wrap:wrap}
-.rt-style-row{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--txt);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:4px 8px;margin-bottom:6px;width:fit-content;user-select:none}
-.rt-style-row label{display:flex;align-items:center;gap:4px;cursor:pointer}
-.rt-style-row .btn{margin-left:6px}
+.rt-style-row{display:flex;align-items:center;gap:4px;font-size:12px;font-weight:600;color:var(--txt);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:5px 8px;margin-bottom:6px;width:fit-content;user-select:none;cursor:pointer}
 .rt-style-row input{accent-color:var(--accent);margin:0}
 .rt-input{width:100%;min-height:64px;padding:8px 10px;font-size:13px;line-height:1.6;box-sizing:border-box;margin-bottom:6px;border-radius:8px;border:1px solid var(--line);background:var(--panel2)}
 .ct-issue .ct-title{color:#e5534b}
@@ -816,16 +847,21 @@ textarea[readonly]::selection{ background:color-mix(in srgb, var(--accent2) 45%,
 
 /* =========================================================
  * v2.0 写作风格选择器
+ * v10.20 独立暗色设计（通用于所有主题），配色借鉴深蓝/暖金 UI 风格
  * ========================================================= */
-.ws-card{border-left:3px solid var(--accent2);background:var(--panel2)}
+.ws-card{border:1px solid rgba(255,255,255,.07);border-radius:16px;background:#131418;padding:14px;margin-bottom:14px;box-shadow:0 2px 16px rgba(0,0,0,.25)}
 .ws-head{display:flex;align-items:center;gap:10px;cursor:pointer;padding:2px 0}
-.ws-head h3{font-size:14px;color:var(--accent2)}
-.ws-sum{flex:1;font-size:11.5px;color:var(--sub);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right}
+.ws-head h3{font-size:14px;font-weight:700;color:#e8e8e8;margin:0}
+.ws-sum{flex:1;font-size:11.5px;color:rgba(255,255,255,.42);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right}
+.ws-manage-btn{margin-left:auto;font-size:12px;line-height:1;padding:3px 8px;border-radius:8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:rgba(255,255,255,.5);cursor:pointer;display:inline-flex;align-items:center;gap:4px;z-index:1;position:relative}
+.ws-manage-btn:hover{background:rgba(255,255,255,.12);color:rgba(255,255,255,.85)}
+.ws-head .ws-manage-btn{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:rgba(255,255,255,.5)}
+.ws-head .ws-manage-btn:hover{background:rgba(255,255,255,.12);color:rgba(255,255,255,.85)}
 .ws-body{margin-top:10px}
 .ws-group{margin-bottom:10px}
-.ws-group-t{font-size:11.5px;font-weight:700;color:var(--sub);margin-bottom:6px;letter-spacing:.3px}
+.ws-group-t{font-size:11.5px;font-weight:700;color:rgba(255,255,255,.52);margin-bottom:6px;letter-spacing:.3px}
 /* v10.19 写作风格三组区块配色（[data-cs=方案id] 由顶栏「🎨 颜色」选择，默认无色） */
-.ws-group[data-g]{border-left:3px solid transparent;padding:10px 12px;border-radius:10px;background:transparent}
+.ws-group[data-g]{border-left:3px solid transparent}
 [data-cs="s1"]{--c-tone:#f84914;--c-texture:#59187e;--c-element:#2fb4af}
 [data-cs="s2"]{--c-tone:#1e95d4;--c-texture:#78cede;--c-element:#b1e4e7}
 [data-cs="s3"]{--c-tone:#0176bb;--c-texture:#c42536;--c-element:#dcb582}
@@ -837,23 +873,18 @@ textarea[readonly]::selection{ background:color-mix(in srgb, var(--accent2) 45%,
 [data-cs="s9"]{--c-tone:#8fedc2;--c-texture:#fdd741;--c-element:#24b4a5}
 [data-cs="s10"]{--c-tone:#f4d474;--c-texture:#ef5a56;--c-element:#f9e9da}
 [data-cs="s11"]{--c-tone:#67d47e;--c-texture:#efeb86;--c-element:#f5b11e}
-[data-cs] .ws-group[data-g="tone"]{border-left-color:var(--c-tone);background:var(--c-tone)}
-[data-cs] .ws-group[data-g="texture"]{border-left-color:var(--c-texture);background:var(--c-texture)}
-[data-cs] .ws-group[data-g="element"]{border-left-color:var(--c-element);background:var(--c-element)}
-/* 三组标题文字：白色（置于深色小标签上，深浅主题皆可读） */
-[data-cs] .ws-group-t{display:inline-block;background:#191b20;color:#fff;padding:2px 9px;border-radius:8px;box-shadow:0 1px 2px rgba(0,0,0,.28)}
-[data-cs] .ws-group[data-g="tone"] .ws-group-t{color:#fff}
-[data-cs] .ws-group[data-g="texture"] .ws-group-t{color:#fff}
-[data-cs] .ws-group[data-g="element"] .ws-group-t{color:#fff}
-/* 章节风格：子分组标题文字蓝色 */
-[data-cs] .ws-group[data-g="element"] .ws-subcat-t{color:#1c6fd8}
-/* 章节风格：每个子分组的选择区背景纯白 */
-[data-cs] .ws-group[data-g="element"] .ws-subcat{background:#fff;border-color:#e4e4e4}
-/* 候选 chip：黑底白字，与任意三色区块区分开 */
-[data-cs] .ws-group[data-g] .ws-chip:not(.on){background:#101014;border-color:#000;color:#fff}
-/* 选中 chip：白底黑字 + 黑色外圈标示 */
-[data-cs] .ws-group[data-g] .ws-chip.on{background:#fff;border-color:#fff;color:#000;font-weight:600;box-shadow:0 0 0 3px #000,0 0 0 6px rgba(0,0,0,.25)}
-[data-cs] .ws-group[data-g] .ws-chip:hover{border-color:#5ac8fa}
+[data-cs] .ws-group[data-g="tone"]{border-left-color:var(--c-tone)}
+[data-cs] .ws-group[data-g="texture"]{border-left-color:var(--c-texture)}
+[data-cs] .ws-group[data-g="element"]{border-left-color:var(--c-element)}
+[data-cs] .ws-group[data-g="tone"] .ws-group-t{color:var(--c-tone)}
+[data-cs] .ws-group[data-g="texture"] .ws-group-t{color:var(--c-texture)}
+[data-cs] .ws-group[data-g="element"] .ws-group-t{color:var(--c-element)}
+[data-cs] .ws-group[data-g="tone"] .ws-chip:hover{border-color:var(--c-tone)}
+[data-cs] .ws-group[data-g="tone"] .ws-chip.on{background:var(--c-tone);border-color:var(--c-tone)}
+[data-cs] .ws-group[data-g="texture"] .ws-chip:hover{border-color:var(--c-texture)}
+[data-cs] .ws-group[data-g="texture"] .ws-chip.on{background:var(--c-texture);border-color:var(--c-texture)}
+[data-cs] .ws-group[data-g="element"] .ws-chip:hover{border-color:var(--c-element)}
+[data-cs] .ws-group[data-g="element"] .ws-chip.on{background:var(--c-element);border-color:var(--c-element)}
 /* 配色选择面板（v10.20：工具栏/可删除卡片/新建三色表单） */
 .ws-cs-body{display:flex;flex-direction:column;gap:8px}
 .ws-cs-toolbar{display:flex;align-items:center;gap:8px}
@@ -883,20 +914,19 @@ textarea[readonly]::selection{ background:color-mix(in srgb, var(--accent2) 45%,
 .ws-cs-form-ops{display:flex;justify-content:flex-end;gap:8px;margin-top:4px}
 .ws-cs-form-ops .btn{padding:6px 14px;font-size:13px}
 .ws-chips{display:flex;flex-wrap:wrap;gap:6px}
-/* v10.19 章节风格组内分类分块 */
 .ws-chips-list{display:flex;flex-direction:column;gap:8px}
-.ws-subcat{border:1px solid var(--line);border-radius:8px;padding:6px 8px;background:color-mix(in srgb, var(--panel2) 55%, transparent)}
-.ws-subcat-t{font-size:11px;font-weight:700;color:var(--muted);margin-bottom:5px;letter-spacing:.3px}
-.ws-chip{display:inline-flex;align-items:center;padding:5px 11px;border-radius:20px;border:1px solid var(--line);background:var(--panel);color:var(--text);font-size:12.5px;cursor:pointer;transition:all .15s;font-family:inherit}
+.ws-subcat{border:1px solid rgba(255,255,255,.06);border-radius:8px;padding:6px 8px;background:rgba(255,255,255,.03)}
+.ws-subcat-t{font-size:11px;font-weight:700;color:rgba(255,255,255,.38);margin-bottom:5px;letter-spacing:.3px}
+.ws-chip{display:inline-flex;align-items:center;padding:5px 11px;border-radius:20px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:rgba(255,255,255,.68);font-size:12.5px;cursor:pointer;transition:all .15s;font-family:inherit}
 .ws-chip:active{transform:scale(.96)}
-.ws-chip:hover{border-color:var(--accent2)}
+.ws-chip:hover{border-color:rgba(255,255,255,.2)}
 .ws-chip.on{background:var(--accent2);border-color:var(--accent2);color:#fff;font-weight:600}
 .ws-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:4px}
-.ws-int-row{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--sub)}
-.ws-int{padding:4px 12px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--text);font-size:12px;cursor:pointer;font-family:inherit}
-.ws-int.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
-.ws-preset{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--sub)}
-.ws-preset select{padding:5px 8px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--text);font-size:12.5px;max-width:180px}
+.ws-int-row{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:rgba(255,255,255,.48)}
+.ws-int{padding:4px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:rgba(255,255,255,.62);font-size:12px;cursor:pointer;font-family:inherit}
+.ws-int.on{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.2);color:#fff;font-weight:600}
+.ws-preset{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:rgba(255,255,255,.48)}
+.ws-preset select{padding:5px 8px;border-radius:8px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.06);color:rgba(255,255,255,.7);font-size:12.5px;max-width:180px}
 /* 词库管理弹窗 */
 .ws-lib-group{margin-bottom:12px}
 .ws-lib-item{display:flex;flex-direction:column;gap:4px;border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-bottom:8px;background:var(--panel2)}
@@ -914,10 +944,10 @@ textarea[readonly]::selection{ background:color-mix(in srgb, var(--accent2) 45%,
 .ws-lib-add textarea{width:100%;min-height:96px;padding:6px 8px;font-size:12.5px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--text);font-family:inherit;margin-bottom:6px}
 /* v10.17 写作风格：分组折叠 + 每组＋号添加入口 */
 .ws-group-t[data-ws-elemfold]{display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none}
-.ws-group-t[data-ws-elemfold]:hover{color:var(--accent)}
-.ws-group-tip{font-weight:400;color:var(--muted);font-size:11px;margin-left:6px}
-.ws-chip-plus{background:transparent;border-style:dashed;color:var(--accent2);font-weight:700;font-size:15px;line-height:1}
-.ws-chip-plus:hover{border-color:var(--accent2);background:color-mix(in srgb,var(--accent2) 8%, transparent)}
+.ws-group-t[data-ws-elemfold]:hover{color:rgba(255,255,255,.75)}
+.ws-group-tip{font-weight:400;color:rgba(255,255,255,.32);font-size:11px;margin-left:6px}
+.ws-chip-plus{background:transparent;border-style:dashed;color:rgba(255,255,255,.38);font-weight:700;font-size:15px;line-height:1}
+.ws-chip-plus:hover{border-color:rgba(255,255,255,.25);background:rgba(255,255,255,.06)}
 /* v10.17 管理面板折叠区：分组与我的收藏（默认折叠，点击展开） */
 .ws-lib-fold{border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-bottom:10px;background:var(--panel2)}
 .ws-lib-fold-t{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;font-size:12.5px;font-weight:700;color:var(--sub);cursor:pointer;user-select:none}
@@ -930,7 +960,7 @@ textarea[readonly]::selection{ background:color-mix(in srgb, var(--accent2) 45%,
 .rp-style-arrow{color:var(--muted);font-size:12px}
 .rp-style-body{padding:10px 12px;background:var(--panel)}
 .rp-radio-row{display:flex;align-items:flex-start;justify-content:flex-start;gap:6px;font-size:12.5px;padding:3px 0;margin:0;width:100%;box-sizing:border-box;cursor:pointer}
-.rp-radio-row input{width:auto;height:auto;padding:0;accent-color:var(--accent);flex:0 0 auto;margin-top:2px}
+.rp-radio-row input{accent-color:var(--accent);flex:0 0 auto;margin-top:2px}
 .rp-style-sub{margin-top:8px;border-top:1px dashed var(--line);padding-top:8px}
 .rp-style-sub .rp-style-label:first-child{margin-top:0}
 .rp-style-body .ws-group:first-child .ws-group-t{margin-top:0}
@@ -946,9 +976,9 @@ textarea[readonly]::selection{ background:color-mix(in srgb, var(--accent2) 45%,
 /* =========================================================
  * v2.1 交互修订：主卡生效确认 + 弹窗折叠置灰
  * ========================================================= */
-.ws-sum.dirty{color:var(--warn)}
+.ws-sum.dirty{color:#f0b84d}
 .ws-apply.disabled{opacity:.45;pointer-events:none}
-.ws-dirty-hint{font-size:11.5px;color:var(--warn);background:rgba(245,185,66,.1);border:1px dashed rgba(245,185,66,.4);border-radius:8px;padding:6px 9px;margin:6px 0 0}
+.ws-dirty-hint{font-size:11.5px;color:#f0b84d;background:rgba(240,184,77,.08);border:1px dashed rgba(240,184,77,.25);border-radius:8px;padding:6px 9px;margin:6px 0 0}
 /* 重生成弹窗：对比区未解锁时整区置灰（标题仍可点开看说明） */
 .rp-style.disabled .rp-style-body{opacity:.42;pointer-events:none;user-select:none}
 .rp-style.disabled .rp-style-head{opacity:.55}
