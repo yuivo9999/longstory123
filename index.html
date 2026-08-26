@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="theme-color" content="#0f1115">
 <title>影视前期提示词生成器</title>
-<meta name="app-version" content="1.0.22">
-<link rel="stylesheet" href="assets/style.css?v=59">
+<meta name="app-version" content="1.0.27">
+<link rel="stylesheet" href="assets/style.css?v=64">
 <link rel="stylesheet" href="assets/vendor/nouislider/nouislider.min.css">
   <link rel="stylesheet" href="assets/vendor/tom-select/tom-select.css">
 <link rel="stylesheet" href="assets/theme-light.css">
@@ -23,6 +23,7 @@
     <div class="tb-row tb-row-1">
       <div class="tb-left">
         <button id="btnHist" class="icon-btn" title="历史作品">📚<span class="tb-lab">历史</span></button>
+        <button id="btnWsColor" class="icon-btn" title="写作风格三组配色">🎨<span class="tb-lab">颜色</span></button>
       </div>
       <div class="tb-right">
         <button id="btnAiLog" class="icon-btn" title="AI 请求日志">🗒️<span class="tb-lab">日志</span></button>
@@ -91,6 +92,16 @@
       <div class="tp-save-row"><button id="btnTempSave" class="btn small primary" type="button">💾 保存温度</button></div>
       <p class="hint">改后点「保存温度」生效；各 AI 请求按任务类型取对应温度（大纲 0.7 / 优化构想 0.5 / 标题 0.5 / 梗概 0.4 / 章节 0.5 / 质检 0.2）。</p>
     </div>
+  </div>
+
+  <!-- 写作风格配色弹层（点击 🎨 颜色展开；仿 themePanel 复用 spec-panel 样式） -->
+  <div id="wsColorPanel" class="spec-panel hidden">
+    <div class="spec-head">
+      <span>🎨 写作风格配色</span>
+      <span class="spec-note">① 标题 / ② 梗概 / ③ 章节 三组区块着色 · 实时切换</span>
+    </div>
+    <div id="wsColorBody"></div>
+    <p class="hint">「默认」三组无色，仅文字区分。其余 11 套与「我的自定义」按 上·标题 / 中·梗概 / 下·章节 上色；每套右上方 ✕ 可删除、↩ 撤销上一步、↺ 恢复全部（仅内置配色）＋ 新建三色配色。</p>
   </div>
 
   <!-- 步骤指示 -->
@@ -205,6 +216,6 @@
   <script src="assets/vendor/tom-select/tom-select.complete.min.js"></script>
 <script src="assets/vendor/jszip.min.js"></script>
 <script src="assets/idb.js?v=2"></script>
-<script src="assets/app.js?v=82"></script>
+<script src="assets/app.js?v=85"></script>
 </body>
 </html>
