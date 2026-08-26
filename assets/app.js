@@ -613,6 +613,33 @@ function busy(btn, on, label){
   else { btn.disabled = false; btn.innerHTML = btn._txt; }
 }
 
+/* ---------- 全局中止控制器（流式停止按钮用） ---------- */
+let _abortCtl = null;           // 当前 AbortController
+let _abortBtn = null;           // 当前可见的停止按钮 DOM
+// 创建一个停止按钮
+function makeStopBtn(){
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'stop-btn'; b.innerHTML = '⏹ 停止';
+  b.onclick = ()=>{
+    if(_abortCtl){ _abortCtl.abort(); _abortCtl = null; }
+    hideStopBtn();
+  };
+  b.style.display = 'none';
+  return b;
+}
+// 显示停止按钮，挂载到父容器
+function showStopBtn(parent){
+  if(!_abortBtn){ _abortBtn = makeStopBtn(); document.body.appendChild(_abortBtn); }
+  _abortCtl = new AbortController();
+  _abortBtn.style.display = '';
+  parent.appendChild(_abortBtn);
+}
+// 隐藏停止按钮
+function hideStopBtn(){
+  if(_abortBtn){ _abortBtn.style.display = 'none'; }
+  _abortCtl = null;
+}
+
 /* =========================================================
  * 提示词模板（中文，面向国内 + 即梦）
  * ========================================================= */
@@ -3160,6 +3187,18 @@ async function regenAllTitles(btn){
   if(!confirm('将覆盖全部章节标题，确认重生成？')) return;
     const req = ($('#rtInput') && $('#rtInput').value.trim()) || '';
     if(btn) busy(btn,true,'重生成标题中…');
+    // 创建预览区
+    const ctBlock = btn && btn.closest('.ct-block');
+    let preview = null;
+    if(ctBlock){
+      preview = document.createElement('pre');
+      preview.className = 'cp-stream-preview'; preview.textContent = '等待 AI 响应…';
+      ctBlock.appendChild(preview);
+    }
+    // 显示停止按钮
+    const stopParent = btn && btn.parentNode;
+    if(stopParent) showStopBtn(stopParent);
+    let _streamBuf = '';
     try{
       const spec = resolveActiveSpec();
       const st = o.structure || {};
@@ -3172,7 +3211,11 @@ async function regenAllTitles(btn){
       }
       parts.push(`小说标题：${o.title||''}\n一句话梗概：${o.logline||''}\n\n【长篇结构设计】\n${JSON.stringify(st).slice(0,800)}\n\n【设定词典】\n${gloss}\n\n【现有章节标题】\n${(o.chapters||[]).map((c,i)=>`第${i+1}章 ${(c&&c.title)||''}`).join(' / ')}${req?`\n\n【重生成要求】\n${req}`:''}`);
       const user = parts.join('\n\n');
-    const txt = await callDeepSeek(REGEN_TITLES_SYS, user, {temperature: spec.titleTemp});
+    const onStream = delta => {
+      _streamBuf += String(delta||'');
+      if(preview){ preview.textContent = _streamBuf; preview.scrollTop = preview.scrollHeight; }
+    };
+    const txt = await callDeepSeek(REGEN_TITLES_SYS, user, {temperature: spec.titleTemp, onStream: currentIsDeepSeek() ? onStream : null, signal: _abortCtl?.signal});
     const j = parseJson(txt) || {};
     const titles = Array.isArray(j.titles) ? j.titles.map(t=>String(t||'').trim()).filter(Boolean) : [];
     if(!titles.length){ toast('未解析到新标题，请重试'); return; }
@@ -3182,8 +3225,11 @@ async function regenAllTitles(btn){
     // 自动标题质检（qcTemp 0.2）：只提示不自动改（渲染后 .ct-row 已带新标题，标红能正确落在对应行）
     runTitleQC(titles);
     toast(`已重生成 ${cnt} 个章节标题`);
-  }catch(e){ toast('重生成标题失败：'+e.message); }
-  finally{ if(btn) busy(btn,false); }
+  }catch(e){
+    if(e.name==='AbortError'){ toast('已停止重生成标题'); }
+    else { toast('重生成标题失败：'+e.message); }
+  }
+  finally{ hideStopBtn(); if(preview) preview.remove(); if(btn) busy(btn,false); }
 }
 
 // v10.15 标题质检：qcTemp 0.2 调用 TITLE_QC_SYS；问题标题行标红 + toast（失败静默跳过）
@@ -3219,27 +3265,30 @@ function chapterPlanBlock(){
   const items = plans.map((t,i)=>`
     <div class="cp-item">
       <span class="cp-no">${i+1}</span>
-      <span class="cp-title">${esc((o.chapters&&o.chapters[i]&&o.chapters[i].title)||('第'+(i+1)+'章'))}</span>
       <textarea class="cp-input" rows="3" data-cp-set="${i}" data-orig="${esc(t)}" placeholder="本章梗概（可编辑）">${esc(t)}</textarea>
       <span class="cp-wc">${t.length}字</span>
     </div>`).join('');
   return `<div class="card cp-card">
     <div class="cp-head" data-cp-fold role="button" tabindex="0" title="展开/收起">
-      <div class="cp-head-left">
-        <h3>🧭 逐章梗概 <span class="cp-arrow">${collapsed?'▸':'▾'}</span></h3>
+      <div class="cp-head-top">
+        <div class="cp-head-left">
+          <h3>🧭 逐章梗概 <span class="cp-arrow">${collapsed?'▸':'▾'}</span></h3>
+        </div>
+        <span class="cp-head-tools">
+          <label class="cp-style-toggle" title="开启后，生成逐章梗概会以顶部写作风格（语气/质感/元素/浓度）作为首位硬要求约束 AI；关闭则不受风格影响（开关随本书保存）">
+            <input type="checkbox" data-cp-style ${state.planStyleOn?'checked':''}/> 风格约束
+          </label>
+        </span>
       </div>
-      <span class="cp-tools">
-        <label class="cp-style-toggle" title="开启后，生成逐章梗概会以顶部写作风格（语气/质感/元素/浓度）作为首位硬要求约束 AI；关闭则不受风格影响（开关随本书保存）">
-          <input type="checkbox" data-cp-style ${state.planStyleOn?'checked':''}/> 风格约束
-        </label>
+      <div class="cp-head-row action-row">
         ${hasChapterPlansHistory()?`<button type="button" class="btn ghost" data-cp-hist>📚 版本(${chapterPlansHistoryCount()})</button>`:''}
-      </span>
+        <button type="button" class="cp-gen-btn" data-cp-gen>${hasPlans?'🔄 重生成梗概':'📝 生成逐章梗概'}</button>
+      </div>
     </div>
     <div class="cp-body"${collapsed?' hidden':''}>
       ${hasPlans ? `<div class="cp-list">${items}</div>
         <p class="muted" style="margin:6px 0 0">每条可编辑，失焦即存；写正文时注入为【本章梗概】。</p>`
         : `<p class="sub">可选步骤：为每章写一段本章梗概（核心事件/起因经过结果/走向），写正文时据此执笔，统一各章走向。不做也不影响默认流程。</p>`}
-      <button type="button" class="cp-gen-btn" data-cp-gen>${hasPlans?'🔄 重生成梗概':'📝 生成逐章梗概'}</button>
     </div>
   </div>`;
 }
@@ -3249,7 +3298,7 @@ function bindChapterPlanFold(){
   const head = $('[data-cp-fold]');
   if(!head) return;
   head.onclick = (e)=>{
-    if(e.target.closest('.cp-style-toggle') || e.target.closest('[data-cp-hist]')) return;   // 不拦截风格约束/版本按钮
+    if(e.target.closest('.cp-style-toggle') || e.target.closest('[data-cp-hist]') || e.target.closest('[data-cp-gen]')) return;   // 不拦截风格约束/版本/生成按钮
     state.cpCollapsed = !state.cpCollapsed;
     persist();
     const body = $('.cp-body'); if(body) body.hidden = state.cpCollapsed;
@@ -5034,10 +5083,13 @@ async function genOutline(){
   if(!state.idea){ toast('先写几句构想'); busy(btn,false); return; }
   // 长篇：生成大纲前必须已设定书籍章节数（1-200 必填）
   if(isLong() && !chapterCountVal()){ toast('请先填写全书章节数（1-200）'); busy(btn,false); return; }
+  // 显示停止按钮
+  const stopParent = btn.parentNode;
+  showStopBtn(stopParent);
   // 未选结构时的处理：结构标签留空，让 AI 完全按用户提示词自然发挥组织结构，不做随机锁定、不做固定默认
   try{
     const sys = isLong() ? longOutlineSys() : PROMPTS.outlineSys + specSysAddition();
-    const txt = await callDeepSeek(sys, '故事构想：'+state.idea, {temperature: resolveActiveSpec().outlineTemp});   // v10.8 大纲温度
+    const txt = await callDeepSeek(sys, '故事构想：'+state.idea, {temperature: resolveActiveSpec().outlineTemp, signal: _abortCtl?.signal});   // v10.8 大纲温度
     state.raw.outline = txt;
     const o = parseJson(txt);
     // 兼容分层递归范式：返回 volumes，需扁平化为 chapters 并保留卷归属
@@ -5112,8 +5164,9 @@ async function genOutline(){
     persist(); render();
     toast('大纲已生成'+mergeNote);
   }catch(e){
-    st.className='status err'; st.textContent = e.message;
-  }finally{ busy(btn,false); }
+    if(e.name==='AbortError'){ st.className='status'; st.textContent='已停止生成'; }
+    else { st.className='status err'; st.textContent = e.message; }
+  }finally{ hideStopBtn(); busy(btn,false); }
 }
 
 // v10.18 逐章梗概生成：一次请求产出全部章节的本章梗概（chapterPlans，非一句话方向，写清本章发生之事）。
@@ -5122,7 +5175,16 @@ async function genOutline(){
 async function genChapterPlans(btn){
   const o = state.outline;
   if(!isLong() || !o) return;
-  if(btn) busy(btn,true,'生成逐章梗概中…');
+  if(btn){ btn.classList.add('cp-gen-btn-loading'); busy(btn,true,'生成逐章梗概中…'); }
+  // 创建临时预览区
+  const cpBody = btn && btn.closest('.cp-card') && btn.closest('.cp-card').querySelector('.cp-body .cp-list');
+  const preview = document.createElement('pre');
+  preview.className = 'cp-stream-preview'; preview.textContent = '等待 AI 响应…';
+  if(cpBody) cpBody.parentNode.insertBefore(preview, cpBody);
+  // 显示停止按钮
+  const stopParent = btn && btn.closest('.action-row') ? btn.closest('.action-row') : (btn&&btn.parentNode);
+  if(stopParent) showStopBtn(stopParent);
+  let _streamBuf = '';
   try{
     const titles = (o.chapters||[]).map((c,i)=> `第${i+1}章《${c&&c.title||''}》`).filter(Boolean).join(' / ');
     if(!titles){ toast('尚无章节标题'); return; }
@@ -5136,7 +5198,12 @@ async function genChapterPlans(btn){
     parts.push(structurePlanBlockNoTitles(o));   // 长篇结构设计（主线/副线/暗线/汇合，不含章节标题清单，避免与上方「全部章节标题」重复夹带，遵 v2.3）
     parts.push(chapterGlossaryBlock());
     const user = parts.join('\n\n') + '\n\n' + ORIGINALITY_OUTLINE_SYS;   // v10.12 防套路：方向防套路 + 人名规避（复用大纲侧）
-    const txt = await callDeepSeek(CHAPTER_PLAN_SYS, user, {temperature: resolveActiveSpec().planTemp});
+    const onStream = delta => {
+      _streamBuf += String(delta||'');
+      preview.textContent = _streamBuf;
+      preview.scrollTop = preview.scrollHeight;
+    };
+    const txt = await callDeepSeek(CHAPTER_PLAN_SYS, user, {temperature: resolveActiveSpec().planTemp, onStream: currentIsDeepSeek() ? onStream : null, signal: _abortCtl?.signal});
     const j = parseJson(txt) || {};
     const arr = Array.isArray(j.chapterPlans) ? j.chapterPlans.map(x=>String(x||'').trim()) : [];
     if(!arr.length || !arr.some(Boolean)){ toast('未解析到梗概，请重试'); return; }
@@ -5148,8 +5215,11 @@ async function genChapterPlans(btn){
     o.chapterPlans = plans;
     persist(); render();
     toast(`已生成 ${plans.filter(Boolean).length} 条逐章梗概`);
-  }catch(e){ toast('梗概生成失败：'+e.message); }
-  finally{ if(btn) busy(btn,false); }
+  }catch(e){
+    if(e.name==='AbortError'){ toast('已停止生成梗概'); }
+    else { toast('梗概生成失败：'+e.message); }
+  }
+  finally{ hideStopBtn(); if(preview) preview.remove(); if(btn){ btn.classList.remove('cp-gen-btn-loading'); busy(btn,false); } }
 }
 
 /* ---------- P1-1v3 逐章梗概批量版本（整批快照 ≤5 份，应用后生效） ---------- */
@@ -5506,12 +5576,12 @@ function bindStructureEdit(){
 function splitChapterOutput(txt){
   return { content: String(txt||'').trim(), summary: '' };
 }
-async function writeOneChapterContent(i, user, onPhase, onStream, styleOverride){
+async function writeOneChapterContent(i, user, onPhase, onStream, styleOverride, signal){
   const mt = chapterMaxTokens();
   onPhase = onPhase || (()=>{});
   // onPhase 阶段上报；onStream 若提供则开启流式边收边显示（成本0，实时进度），否则一次性返回全文
   onPhase('撰写本章正文…');
-  let txt = await callDeepSeek(longChapterSys(styleOverride), user, {maxTokens: mt, onStream, temperature: resolveActiveSpec().chapterTemp});   // v10.8 章节温度 / v2.0 风格覆盖
+  let txt = await callDeepSeek(longChapterSys(styleOverride), user, {maxTokens: mt, onStream, temperature: resolveActiveSpec().chapterTemp, signal: signal || _abortCtl?.signal});   // v10.8 章节温度 / v2.0 风格覆盖
   // v10.11 全文即正文（无【本章梗概】标记需要拆分），直接过质检
   const sp = splitChapterOutput(txt);
   const { final, record } = await applyChapterQuality(sp.content, user, mt, onPhase);   // P1-4/P2-2：返回 {定稿, 质检记录}
@@ -6002,16 +6072,37 @@ function closeComparePanel(){ const p=$('#cmpPanel'); if(p) p.remove(); }
 async function genOneChapter(i, btn, opt={}){
   chState[i] = 'generating'; state.generating = true; patchChapter(i);
   if(btn) busy(btn,true,'生成中…');
+  // 显示停止按钮：放在「阅读」按钮右侧
+  const stopParent = btn && btn.closest('.btn-row') ? btn.closest('.btn-row') : null;
+  if(stopParent){
+    if(!_abortBtn){ _abortBtn = makeStopBtn(); document.body.appendChild(_abortBtn); }
+    _abortCtl = new AbortController();
+    _abortBtn.style.display = '';
+    const readBtn = stopParent.querySelector(`[data-read="${i}"]`);
+    if(readBtn && readBtn.nextSibling){
+      stopParent.insertBefore(_abortBtn, readBtn.nextSibling);
+    } else {
+      stopParent.appendChild(_abortBtn);
+    }
+  }
   // 进度区：与「一键批量生成」同源。单章也在此实时显示「第几章 + 当前阶段」。
   const st = $('#chStatus');
   const setPhase = msg => { if(st){ st.className='status'; st.textContent = `第 ${i+1}/${state.chapters.length} 章：${msg||''}`; } };
   setPhase('准备中…');
+  let _fullContent = '';
   try{
     const user = buildChapterUser(i, {regenerating:true, advice:opt.advice, styleOverride: opt.styleOverride});   // v2.4 本章覆盖时 user 风格重申同步
-    // 实时进度（成本0）：仅 DeepSeek 才接 onStream 边收边显示字数；其他 AI 不流式、不反馈。
+    // 实时进度：流式内容实时推送到文本区
     const stStream = $('#chStatus');
     let _s = 0;
-    const onStream = currentIsDeepSeek() ? (delta => { if(stStream){ _s += String(delta||'').length; stStream.className='status'; stStream.textContent = `第 ${i+1}/${state.chapters.length} 章：撰写中 · 已生成 ${_s} 字`; } }) : null;
+    const onStream = currentIsDeepSeek() ? (delta => {
+      const d = String(delta||'');
+      _s += d.length; _fullContent += d;
+      if(stStream){ stStream.className='status'; stStream.textContent = `第 ${i+1}/${state.chapters.length} 章：撰写中 · 已生成 ${_s} 字`; }
+      // 实时推送内容到文本区
+      const ta = document.querySelector(`textarea[data-ch="${i}"]`);
+      if(ta){ ta.value = _fullContent; ta.scrollTop = ta.scrollHeight; }
+    }) : null;
     const txt = await writeOneChapterContent(i, user, setPhase, onStream, opt.styleOverride);   // 各阶段经 setPhase 上报，正文流式实时字数经 onStream；v2.0 支持本章风格覆盖
     snapshotChapterVersion(i);            // v7.2：覆盖前存旧版，支持回退
     state.chapters[i].content = txt;
@@ -6021,8 +6112,11 @@ async function genOneChapter(i, btn, opt={}){
     patchChapter(i);
     if(st){ st.className='status ok'; st.textContent = `第 ${i+1} 章已生成。`; }
     toast('第'+(i+1)+'章完成');
-  }catch(e){ chState[i] = 'error'; patchChapter(i); if(st){ st.className='status err'; st.textContent = '第'+(i+1)+'章生成失败：'+e.message; } toast('第'+(i+1)+'章生成失败：'+e.message); }
-  finally{ state.generating = false; if(btn) busy(btn,false); patchChapter(i); autoExtractGlossary(); }
+  }catch(e){
+    if(e.name==='AbortError'){ if(st) st.textContent = '第'+(i+1)+'章已停止生成'; }
+    else { chState[i] = 'error'; patchChapter(i); if(st){ st.className='status err'; st.textContent = '第'+(i+1)+'章生成失败：'+e.message; } toast('第'+(i+1)+'章生成失败：'+e.message); }
+  }
+  finally{ hideStopBtn(); state.generating = false; if(btn) busy(btn,false); patchChapter(i); autoExtractGlossary(); }
 }
 
 // 一次写 2 章（v10）：由「一次请求连写两章再切分」改为逐章顺序生成——每章独立一个请求，
@@ -6032,7 +6126,14 @@ async function genTwoChapters(pairStart){
   for(let k=0;k<2;k++){
     const idx = pairStart + k;
     // 每章完整上下文：词典+内容块（大纲/结构/逐章梗概）+ longChapterContext（卷/阶段/结构）+ 上一章真实正文
-    const txt = await writeOneChapterContent(idx, buildChapterUser(idx));
+    let _s2 = 0; let _full2 = '';
+    const onStream = currentIsDeepSeek() ? (delta => {
+      const d = String(delta||'');
+      _s2 += d.length; _full2 += d;
+      const ta = document.querySelector(`textarea[data-ch="${idx}"]`);
+      if(ta){ ta.value = _full2; ta.scrollTop = ta.scrollHeight; }
+    }) : null;
+    const txt = await writeOneChapterContent(idx, buildChapterUser(idx), null, onStream);
     snapshotChapterVersion(idx);            // v7.2：覆盖前存旧版，支持回退
     state.chapters[idx].content = txt;
   }
@@ -6047,7 +6148,14 @@ async function genNChapters(start, n){
     const idx = start + k;
     // 上一章真实正文已被本循环上一轮写入 state.chapters[start+k-1].content，
     // buildChapterUser 的 prevChapter 自动读它为承接（genTwoChapters 同）。
-    const txt = await writeOneChapterContent(idx, buildChapterUser(idx));
+    let _sN = 0; let _fullN = '';
+    const onStream = currentIsDeepSeek() ? (delta => {
+      const d = String(delta||'');
+      _sN += d.length; _fullN += d;
+      const ta = document.querySelector(`textarea[data-ch="${idx}"]`);
+      if(ta){ ta.value = _fullN; ta.scrollTop = ta.scrollHeight; }
+    }) : null;
+    const txt = await writeOneChapterContent(idx, buildChapterUser(idx), null, onStream);
     snapshotChapterVersion(idx);            // v7.2：覆盖前存旧版，支持回退
     state.chapters[idx].content = txt;
   }
@@ -6060,11 +6168,14 @@ async function genManyChapters(count){
   const btn = $('#btnGenMany'); if(btn) busy(btn,true,'逐章生成中…');
   const st = $('#chStatus'); if(st){ st.className='status'; st.textContent=''; }
   if(!isLong()){ if(btn) busy(btn,false); return; }   // 多章生成仅针对长篇连续章节
+  // 显示停止按钮
+  const stopParent = btn && btn.parentNode;
+  if(stopParent) showStopBtn(stopParent);
   const firstEmpty = state.chapters.findIndex(c=> !(c.content && String(c.content).trim()));
-  if(firstEmpty < 0){ if(st){st.className='status ok'; st.textContent='所有章节均已生成。';} busy(btn,false); return; }
+  if(firstEmpty < 0){ if(st){st.className='status ok'; st.textContent='所有章节均已生成。';} busy(btn,false); hideStopBtn(); return; }
   const start = firstEmpty;
   const n = Math.max(1, Math.min(count, state.chapters.length - start));
-  if(n <= 0){ if(st){st.className='status ok'; st.textContent='全部章节已生成。';} busy(btn,false); return; }
+  if(n <= 0){ if(st){st.className='status ok'; st.textContent='全部章节已生成。';} busy(btn,false); hideStopBtn(); return; }
   state.generating = true;
   for(let k=0;k<n;k++){ chState[start+k] = 'generating'; patchChapter(start+k); }
   if(st) st.textContent = `正在生成第 ${start+1}~${start+n} 章（共 ${n} 章）…`;
@@ -6082,7 +6193,7 @@ async function genManyChapters(count){
     if(st){ st.className='status err'; st.textContent = `第${start+1}~${start+n}章生成失败（${e.message}）。已停止本批，请修复后重试。`; }
     toast(`第${start+1}~${start+n}章生成失败：${e.message}`);
   }finally{
-    state.generating = false;
+    state.generating = false; hideStopBtn();
     if(btn) busy(btn,false);
     autoExtractGlossary();   // v8c 词典自动补全：本批成功后提取新实体入库（失败静默）
   }
@@ -6092,6 +6203,9 @@ async function genManyChapters(count){
 async function genAllChapters(){
   const btn = $('#btnGenAllChapters'); busy(btn,true,'逐章生成中…');
   const st = $('#chStatus'); if(st){ st.className='status'; st.textContent=''; }
+  // 显示停止按钮
+  const stopParent = btn && btn.parentNode;
+  if(stopParent) showStopBtn(stopParent);
   let batchFailed = false;                             // 建议2：批次是否因任一章失败而中止
   const batchSize = isLong() ? 2 : state.chapters.length;   // 决策6：每批固定 2 章
   let start = 0;
@@ -6100,7 +6214,7 @@ async function genAllChapters(){
     start = firstEmpty >= 0 ? firstEmpty : 0;
   }
   const genCount = Math.min(batchSize, state.chapters.length - start);
-  if(genCount <= 0){ if(st){st.className='status ok'; st.textContent='全部章节已生成。';} busy(btn,false); return; }
+  if(genCount <= 0){ if(st){st.className='status ok'; st.textContent='全部章节已生成。';} busy(btn,false); hideStopBtn(); return; }
   for(let k=0;k<genCount;k++){
     const i = start + k;
     if(!isLong() && state.chapters[i].content && state.chapters[i].confirmed) continue;
@@ -6119,7 +6233,7 @@ async function genAllChapters(){
         state.chapters[i].content = txt;
         chState[i]='done';
       } else {
-        const txt = await callDeepSeek(PROMPTS.chapterSys + specSysAddition() + '\n\n' + ORIGINALITY_CHAPTER_SYS + chapterStyleNote(), buildChapterUser(i), {temperature: resolveActiveSpec().chapterTemp});   // v10.8 章节温度 / v10.12 防套路 / v2.0 写作风格
+        const txt = await callDeepSeek(PROMPTS.chapterSys + specSysAddition() + '\n\n' + ORIGINALITY_CHAPTER_SYS + chapterStyleNote(), buildChapterUser(i), {temperature: resolveActiveSpec().chapterTemp, signal: _abortCtl?.signal});   // v10.8 章节温度 / v10.12 防套路 / v2.0 写作风格
         snapshotChapterVersion(i);            // v7.2：覆盖前存旧版，支持回退
         state.chapters[i].content = txt; state.chapters[i].confirmed=false;
         chState[i]='done';
@@ -6129,6 +6243,7 @@ async function genAllChapters(){
       const targetPage = Math.floor(i / CH_PAGE_SIZE);
       if(isLong() && Math.abs(chPage - targetPage) >= 1){ chPage = targetPage; renderChapters(); }
     }catch(e){
+      if(e.name==='AbortError'){ chState[i]='error'; patchChapter(i); if(st) st.textContent = '已停止生成'; batchFailed = true; break; }
       chState[i]='error'; patchChapter(i);
       if(st){ st.className='status err'; st.textContent += ` 第${i+1}章失败(${e.message})。`; }
       // 建议2：长篇批量必须两章都对，任一对出错即停批，不继续生成后续章节
@@ -6137,10 +6252,10 @@ async function genAllChapters(){
       state.chapters[i].content = state.chapters[i].content || '';
     } finally { state.generating = false; }
   }
-  if(st && !batchFailed){ st.className='status ok'; st.textContent = isLong()
+  if(st && !batchFailed && !_abortCtl){ st.className='status ok'; st.textContent = isLong()
     ? `本批共 ${genCount} 章已处理。继续点「生成下一批 2 章」直到写完全部。`
     : '全部章节已生成，请审阅并标记确认。'; }
-  busy(btn,false);
+  hideStopBtn(); busy(btn,false);
   if(!isLong()) render();            // 短片模式可整页刷新（无折叠/分页负担）
   else { renderChapters(); }         // 长篇仅重绘章节区，保留顶部/大纲不动
   autoExtractGlossary();             // v8c 词典自动补全：本批成功后提取新实体入库（失败静默）

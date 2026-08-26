@@ -620,49 +620,60 @@ body.reader-lock{overflow:hidden}
 /* =============================================
    v10.19 逐章梗概卡片 - 独立暗红设计（通用于所有主题）
    ============================================= */
-.cp-card{margin-top:10px;border:none;border-radius:18px;overflow:hidden;background:#1a0a0a;box-shadow:0 4px 24px rgba(80,10,10,0.3);padding:0}
-/* 头部：深红渐变 */
-.cp-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;cursor:pointer;background:linear-gradient(135deg,#8b1a1a 0%,#5c1010 100%);padding:10px 14px;border-radius:18px 18px 0 0;user-select:none}
+.cp-card{margin-top:10px;border:none;border-radius:18px;overflow:hidden;background:#000;box-shadow:0 4px 24px rgba(0,0,0,0.4);padding:0}
+/* 头部：深红渐变，两行纵向布局 */
+.cp-head{display:flex;flex-direction:column;gap:6px;cursor:pointer;background:linear-gradient(135deg,#8b1a1a 0%,#5c1010 100%);padding:10px 14px;border-radius:18px 18px 0 0;user-select:none}
 .cp-head:hover{background:linear-gradient(135deg,#9e2020 0%,#6a1414 100%)}
-/* 头部标题区 */
+/* 第一行：标题 + 风格约束 */
+.cp-head-top{display:flex;align-items:center;justify-content:space-between;width:100%}
 .cp-head-left{display:flex;align-items:center;gap:6px;min-width:0}
 .cp-head-left h3{margin:0;font-size:14px;font-weight:700;color:#fff;letter-spacing:.4px;white-space:nowrap}
 .cp-arrow{display:inline-block;font-size:10px;color:rgba(255,255,255,.55);margin-left:1px;transition:transform .2s}
 .cp-head-sub{font-size:10.5px;font-weight:400;color:rgba(255,255,255,.5);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-/* 头部工具区 */
-.cp-tools{display:flex;gap:5px;flex-wrap:wrap;align-items:center}
-/* 风格约束 - 在深红头部内的变体 */
+/* 头部右侧工具区 */
+.cp-head-tools{display:flex;align-items:center;flex-shrink:0}
+/* 行容器 */
+.cp-head-row{display:flex;align-items:center}
+/* 动作行：历史记录 左 + 重生成 中 */
+.cp-head-row.action-row{display:flex;align-items:center;gap:10px;justify-content:center}
+.cp-head-row.action-row .btn{flex:0 0 auto;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.15);color:rgba(255,255,255,.8);border-radius:8px;font-size:12px;padding:3px 8px;line-height:1.4;cursor:pointer;transition:all .2s;margin-right:auto}
+.cp-head-row.action-row .btn:hover{background:rgba(255,255,255,.2);color:#fff}
+/* 风格约束 - 在头部内的变体 */
 .cp-head .cp-style-toggle{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.15);color:rgba(255,255,255,.85)}
 .cp-head .cp-style-toggle:hover{background:rgba(255,255,255,.18)}
 .cp-head .cp-style-toggle input{accent-color:#ff6b6b}
-/* 风格约束 - 基础类（通用于章节标题卡等） */
+/* 风格约束 - 通用 */
 .cp-style-toggle{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;color:var(--txt);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:3px 8px;cursor:pointer;user-select:none;white-space:nowrap}
 .cp-style-toggle input{accent-color:var(--accent);margin:0}
-/* 头部按钮 */
-.cp-tools .btn{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.15);color:rgba(255,255,255,.8);border-radius:8px;font-size:11.5px;padding:3px 8px;cursor:pointer;transition:all .2s}
-.cp-tools .btn:hover{background:rgba(255,255,255,.2);color:#fff}
 /* 卡片体 */
-.cp-body{padding:12px 14px 14px;background:#1a0a0a;border-radius:0 0 18px 18px}
+.cp-body{padding:12px 14px 14px;background:#000;border-radius:0 0 18px 18px}
 .cp-body .sub{color:rgba(255,255,255,.5);font-size:13px;line-height:1.6;margin:0}
 /* 章节列表 */
 .cp-list{display:flex;flex-direction:column;gap:8px}
-/* 每行 */
-.cp-item{display:flex;align-items:flex-start;gap:8px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:8px 10px}
+/* 每行 — 黑底白字（无标题，梗概区域更宽） */
+.cp-item{display:flex;align-items:flex-start;gap:6px;background:#0d0d0d;border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:8px 10px}
 /* 序号圆 */
-.cp-no{flex:0 0 auto;width:20px;height:20px;border-radius:50%;background:linear-gradient(135deg,#8b1a1a,#5c1010);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:3px;flex-shrink:0}
-/* 章节标题 */
-.cp-title{flex:0 0 auto;max-width:34%;font-size:12px;color:rgba(255,255,255,.55);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:2.4;flex-shrink:0}
-/* 输入框 */
-.cp-input{flex:1 1 auto;min-height:34px;padding:5px 8px;font-size:12px;resize:vertical;line-height:1.6;font-family:inherit;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:8px;color:rgba(255,255,255,.82);transition:border-color .2s}
-.cp-input:focus{outline:none;border-color:#ff6b6b;box-shadow:0 0 0 2px rgba(255,107,107,.15)}
+.cp-no{flex:0 0 auto;width:20px;height:20px;border-radius:50%;background:#1a1a1a;color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:3px;flex-shrink:0;border:1px solid rgba(255,255,255,.15)}
+/* 输入框 — 黑底白字 */
+.cp-input{flex:1 1 auto;min-height:34px;padding:5px 8px;font-size:12px;resize:vertical;line-height:1.6;font-family:inherit;background:#0d0d0d;border:1px solid rgba(255,255,255,.15);border-radius:8px;color:#fff;transition:border-color .2s}
+.cp-input:focus{outline:none;border-color:rgba(255,255,255,.4);box-shadow:0 0 0 2px rgba(255,255,255,.08)}
 /* 字数统计 */
-.cp-wc{font-size:10px;color:rgba(255,255,255,.3);flex:0 0 auto;white-space:nowrap;align-self:flex-end;padding:0 0 3px 2px;line-height:1;font-variant-numeric:tabular-nums}
+.cp-wc{font-size:10px;color:rgba(255,255,255,.35);flex:0 0 auto;white-space:nowrap;align-self:flex-end;padding:0 0 3px 2px;line-height:1;font-variant-numeric:tabular-nums}
 /* 底部提示 */
 .cp-body .muted{color:rgba(255,255,255,.38);font-size:11px;margin:6px 0 0}
 /* 生成按钮 - 仿图片设计：全宽渐变 + 灯泡 */
-.cp-gen-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;margin-top:12px;padding:13px 20px;background:linear-gradient(135deg,#a02525 0%,#6a1414 100%);border:1px solid rgba(255,255,255,.1);border-radius:14px;color:#fff;font-size:15px;font-weight:600;cursor:pointer;transition:all .25s;box-shadow:0 4px 16px rgba(100,20,20,.35);letter-spacing:.3px;font-family:inherit}
-.cp-gen-btn:hover{background:linear-gradient(135deg,#b52e2e 0%,#7a1818 100%);box-shadow:0 6px 24px rgba(100,20,20,.5);transform:translateY(-1px)}
-.cp-gen-btn:active{transform:translateY(0);box-shadow:0 2px 8px rgba(100,20,20,.3)}
+/* 生成梗概按钮：蓝色渐变，与风格约束同高，宽为风格约束 2 倍 */
+.cp-gen-btn{display:inline-flex;align-items:center;justify-content:center;gap:4px;padding:3px 12px;min-width:160px;background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);border:none;border-radius:8px;color:#fff;font-size:12px;font-weight:600;cursor:pointer;transition:all .2s;box-shadow:0 2px 8px rgba(59,130,246,.3);letter-spacing:.2px;font-family:inherit;white-space:nowrap;line-height:1.4}
+.cp-gen-btn:hover{background:linear-gradient(135deg,#60a5fa 0%,#2563eb 100%);box-shadow:0 4px 14px rgba(59,130,246,.5);transform:translateY(-1px)}
+.cp-gen-btn:active{transform:translateY(0);box-shadow:0 1px 4px rgba(59,130,246,.3)}
+/* 生成中：金黄色渐变 */
+.cp-gen-btn-loading,.cp-gen-btn-loading:hover{background:linear-gradient(135deg,#f59e0b 0%,#d97706 100%);box-shadow:0 2px 10px rgba(245,158,11,.4);transform:none}
+/* 停止按钮：红色，与同栏按钮同高 */
+.stop-btn{display:inline-flex;align-items:center;justify-content:center;gap:4px;padding:3px 10px;background:linear-gradient(135deg,#ef4444 0%,#dc2626 100%);border:none;border-radius:8px;color:#fff;font-size:12px;font-weight:600;cursor:pointer;transition:all .2s;box-shadow:0 2px 8px rgba(239,68,68,.3);letter-spacing:.2px;font-family:inherit;white-space:nowrap;line-height:1.4}
+.stop-btn:hover{background:linear-gradient(135deg,#f87171 0%,#ef4444 100%);box-shadow:0 4px 14px rgba(239,68,68,.5);transform:translateY(-1px)}
+.stop-btn:active{transform:translateY(0);box-shadow:0 1px 4px rgba(239,68,68,.3)}
+/* 梗概流式预览 */
+.cp-stream-preview{background:#0d0d0d;color:#e0e0e0;font-size:12px;line-height:1.6;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,.1);margin:0 0 8px;max-height:400px;overflow:auto;white-space:pre-wrap;word-break:break-word}
 
 /* v10.14 章节标题管理块 */
 .ct-block{margin:10px 0 2px;border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:color-mix(in srgb, var(--accent2) 6%, var(--panel2))}
