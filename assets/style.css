@@ -636,7 +636,9 @@ body.reader-lock{overflow:hidden}
 .ct-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px}
 .ct-head b{font-size:13px}
 .ct-tools{display:flex;gap:6px;flex-wrap:wrap}
-.rt-style-row{display:flex;align-items:center;gap:4px;font-size:12px;font-weight:600;color:var(--txt);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:5px 8px;margin-bottom:6px;width:fit-content;user-select:none;cursor:pointer}
+.rt-style-row{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--txt);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:4px 8px;margin-bottom:6px;width:fit-content;user-select:none}
+.rt-style-row label{display:flex;align-items:center;gap:4px;cursor:pointer}
+.rt-style-row .btn{margin-left:6px}
 .rt-style-row input{accent-color:var(--accent);margin:0}
 .rt-input{width:100%;min-height:64px;padding:8px 10px;font-size:13px;line-height:1.6;box-sizing:border-box;margin-bottom:6px;border-radius:8px;border:1px solid var(--line);background:var(--panel2)}
 .ct-issue .ct-title{color:#e5534b}
@@ -838,11 +840,15 @@ textarea[readonly]::selection{ background:color-mix(in srgb, var(--accent2) 45%,
 [data-cs] .ws-group[data-g="tone"]{border-left-color:var(--c-tone);background:var(--c-tone)}
 [data-cs] .ws-group[data-g="texture"]{border-left-color:var(--c-texture);background:var(--c-texture)}
 [data-cs] .ws-group[data-g="element"]{border-left-color:var(--c-element);background:var(--c-element)}
-/* 组标题：置于深色小标签上，保证在整块纯色背景上始终可读 */
-[data-cs] .ws-group-t{display:inline-block;background:var(--panel);color:var(--c-tone);padding:2px 9px;border-radius:8px;box-shadow:0 1px 2px rgba(0,0,0,.28)}
-[data-cs] .ws-group[data-g="tone"] .ws-group-t{color:var(--c-tone)}
-[data-cs] .ws-group[data-g="texture"] .ws-group-t{color:var(--c-texture)}
-[data-cs] .ws-group[data-g="element"] .ws-group-t{color:var(--c-element)}
+/* 三组标题文字：白色（置于深色小标签上，深浅主题皆可读） */
+[data-cs] .ws-group-t{display:inline-block;background:#191b20;color:#fff;padding:2px 9px;border-radius:8px;box-shadow:0 1px 2px rgba(0,0,0,.28)}
+[data-cs] .ws-group[data-g="tone"] .ws-group-t{color:#fff}
+[data-cs] .ws-group[data-g="texture"] .ws-group-t{color:#fff}
+[data-cs] .ws-group[data-g="element"] .ws-group-t{color:#fff}
+/* 章节风格：子分组标题文字蓝色 */
+[data-cs] .ws-group[data-g="element"] .ws-subcat-t{color:#1c6fd8}
+/* 章节风格：每个子分组的选择区背景纯白 */
+[data-cs] .ws-group[data-g="element"] .ws-subcat{background:#fff;border-color:#e4e4e4}
 /* 候选 chip：黑底白字，与任意三色区块区分开 */
 [data-cs] .ws-group[data-g] .ws-chip:not(.on){background:#101014;border-color:#000;color:#fff}
 /* 选中 chip：白底黑字 + 黑色外圈标示 */
@@ -924,7 +930,7 @@ textarea[readonly]::selection{ background:color-mix(in srgb, var(--accent2) 45%,
 .rp-style-arrow{color:var(--muted);font-size:12px}
 .rp-style-body{padding:10px 12px;background:var(--panel)}
 .rp-radio-row{display:flex;align-items:flex-start;justify-content:flex-start;gap:6px;font-size:12.5px;padding:3px 0;margin:0;width:100%;box-sizing:border-box;cursor:pointer}
-.rp-radio-row input{accent-color:var(--accent);flex:0 0 auto;margin-top:2px}
+.rp-radio-row input{width:auto;height:auto;padding:0;accent-color:var(--accent);flex:0 0 auto;margin-top:2px}
 .rp-style-sub{margin-top:8px;border-top:1px dashed var(--line);padding-top:8px}
 .rp-style-sub .rp-style-label:first-child{margin-top:0}
 .rp-style-body .ws-group:first-child .ws-group-t{margin-top:0}

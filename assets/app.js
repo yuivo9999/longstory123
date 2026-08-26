@@ -2931,15 +2931,17 @@ function chapterTitleBlock(){
     <div class="ct-head">
       <b>📚 章节标题</b>
       <span class="ct-tools">
-        ${hasChTitleHistory()?`<button type="button" class="btn small ghost" data-ct-hist>🕘 曾用标题(${chTitleHistory().length})</button>`:''}
-        ${chTitleBatches().length?`<button type="button" class="btn small ghost" data-ct-batch title="查看并可整批回退「重生成全部标题」的历史版本">🔁 标题版本(${chTitleBatches().length}/5)</button>`:''}
+        <button type="button" class="btn small ghost" data-ct-hist>🕘 曾用标题(${chTitleHistory().length})</button>
+        <button type="button" class="btn small ghost" data-ct-batch title="查看并可整批回退「重生成全部标题」的历史版本">🔁 标题版本(${chTitleBatches().length}/5)</button>
         <button type="button" class="btn small ghost" data-ct-copy>📋 复制全部章节标题</button>
-        <button type="button" class="btn small ghost" data-rt-gen>🔄 重生成全部标题</button>
       </span>
     </div>
-    <label class="rt-style-row" title="开启后，重生成全部标题会按顶部写作风格（语气/质感/元素/浓度）作为首位硬要求约束 AI；关闭则不受风格影响（开关随本书保存）">
-      <input type="checkbox" data-rt-style ${state.titleStyleOn?'checked':''}/> 标题风格约束
-    </label>
+    <div class="rt-style-row">
+      <label title="开启后，重生成全部标题会按顶部写作风格（语气/质感/元素/浓度）作为首位硬要求约束 AI；关闭则不受风格影响（开关随本书保存）">
+        <input type="checkbox" data-rt-style ${state.titleStyleOn?'checked':''}/> 标题风格约束
+      </label>
+      <button type="button" class="btn small ghost" data-rt-gen>🔄 重生成全部标题</button>
+    </div>
     <input type="text" class="rt-input" id="rtInput" placeholder="重生成要求（选填）：如『标题更有悬念感』『避免剧透式标题』『每章标题用双字词』" />
     <div class="ct-list">${rows}</div>
   </div>`;
@@ -3232,7 +3234,7 @@ function chapterPlanBlock(){
         <label class="cp-style-toggle" title="开启后，生成逐章梗概会以顶部写作风格（语气/质感/元素/浓度）作为首位硬要求约束 AI；关闭则不受风格影响（开关随本书保存）">
           <input type="checkbox" data-cp-style ${state.planStyleOn?'checked':''}/> 风格约束
         </label>
-        ${hasChapterPlansHistory()?`<button type="button" class="btn ghost gs-tool" data-cp-hist>📚 版本(${chapterPlansHistoryCount()})</button>`:''}
+        <button type="button" class="btn ghost gs-tool" data-cp-hist>📚 版本(${chapterPlansHistoryCount()})</button>
         <button type="button" class="btn ghost gs-tool" data-cp-gen>${hasPlans?'🔄 重生成梗概':'📝 生成逐章梗概'}</button>
       </span>
     </div>
@@ -5332,12 +5334,21 @@ function recipePicker(){
       <div class="poly-grid recipe-fold-b" ${open?'':'hidden'}>${cardsHtml}</div>
     </div>`;
   };
-  // 章节数必填后，范式区才展开
+  // 章节数必填后，范式区解锁；整体默认折叠（可在“写作范式”总标题展开）
+  const mainFold = (state.recipeSet && state.recipeSet.recFold) || {};
+  const mainOpen = !!mainFold['main'];
   const core = ccOn ? `
-    ${fold('🏗️','结构骨架','单选 · 可选其一', 'structure', STRUCTURES.map(it=>card(it,'structure', it.id===rs.structure)).join(''))}
-    ${qualityToggleHtml()}
-    ${fold('📇','可复用词典','跨作品词典作一致性底稿', 'glossary', pendingGlossaryPanel())}
-    <p class="muted" style="margin:8px 0 0">结构、质量均可选可不选；全部不选时 AI 将按构想自由发挥。章节数已在「全书章节数」填定。结构骨架/可复用词典默认折叠，点标题展开。</p>`
+    <div class="poly-dim recipe-fold">
+      <div class="poly-head recipe-fold-t" data-rec-fold="main" role="button" tabindex="0" aria-expanded="${mainOpen}">
+        <span class="poly-ic">🗂️</span><b>写作范式</b><span class="poly-rule">结构 · 质量 · 词典（默认折叠，点击展开）</span><span class="rec-fold-ico">${mainOpen?'▾':'▸'}</span>
+      </div>
+      <div class="poly-grid recipe-fold-b" ${mainOpen?'':'hidden'}>
+        ${fold('🏗️','结构骨架','单选 · 可选其一', 'structure', STRUCTURES.map(it=>card(it,'structure', it.id===rs.structure)).join(''))}
+        ${qualityToggleHtml()}
+        ${fold('📇','可复用词典','跨作品词典作一致性底稿', 'glossary', pendingGlossaryPanel())}
+        <p class="muted" style="margin:8px 0 0">结构、质量均可选可不选；全部不选时 AI 将按构想自由发挥。章节数已在「全书章节数」填定。结构骨架/可复用词典默认折叠，点标题展开。</p>
+      </div>
+    </div>`
     : `<div class="tw-lock"><span class="tw-lock-ic">🔒</span><span>待填写全书章节数后，此处才展开“写作范式”设定。</span></div>`;
   return `<div class="card recipe-card poly-card">
     <div class="tw-panel">
