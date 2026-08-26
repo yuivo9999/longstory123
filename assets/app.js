@@ -2591,8 +2591,9 @@ function openStyleNewDialog(group){
     toast('已新建并加入「'+name+'」');
   };
   const inp = $('#wsnName'); if(inp) inp.focus();
+  window.scrollTo(0,0); // 弹窗时背后页面顶到顶部
 }
-function closeStyleNewDialog(){ const p=$('#wsNewPanel'); if(p) p.remove(); }
+function closeStyleNewDialog(){ const p=$('#wsNewPanel'); if(p) p.remove(); window.scrollTo(0,0); }
 // v2.1 预设 → 填入草稿（不直接生效）
 function applyWritePresetDraft(v){
   const d = wsDraftInit();

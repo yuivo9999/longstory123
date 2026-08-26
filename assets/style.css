@@ -835,18 +835,19 @@ textarea[readonly]::selection{ background:color-mix(in srgb, var(--accent2) 45%,
 [data-cs="s9"]{--c-tone:#8fedc2;--c-texture:#fdd741;--c-element:#24b4a5}
 [data-cs="s10"]{--c-tone:#f4d474;--c-texture:#ef5a56;--c-element:#f9e9da}
 [data-cs="s11"]{--c-tone:#67d47e;--c-texture:#efeb86;--c-element:#f5b11e}
-[data-cs] .ws-group[data-g="tone"]{border-left-color:var(--c-tone);background:color-mix(in srgb, var(--c-tone) 12%, var(--panel2))}
-[data-cs] .ws-group[data-g="texture"]{border-left-color:var(--c-texture);background:color-mix(in srgb, var(--c-texture) 12%, var(--panel2))}
-[data-cs] .ws-group[data-g="element"]{border-left-color:var(--c-element);background:color-mix(in srgb, var(--c-element) 12%, var(--panel2))}
+[data-cs] .ws-group[data-g="tone"]{border-left-color:var(--c-tone);background:var(--c-tone)}
+[data-cs] .ws-group[data-g="texture"]{border-left-color:var(--c-texture);background:var(--c-texture)}
+[data-cs] .ws-group[data-g="element"]{border-left-color:var(--c-element);background:var(--c-element)}
+/* 组标题：置于深色小标签上，保证在整块纯色背景上始终可读 */
+[data-cs] .ws-group-t{display:inline-block;background:var(--panel);color:var(--c-tone);padding:2px 9px;border-radius:8px;box-shadow:0 1px 2px rgba(0,0,0,.28)}
 [data-cs] .ws-group[data-g="tone"] .ws-group-t{color:var(--c-tone)}
 [data-cs] .ws-group[data-g="texture"] .ws-group-t{color:var(--c-texture)}
 [data-cs] .ws-group[data-g="element"] .ws-group-t{color:var(--c-element)}
-[data-cs] .ws-group[data-g="tone"] .ws-chip:hover{border-color:var(--c-tone)}
-[data-cs] .ws-group[data-g="tone"] .ws-chip.on{background:var(--c-tone);border-color:var(--c-tone)}
-[data-cs] .ws-group[data-g="texture"] .ws-chip:hover{border-color:var(--c-texture)}
-[data-cs] .ws-group[data-g="texture"] .ws-chip.on{background:var(--c-texture);border-color:var(--c-texture)}
-[data-cs] .ws-group[data-g="element"] .ws-chip:hover{border-color:var(--c-element)}
-[data-cs] .ws-group[data-g="element"] .ws-chip.on{background:var(--c-element);border-color:var(--c-element)}
+/* 候选 chip：黑底白字，与任意三色区块区分开 */
+[data-cs] .ws-group[data-g] .ws-chip:not(.on){background:#101014;border-color:#000;color:#fff}
+/* 选中 chip：白底黑字 + 黑色外圈标示 */
+[data-cs] .ws-group[data-g] .ws-chip.on{background:#fff;border-color:#fff;color:#000;font-weight:600;box-shadow:0 0 0 3px #000,0 0 0 6px rgba(0,0,0,.25)}
+[data-cs] .ws-group[data-g] .ws-chip:hover{border-color:#5ac8fa}
 /* 配色选择面板（v10.20：工具栏/可删除卡片/新建三色表单） */
 .ws-cs-body{display:flex;flex-direction:column;gap:8px}
 .ws-cs-toolbar{display:flex;align-items:center;gap:8px}
