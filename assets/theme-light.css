@@ -42,8 +42,6 @@
 [data-theme="light"] .gs-overlay{background:rgba(15,17,21,0.4)}
 [data-theme="light"] .reader{background:rgba(245,246,248,0.96)}
 [data-theme="light"] .reader-panel{background:#fff;color:var(--txt)}
-/* 写作风格卡片保持独立暗色设计，不被浅色主题覆盖 */
-[data-theme="light"] .ws-card{background:#131418}
 /* 顶部胶囊导航（机甲主题外通用） */
 [data-theme="light"] .chip{background:var(--panel2);color:var(--sub)}
 [data-theme="light"] .chip.active{background:var(--accent);color:#fff}
