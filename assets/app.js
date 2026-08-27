@@ -5258,7 +5258,8 @@ async function genChapterPlans(btn){
       _streamBuf += String(delta||'');
       if(preview){ preview.textContent = _streamBuf; preview.scrollTop = preview.scrollHeight; }
     };
-    const txt = await callDeepSeek(CHAPTER_PLAN_SYS, user, {temperature: resolveActiveSpec().planTemp, onStream: isStream ? onStream : null, signal: _abortCtl?.signal});
+    const txt = await callDeepSeek(CHAPTER_PLAN_SYS, user, {temperature: resolveActiveSpec().planTemp, onStream: isStream ? onStream : null, signal: _abortCtl?.signal,
+  maxTokens: 15000});
     // ★ 保存原始 AI 响应，供手动提取（"原始数据"按钮用）
     state._lastCpRaw = txt; persist();
     const j = parseJson(txt) || {};
