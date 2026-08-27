@@ -5335,7 +5335,7 @@ function pushChapterPlansSnapshot(){
   const snap = o.chapterPlans.slice();
   if(o.chapterPlansHistory.length && JSON.stringify(o.chapterPlansHistory[0].plans) === JSON.stringify(snap)) return;
   o.chapterPlansHistory.unshift({ plans: snap, ts: Date.now() });
-  if(o.chapterPlansHistory.length > 5) o.chapterPlansHistory.length = 5;
+  if(o.chapterPlansHistory.length > 20) o.chapterPlansHistory.length = 20;
 }
 // 整批应用某版：先把当前态归档（保留再回退机会），再覆盖全部逐章梗概
 function applyChapterPlansVersion(idx){
