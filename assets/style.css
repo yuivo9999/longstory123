@@ -647,7 +647,7 @@ body.reader-lock{overflow:hidden}
 #cpRawPanel .cpraw-pre{background:#111;border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:12px;font-size:12px;line-height:1.5;max-height:420px;overflow:auto;white-space:pre-wrap;word-break:break-all;color:#ccc}
 #cpRawPanel .cpraw-actions{display:flex;gap:8px;margin:8px 0}
   /* 生成梗概按钮在动作行中绝对居中 */
-.cp-head-row.action-row .cp-gen-btn{position:absolute;left:50%;transform:translateX(-50%);z-index:1}
+.cp-head-row.action-row .cp-gen-btn{position:absolute;right:56px;z-index:1}
 /* 停止按钮在动作行中靠右 */
 .cp-head-row.action-row .stop-btn{position:absolute;right:0;top:50%;transform:translateY(-50%);z-index:2}
 /* 风格约束 - 在头部内的变体 */
@@ -675,7 +675,7 @@ body.reader-lock{overflow:hidden}
 .cp-body .muted{color:rgba(255,255,255,.38);font-size:11px;margin:6px 0 0}
 /* 生成按钮 - 仿图片设计：全宽渐变 + 灯泡 */
 /* 生成梗概按钮：蓝色渐变，与风格约束同高，宽为风格约束 2 倍 */
-.cp-gen-btn{display:inline-flex;align-items:center;justify-content:center;gap:4px;padding:3px 12px;min-width:160px;background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);border:none;border-radius:8px;color:#fff;font-size:12px;font-weight:600;cursor:pointer;transition:all .2s;box-shadow:0 2px 8px rgba(59,130,246,.3);letter-spacing:.2px;font-family:inherit;white-space:nowrap;line-height:1.4}
+.cp-gen-btn{display:inline-flex;align-items:center;justify-content:center;gap:4px;padding:3px 12px;min-width:80px;background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);border:none;border-radius:8px;color:#fff;font-size:12px;font-weight:600;cursor:pointer;transition:all .2s;box-shadow:0 2px 8px rgba(59,130,246,.3);letter-spacing:.2px;font-family:inherit;white-space:nowrap;line-height:1.4}
 .cp-gen-btn:hover{background:linear-gradient(135deg,#60a5fa 0%,#2563eb 100%);box-shadow:0 4px 14px rgba(59,130,246,.5);transform:translateY(-1px)}
 .cp-gen-btn:active{transform:translateY(0);box-shadow:0 1px 4px rgba(59,130,246,.3)}
 /* 生成中：金黄色渐变 */
