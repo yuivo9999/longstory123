@@ -7,7 +7,7 @@
 'use strict';
 
 /* ---------- 全局状态 ---------- */
-const APP_VERSION = '1.0.35';   // 应用版本号（fixed11 基线 + 新增：① 逐章梗概受风格影响(默认开/随书/首位要求)；② 重生成全部标题受风格影响，独立开关 titleStyleOn 默认开、独占卡片第二行、rt-input 高度翻倍）：index.html 的 ?v= 资源戳与之同步递增，用于标识产物已更新
+const APP_VERSION = '1.0.33';   // 应用版本号（P1-1v4 新增：标题/单章原始AI响应手动提取按钮）：index.html 的 ?v= 资源戳与之同步递增，用于标识产物已更新
 const KEY_CFG = 'fyp_cfg';
 const KEY_STATE = 'fyp_state';   // 旧版单项目 key（仅用于首次迁移）
 const KEY_LIB = 'fyp_lib';       // 新版多项目历史库
@@ -36,7 +36,6 @@ const state = {
   gsCollapsed: true,    // v8b：万物词典卡片是否整卡收缩（默认收缩，点圆形展开全部）
   stCollapsed: false,   // v10.3：长篇结构设计栏是否收缩（默认展开，点击标题收起）
   cpCollapsed: true,    // v10.14：逐章方向梗概卡是否收缩（默认折叠，点击标题展开）
-  ctCollapsed: true,    // v10.20：章节标题卡片是否收缩（默认折叠，点击标题展开）
   planStyleOn: true,    // 逐章梗概是否受顶部写作风格影响（默认开；作为生成时的首位硬要求；随每本书）
   titleStyleOn: true,   // 重生成全部标题是否受顶部写作风格影响（默认开；独立开关、首位硬要求、随每本书）
   autoQC: false,        // 自动质检开关（默认关闭，v10.18）：生成后自动两段式查错修正；关则直接落库
@@ -247,7 +246,6 @@ function projectSnapshot(){
     gsCollapsed: state.gsCollapsed,
     stCollapsed: state.stCollapsed,
     cpCollapsed: state.cpCollapsed,   // v10.14 梗概卡折叠透传
-    ctCollapsed: state.ctCollapsed,   // v10.20 章节标题卡折叠透传
     planStyleOn: (typeof state.planStyleOn === 'boolean') ? state.planStyleOn : true,   // 逐章梗概受写作风格影响开关（随书）
     titleStyleOn: (typeof state.titleStyleOn === 'boolean') ? state.titleStyleOn : true,   // 重生成标题受写作风格影响开关（独立、随书）
     polishOptions: state.polishOptions,   // v10.16 优化构想保留方案透传
@@ -267,7 +265,10 @@ function projectSnapshot(){
     titleHistory: state.titleHistory,
     step: currentStep,
     title: (state.outline && state.outline.title) || (state.idea ? state.idea.trim().slice(0,20) : '未命名作品'),
-    logline: (state.outline && state.outline.logline) || ''
+    logline: (state.outline && state.outline.logline) || '',
+    _lastCpRaw: state._lastCpRaw || '',
+    _lastTitlesRaw: state._lastTitlesRaw || '',
+    _lastChapterRaw: state._lastChapterRaw || {}
   };
 }
 // 把项目快照写入当前 state；内容缺失/损坏时切到空白但保持调用方可控
@@ -291,7 +292,6 @@ function applyProject(p){
   state.gsCollapsed = (typeof p.gsCollapsed === 'boolean') ? p.gsCollapsed : true;
   state.stCollapsed = !!p.stCollapsed;
   state.cpCollapsed = (typeof p.cpCollapsed === 'boolean') ? p.cpCollapsed : true;   // v10.14 梗概卡默认折叠
-  state.ctCollapsed = (typeof p.ctCollapsed === 'boolean') ? p.ctCollapsed : true;   // v10.20 章节标题卡默认折叠
   state.planStyleOn = (typeof p.planStyleOn === 'boolean') ? p.planStyleOn : true;     // 逐章梗概风格约束默认开（随书）
   state.titleStyleOn = (typeof p.titleStyleOn === 'boolean') ? p.titleStyleOn : true;   // 重生成标题风格约束默认开（独立、随书）
   state.polishOptions = Array.isArray(p.polishOptions) ? p.polishOptions : undefined;   // v10.16 保留方案
@@ -315,6 +315,9 @@ function applyProject(p){
   state.scenes = p.scenes || [];
   state.storyboard = p.storyboard || [];
   state.boardConcepts = p.boardConcepts || [];
+  state._lastCpRaw = p._lastCpRaw || '';
+  state._lastTitlesRaw = p._lastTitlesRaw || '';
+  state._lastChapterRaw = (p._lastChapterRaw && typeof p._lastChapterRaw === 'object') ? p._lastChapterRaw : {};
   state.titleHistory = Array.isArray(p.titleHistory) ? p.titleHistory : [];
   state.raw = p.raw || {};
   currentStep = (p.step && p.step >= 1 && p.step <= 5) ? p.step : 1;
@@ -331,6 +334,9 @@ function clearState(){
   state.outlineHistory = []; state.expSel = [];
   state.hist = { characters:[], scenes:[], cover:[], storyboard:[] };
   state.chapterStyle = { tags: [], intensity: 2, collapsed: false, elemOpen: false };
+  state._lastCpRaw = '';
+  state._lastTitlesRaw = '';
+  state._lastChapterRaw = {};
   wsDraft = null;   // v2.1 新项目草稿重置
   currentStep = 1;
 }
@@ -349,24 +355,57 @@ function migrateRecipeSet(set, legacyRecipe){
   const legacyMap = { mesh:{structure:'mesh',rhythm:null,quality:[]}, layered:{structure:'layered',rhythm:null,quality:[]}, dual:{structure:'mesh',rhythm:null,quality:['dual']}, web:{structure:null,rhythm:'web',quality:[]}, web100:{structure:null,rhythm:'web',quality:[]}, causal:{structure:'causal',rhythm:null,quality:[]} };
   return legacyMap[legacyRecipe] || { structure:null, rhythm:null, quality:[] };
 }
-// 落盘：直接写 localStorage（~5MB 上限）
+// 落盘：优先写 IndexedDB（突破 5MB）；IDB 不可用或写入失败时回退 localStorage 双写，保证不丢。
+// 注意：保持内存模型 lib 不变，仅替换"落盘通道"。调用方（persist/开关项目/新建/删除）无需改动。
+function idbSaveLib(){
+  if(!idbAvailable()){
+    // IDB 不可用：直接写回 localStorage 旧库路径（仅作回退，避免数据丢失）
+    try{ localStorage.setItem(KEY_LIB, JSON.stringify(lib)); }catch(e){}
+    return;
+  }
+  idbPutAll(lib.items, lib.curId).catch(function(){
+    // IDB 写入失败：回退 localStorage，保证本次改动不丢
+    try{ localStorage.setItem(KEY_LIB, JSON.stringify(lib)); }catch(e2){}
+  });
+}
 function saveLib(){
-  try{ localStorage.setItem(KEY_LIB, JSON.stringify(lib)); }catch(e){}
+  idbSaveLib();   // 原同步落盘改为异步走 IDB（fire-and-forget）
 }
 function robustSaveLib(){
-  // 超过上限则淘汰最旧非当前项目（保持内存模型整洁）
+  // 超过上限则淘汰最旧非当前项目（保持内存模型整洁，并清理 IDB 中孤儿记录）
   while(lib.items.length > MAX_PROJECTS){
     const others = lib.items.filter(i=> i.id !== lib.curId);
     if(!others.length) break;
     others.sort((a,b)=> (a.updatedAt||0) - (b.updatedAt||0));
     const victim = others[0];
     lib.items = lib.items.filter(i=> i.id !== victim.id);
+    idbDelete(victim.id).catch(function(){}); // 清理 IDB 孤儿，避免重复
   }
-  saveLib();
+  idbSaveLib();
 }
-// 首次加载：从 localStorage 读取历史项目库（~5MB 上限）
+// 把现有 localStorage 旧库一次性灌入 IDB（双写一版，不删 localStorage 旧数据，零丢失）
+function idbMigrateFromLib(libObj){
+  if(!idbAvailable()) return;
+  idbPutAll(libObj.items, libObj.curId).catch(function(){});
+}
+// 首次加载（异步）：优先读 IndexedDB 全量项目；IDB 为空/不可用→回退旧 localStorage fyp_lib（双写迁移进 IDB）；再无→迁移旧单项目 fyp_state
 async function loadState(){
   clearState();
+  // 1) 优先读 IndexedDB
+  try{
+    if(idbAvailable()){
+      const items = await idbList();
+      if(items && items.length){
+        const curId = (await idbGetMeta()) || (items[0] && items[0].id);
+        lib = { curId: curId, items: items };
+        // 保持 curId 有效
+        if(!lib.items.some(i=> i.id === lib.curId)) lib.curId = lib.items[0] && lib.items[0].id;
+        if(lib.curId){ const cur = lib.items.find(i=> i.id === lib.curId); if(cur) applyProject(cur); }
+        return;
+      }
+    }
+  }catch(e){ /* IDB 读取失败，继续回退 localStorage */ }
+  // 2) IDB 空或不可用：回退旧 localStorage fyp_lib（并双写迁移进 IDB，不删旧数据）
   try{
     const raw = localStorage.getItem(KEY_LIB);
     if(raw){
@@ -375,11 +414,12 @@ async function loadState(){
         lib = parsed;
         if(!lib.items.some(i=> i.id === lib.curId)) lib.curId = lib.items[0] && lib.items[0].id;
         if(lib.curId){ const cur = lib.items.find(i=> i.id === lib.curId); if(cur) applyProject(cur); }
+        idbMigrateFromLib(lib); // 双写进 IDB（fire-and-forget），旧 localStorage 保留作回退
         return;
       }
     }
   }catch(e){}
-  // 无新库：尝试迁移旧版单项目 fyp_state
+  // 3) 无新库：尝试迁移旧版单项目 fyp_state
   migrateOldState();
 }
 function migrateOldState(){
@@ -599,17 +639,16 @@ function makeStopBtn(){
   b.style.display = 'none';
   return b;
 }
-// 显示停止按钮，挂载到父容器（每次重新创建，避免单例孤儿问题）
+// 显示停止按钮，挂载到父容器
 function showStopBtn(parent){
-  if(_abortBtn){ _abortBtn.remove(); _abortBtn = null; }
-  _abortBtn = makeStopBtn();
+  if(!_abortBtn){ _abortBtn = makeStopBtn(); document.body.appendChild(_abortBtn); }
   _abortCtl = new AbortController();
   _abortBtn.style.display = '';
   parent.appendChild(_abortBtn);
 }
 // 隐藏停止按钮
 function hideStopBtn(){
-  if(_abortBtn){ _abortBtn.remove(); _abortBtn = null; }
+  if(_abortBtn){ _abortBtn.style.display = 'none'; }
   _abortCtl = null;
 }
 
@@ -2916,8 +2955,6 @@ function chapterTitleBlock(){
   const o = state.outline;
   const arr = (o && Array.isArray(o.chapters)) ? o.chapters : [];
   if(!arr.length) return '';
-  const collapsed = !!state.ctCollapsed;
-  const btCount = chTitleBatches().length;
   // P1-4 标题质检持久化：render 时从 o.titleQC 恢复标红（不再只存活一次渲染）
   const qc = (o.titleQC && Array.isArray(o.titleQC.issues)) ? o.titleQC.issues : [];
   const rows = arr.map((c,i)=>`
@@ -2926,13 +2963,10 @@ function chapterTitleBlock(){
       <span class="ct-title" title="${esc((c&&c.title)||'')}">${esc((c&&c.title)||('第'+(i+1)+'章'))}</span>
       <button type="button" class="ct-edit" data-ct-edit="${i}" title="编辑标题">✎</button>
     </div>`).join('');
-  return `<div class="ct-card">
-    <div class="ct-head-fold" data-ct-fold role="button" tabindex="0" title="展开/收起">
-      <div class="ct-head-fold-left">
-        <span class="ct-arrow">${collapsed?'▸':'▾'}</span>
-        <b>📚 章节标题</b>
-      </div>
-      <span class="ct-head-fold-tools">
+  return `<div class="ct-block">
+    <div class="ct-head">
+      <b>📚 章节标题</b>
+      <span class="ct-tools">
         <label class="cp-style-toggle" title="开启后，重生成全部标题会按顶部写作风格（语气/质感/元素/浓度）作为首位硬要求约束 AI；关闭则不受风格影响（开关随本书保存）">
           <input type="checkbox" data-rt-style ${state.titleStyleOn?'checked':''}/> 标题风格约束
         </label>
@@ -2940,30 +2974,14 @@ function chapterTitleBlock(){
         <button type="button" class="btn small ghost" data-ct-copy>📋 复制全部章节标题</button>
       </span>
     </div>
-    <div class="ct-body"${collapsed?' hidden':''}>
-      <div class="ct-row2">
-        <button type="button" class="btn small ghost" data-rt-gen>🔄 重生成全部标题</button>
-      </div>
-      <div class="ct-row3">
-        <button type="button" class="btn ct-ver-btn" data-ct-batch title="查看并可整批回退「重生成全部标题」的历史版本">🔁 版本(${btCount}/5)</button>
-      </div>
-      <input type="text" class="rt-input" id="rtInput" placeholder="重生成要求（选填）：如『标题更有悬念感』『避免剧透式标题』『每章标题用双字词』" />
-      <div class="ct-list">${rows}</div>
+    <div class="ct-row2">
+      <button type="button" class="btn small ghost" data-rt-gen>🔄 重生成全部标题</button>
+      <button type="button" class="btn small ghost" data-ct-raw title="手动提取 AI 原始响应数据，当自动更新失败时使用">🔧 原始数据</button>
+      ${chTitleBatches().length?`<button type="button" class="btn small ghost" data-ct-batch title="查看并可整批回退「重生成全部标题」的历史版本">🔁 标题版本(${chTitleBatches().length}/5)</button>`:''}
     </div>
+    <input type="text" class="rt-input" id="rtInput" placeholder="重生成要求（选填）：如『标题更有悬念感』『避免剧透式标题』『每章标题用双字词』" />
+    <div class="ct-list">${rows}</div>
   </div>`;
-}
-
-// v10.20 章节标题卡片折叠绑定：点击标题行切换，状态持久化
-function bindChapterTitleFold(){
-  const head = $('[data-ct-fold]');
-  if(!head) return;
-  head.onclick = (e)=>{
-    if(e.target.closest('.cp-style-toggle') || e.target.closest('[data-ct-hist]') || e.target.closest('[data-ct-copy]') || e.target.closest('[data-ct-batch]') || e.target.closest('[data-rt-gen]') || e.target.closest('.stop-btn')) return;
-    state.ctCollapsed = !state.ctCollapsed;
-    persist();
-    const body = $('.ct-body'); if(body) body.hidden = state.ctCollapsed;
-    const ico = head.querySelector('.ct-arrow'); if(ico) ico.textContent = state.ctCollapsed ? '▸' : '▾';
-  };
 }
 
 // v10.14 章节标题绑定：复制全部 / ✎ 进入编辑态（失焦或回车存、Esc 还原、同刻单行互斥）
@@ -2976,6 +2994,8 @@ function bindChapterTitles(){
   if(ctb) ctb.onclick = ()=> openChTitleBatchPanel();
   const rg = $('[data-rt-gen]');
   if(rg) rg.onclick = ()=> regenAllTitles(rg);   // v10.15 重生成全部标题
+  const rawT = $('[data-ct-raw]');
+  if(rawT) rawT.onclick = ()=> openTitlesRawPanel();
   // 标题风格约束开关：写回 state.titleStyleOn（独立、随本书），即时生效
   const ts = $('[data-rt-style]');
   if(ts) ts.onchange = ()=>{
@@ -3184,9 +3204,19 @@ async function regenAllTitles(btn){
   if(!confirm('将覆盖全部章节标题，确认重生成？')) return;
     const req = ($('#rtInput') && $('#rtInput').value.trim()) || '';
     if(btn) busy(btn,true,'重生成标题中…');
+    // 创建预览区（仅流式可用时显示）
+    const ctBlock = btn && btn.closest('.ct-block');
+    let preview = null;
+    const isStream = currentIsDeepSeek();
+    if(isStream && ctBlock){
+      preview = document.createElement('pre');
+      preview.className = 'cp-stream-preview'; preview.textContent = '正在生成标题…';
+      ctBlock.appendChild(preview);
+    }
     // 显示停止按钮
     const stopParent = btn && btn.parentNode;
     if(stopParent) showStopBtn(stopParent);
+    let _streamBuf = '';
     try{
       const spec = resolveActiveSpec();
       const st = o.structure || {};
@@ -3199,7 +3229,13 @@ async function regenAllTitles(btn){
       }
       parts.push(`小说标题：${o.title||''}\n一句话梗概：${o.logline||''}\n\n【长篇结构设计】\n${JSON.stringify(st).slice(0,800)}\n\n【设定词典】\n${gloss}\n\n【现有章节标题】\n${(o.chapters||[]).map((c,i)=>`第${i+1}章 ${(c&&c.title)||''}`).join(' / ')}${req?`\n\n【重生成要求】\n${req}`:''}`);
       const user = parts.join('\n\n');
-    const txt = await callDeepSeek(REGEN_TITLES_SYS, user, {temperature: spec.titleTemp, signal: _abortCtl?.signal});
+    const onStream = delta => {
+      _streamBuf += String(delta||'');
+      if(preview){ preview.textContent = _streamBuf; preview.scrollTop = preview.scrollHeight; }
+    };
+    const txt = await callDeepSeek(REGEN_TITLES_SYS, user, {temperature: spec.titleTemp, onStream: isStream ? onStream : null, signal: _abortCtl?.signal});
+    // ★ 保存原始 AI 响应，供手动提取（"原始数据"按钮用）
+    state._lastTitlesRaw = txt; persist();
     const j = parseJson(txt) || {};
     const titles = Array.isArray(j.titles) ? j.titles.map(t=>String(t||'').trim()).filter(Boolean) : [];
     if(!titles.length){ toast('未解析到新标题，请重试'); return; }
@@ -3213,21 +3249,21 @@ async function regenAllTitles(btn){
         el.title = o.chapters[i].title;
       }
     });
-    // 立即刷新「标题版本」按钮（放入 .ct-row3）
-    const ctCard = document.querySelector('.ct-card');
-    const ctRow3 = ctCard && ctCard.querySelector('.ct-row3');
-    if(ctRow3){
-      const existingBtn = ctRow3.querySelector('[data-ct-batch]');
+    // 立即刷新「标题版本」按钮（放入 .ct-row2 最右）
+    const ctBlock2 = document.querySelector('.ct-block');
+    const ctRow2 = ctBlock2 && ctBlock2.querySelector('.ct-row2');
+    if(ctRow2){
+      const existingBtn = ctRow2.querySelector('[data-ct-batch]');
       const btCount = chTitleBatches().length;
-      if(!existingBtn){
+      if(btCount && !existingBtn){
         const b = document.createElement('button');
-        b.type='button'; b.className='btn ct-ver-btn'; b.dataset.ctBatch='';
+        b.type='button'; b.className='btn small ghost'; b.dataset.ctBatch='';
         b.title='查看并可整批回退「重生成全部标题」的历史版本';
-        b.innerHTML = '🔁 版本('+btCount+'/5)';
+        b.innerHTML = '🔁 标题版本('+btCount+'/5)';
         b.onclick = ()=> openChTitleBatchPanel();
-        ctRow3.appendChild(b);
-      }else{
-        existingBtn.innerHTML = '🔁 版本('+btCount+'/5)';
+        ctRow2.appendChild(b);
+      }else if(btCount && existingBtn){
+        existingBtn.innerHTML = '🔁 标题版本('+btCount+'/5)';
       }
     }
     // 清除旧标题质检数据（禁用标题质检）
@@ -3240,7 +3276,7 @@ async function regenAllTitles(btn){
     if(e.name==='AbortError'){ toast('已停止重生成标题'); }
     else { toast('重生成标题失败：'+e.message); }
   }
-  finally{ hideStopBtn(); if(btn) busy(btn,false); }
+  finally{ hideStopBtn(); if(preview) preview.remove(); if(btn) busy(btn,false); }
 }
 
 // v10.15 标题质检：qcTemp 0.2 调用 TITLE_QC_SYS；问题标题行标红 + toast（失败静默跳过）
@@ -3292,7 +3328,8 @@ function chapterPlanBlock(){
         </span>
       </div>
       <div class="cp-head-row action-row">
-        <button type="button" class="btn ghost" data-cp-hist>📚 版本(${chapterPlansHistoryCount()}/5)</button>
+        <button type="button" class="btn ghost" data-cp-raw title="手动提取 AI 原始响应数据，当自动更新失败时使用">🔧 原始数据</button>
+        ${hasChapterPlansHistory()?`<button type="button" class="btn ghost" data-cp-hist>📚 版本(${chapterPlansHistoryCount()})</button>`:''}
         <button type="button" class="cp-gen-btn" data-cp-gen>${hasPlans?'🔄 重生成梗概':'📝 生成逐章梗概'}</button>
       </div>
     </div>
@@ -3309,7 +3346,7 @@ function bindChapterPlanFold(){
   const head = $('[data-cp-fold]');
   if(!head) return;
   head.onclick = (e)=>{
-    if(e.target.closest('.cp-style-toggle') || e.target.closest('[data-cp-hist]') || e.target.closest('[data-cp-gen]') || e.target.closest('.stop-btn')) return;   // 不拦截风格约束/版本/生成/停止按钮
+    if(e.target.closest('.cp-style-toggle') || e.target.closest('[data-cp-hist]') || e.target.closest('[data-cp-gen]') || e.target.closest('[data-cp-raw]')) return;   // 不拦截风格约束/版本/生成/原始数据按钮
     state.cpCollapsed = !state.cpCollapsed;
     persist();
     const body = $('.cp-body'); if(body) body.hidden = state.cpCollapsed;
@@ -3334,6 +3371,8 @@ function bindChapterPlan(){
   };
   const hist = $('[data-cp-hist]');
   if(hist) hist.onclick = ()=> openChapterPlansHistoryPanel();
+  const rawBtn = $('[data-cp-raw]');
+  if(rawBtn) rawBtn.onclick = ()=> openCpRawPanel();
   $$('[data-cp-set]').forEach(inp=>{
     // 实时更新字数
     inp.oninput = ()=>{
@@ -4001,6 +4040,7 @@ function renderChapters(){
           <div class="btn-row">
             <button class="btn ghost" data-regen="${i}" ${state.generating?'disabled':''}>🔄 重生成</button>
             <button class="btn ghost" data-read="${i}">📖 阅读</button>
+            <button class="btn ghost" data-ch-raw="${i}" title="手动提取 AI 原始响应数据，当自动更新失败时使用">🔧 原始数据</button>
             ${hasChVersions(i)?`<button class="btn ghost" data-ver="${i}">📚 版本(${chVersions(i).length})</button>`:''}
             ${hasEditHistory(i)?`<button class="btn ghost" data-undo="${i}" title="撤销最近一次手动编辑">↩ 撤销编辑</button>`:''}
             ${isLong() && c.qcRecord ? `<button class="btn ghost" data-qc="${i}" title="查看本次生成的质检记录（AI 改了哪里）">🧪 质检记录</button>`:''}
@@ -4030,6 +4070,7 @@ function renderChapters(){
         <div class="btn-row">
           <button class="btn ghost" data-regen="${i}">🔄 重生成</button>
           <button class="btn ghost" data-read="${i}">📖 阅读</button>
+          <button class="btn ghost" data-ch-raw="${i}" title="手动提取 AI 原始响应数据，当自动更新失败时使用">🔧 原始数据</button>
           ${hasChVersions(i)?`<button class="btn ghost" data-ver="${i}">📚 版本(${chVersions(i).length})</button>`:''}
           ${hasEditHistory(i)?`<button class="btn ghost" data-undo="${i}" title="撤销最近一次手动编辑">↩ 撤销编辑</button>`:''}
           <button class="btn ghost" data-toggle="${i}">${c.confirmed?'↺ 取消确认':'✓ 标记已确认'}</button>
@@ -4829,7 +4870,6 @@ function bindView(){
   bindStructureEdit();// P0-2 结构设计行内编辑（失焦即存 + 追加副线）
   bindChapterPlan();  // v10.11 逐章梗概区块绑定
   bindChapterPlanFold(); // v10.14 梗概卡折叠绑定
-  bindChapterTitleFold(); // v10.20 章节标题卡折叠绑定
   bindChapterTitles();// v10.14 章节标题编辑 + 复制绑定
   bindWriteStyle();   // v2.0 写作风格卡片绑定（chips/浓度/预设/收藏/管理/清空）
   bindPendingGlossary();
@@ -4957,12 +4997,13 @@ function bindView(){
   renderChapters();
   // 用事件委托处理章节区内部点击：分页/折叠会重建部分按钮，委托在 #chaptersWrap 上保证始终生效（Bug2 修复）
   const chaptersDelegate = (e)=>{
-    const t = e.target.closest('[data-regen],[data-toggle],[data-read],[data-fold],[data-page],[data-ver],[data-undo],[data-qc]');
+    const t = e.target.closest('[data-regen],[data-toggle],[data-read],[data-fold],[data-page],[data-ver],[data-undo],[data-qc],[data-ch-raw]');
     if(!t) return;
     if(t.hasAttribute('data-ver')){ openChapterVersionPanel(+t.dataset.ver); }
     else if(t.hasAttribute('data-undo')){ undoChapterEdit(+t.dataset.undo); }
     else if(t.hasAttribute('data-qc')){ openChapterQcPanel(+t.dataset.qc); }
     else if(t.hasAttribute('data-regen')){ openChapterRegenPanel(+t.dataset.regen); }
+    else if(t.hasAttribute('data-ch-raw')){ openChRawPanel(+t.dataset.chRaw); }
     else if(t.hasAttribute('data-toggle')){ const i=+t.dataset.toggle; state.chapters[i].confirmed=!state.chapters[i].confirmed; persist(); render(); }
     else if(t.hasAttribute('data-read')){ openReader(+t.dataset.read); }
     else if(t.hasAttribute('data-fold')){ const i=+t.dataset.fold; const body=t.closest('.ch-card').querySelector('.ch-body'); const ico=t.querySelector('.ch-fold-ico'); const on = body.classList.toggle('folded'); t.setAttribute('aria-expanded', String(!on)); if(ico) ico.textContent = on?'▸':'▾'; }
@@ -5188,9 +5229,19 @@ async function genChapterPlans(btn){
   const o = state.outline;
   if(!isLong() || !o) return;
   if(btn){ btn.classList.add('cp-gen-btn-loading'); busy(btn,true,'生成逐章梗概中…'); }
+  // 创建临时预览区（仅流式可用时显示）
+  const cpBody = btn && btn.closest('.cp-card') && btn.closest('.cp-card').querySelector('.cp-body .cp-list');
+  let preview = null;
+  const isStream = currentIsDeepSeek();
+  if(isStream && cpBody){
+    preview = document.createElement('pre');
+    preview.className = 'cp-stream-preview'; preview.textContent = '正在生成梗概…';
+    cpBody.parentNode.insertBefore(preview, cpBody);
+  }
   // 显示停止按钮
   const stopParent = btn && btn.closest('.action-row') ? btn.closest('.action-row') : (btn&&btn.parentNode);
   if(stopParent) showStopBtn(stopParent);
+  let _streamBuf = '';
   try{
     const titles = (o.chapters||[]).map((c,i)=> `第${i+1}章《${c&&c.title||''}》`).filter(Boolean).join(' / ');
     if(!titles){ toast('尚无章节标题'); return; }
@@ -5204,7 +5255,13 @@ async function genChapterPlans(btn){
     parts.push(structurePlanBlockNoTitles(o));   // 长篇结构设计（主线/副线/暗线/汇合，不含章节标题清单，避免与上方「全部章节标题」重复夹带，遵 v2.3）
     parts.push(chapterGlossaryBlock());
     const user = parts.join('\n\n') + '\n\n' + ORIGINALITY_OUTLINE_SYS;   // v10.12 防套路：方向防套路 + 人名规避（复用大纲侧）
-    const txt = await callDeepSeek(CHAPTER_PLAN_SYS, user, {temperature: resolveActiveSpec().planTemp, signal: _abortCtl?.signal});
+    const onStream = delta => {
+      _streamBuf += String(delta||'');
+      if(preview){ preview.textContent = _streamBuf; preview.scrollTop = preview.scrollHeight; }
+    };
+    const txt = await callDeepSeek(CHAPTER_PLAN_SYS, user, {temperature: resolveActiveSpec().planTemp, onStream: isStream ? onStream : null, signal: _abortCtl?.signal});
+    // ★ 保存原始 AI 响应，供手动提取（"原始数据"按钮用）
+    state._lastCpRaw = txt; persist();
     const j = parseJson(txt) || {};
     const arr = Array.isArray(j.chapterPlans) ? j.chapterPlans.map(x=>String(x||'').trim()) : [];
     if(!arr.length || !arr.some(Boolean)){ toast('未解析到梗概，请重试'); return; }
@@ -5242,19 +5299,19 @@ async function genChapterPlans(btn){
         };
       });
     }
-    // 刷新「版本」按钮（始终显示，格式 版本(x/5)）
+    // 刷新「版本」按钮
     const actionRow = document.querySelector('.cp-card .action-row');
     if(actionRow){
       const histBtn = actionRow.querySelector('[data-cp-hist]');
       const histCount = chapterPlansHistoryCount();
-      if(!histBtn){
+      if(histCount && !histBtn){
         const b = document.createElement('button');
         b.type='button'; b.className='btn ghost'; b.dataset.cpHist='';
-        b.innerHTML = '📚 版本('+histCount+'/5)';
+        b.innerHTML = '📚 版本('+histCount+')';
         b.onclick = ()=> openChapterPlansHistoryPanel();
         actionRow.insertBefore(b, actionRow.querySelector('.cp-gen-btn'));
-      }else{
-        histBtn.innerHTML = '📚 版本('+histCount+'/5)';
+      }else if(histCount && histBtn){
+        histBtn.innerHTML = '📚 版本('+histCount+')';
       }
     }
     // 重新绑定折叠事件防止冲突
@@ -5264,7 +5321,7 @@ async function genChapterPlans(btn){
     if(e.name==='AbortError'){ toast('已停止生成梗概'); }
     else { toast('梗概生成失败：'+e.message); }
   }
-  finally{ hideStopBtn(); if(btn){ btn.classList.remove('cp-gen-btn-loading'); busy(btn,false); } }
+  finally{ hideStopBtn(); if(preview) preview.remove(); if(btn){ btn.classList.remove('cp-gen-btn-loading'); busy(btn,false); } }
 }
 
 /* ---------- P1-1v3 逐章梗概批量版本（整批快照 ≤5 份，应用后生效） ---------- */
@@ -5299,7 +5356,7 @@ function deleteChapterPlansVersion(idx){
 }
 function openChapterPlansHistoryPanel(){
   closeChapterPlansHistoryPanel();
-  const hist = chapterPlansHistory(); if(!hist.length){ toast('暂无批量版本'); return; }
+  const hist = chapterPlansHistory(); if(!hist.length){ toast('暂无历史版本'); return; }
   const o = state.outline;
   const fmtTs = ts=>{ const d=new Date(ts); return (d.getMonth()+1)+'-'+d.getDate()+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); };
   const rows = hist.map((h,idx)=>{
@@ -5343,6 +5400,258 @@ function openChapterPlansHistoryPanel(){
   ov.querySelectorAll('[data-cph-del]').forEach(b=> b.onclick = ()=> deleteChapterPlansVersion(+b.dataset.cphDel));
 }
 function closeChapterPlansHistoryPanel(){ const p=$('#cphPanel'); if(p) p.remove(); }
+
+/* ---------- P1-1v4 手动提取 AI 原始响应（自动更新失败时手工救急） ---------- */
+// 打开原始响应面板
+function openCpRawPanel(){
+  closeCpRawPanel();
+  const o = state.outline;
+  let raw = state._lastCpRaw || '';
+  // 若 state 无保存，尝试从 aiLog 搜索最近一条"逐章梗概"请求
+  if(!raw && aiLog.length){
+    const match = [...aiLog].reverse().find(r => r.task && r.task.includes('逐章梗概'));
+    if(match && match.respLen > 0){
+      // 从 aiLog 重建完整响应（日志只存前500字，但 resp 字段存了完整响应，只是展示时截断500）
+      // 实际 resp 存的是完整内容，只是展示截断
+      raw = match.resp || '';
+    }
+  }
+  const hasRaw = !!raw;
+  const escRaw = esc(raw);
+  const ov = document.createElement('div'); ov.id='cpRawPanel'; ov.className='gs-overlay';
+  ov.innerHTML = `
+    <div class="gs-modal" style="max-width:780px">
+      <div class="gs-modal-head"><b>🔧 原始 AI 响应 — 逐章梗概</b>
+        <span style="display:flex;gap:6px">
+          <button class="btn small ghost" data-cpraw-searchlog>📋 搜索最近日志</button>
+          <button class="gs-x" data-cpraw-close>✕</button>
+        </span></div>
+      <div class="cv-body">
+        <div class="cv-div">这里是最近一次生成梗概时 AI 返回的原始 JSON 响应。如果自动更新失败（日志显示 AI 已回复但梗概未更新），可手动点击「解析并应用到梗概」来提取数据。</div>
+        <div class="cpraw-actions">
+          <button type="button" class="btn primary" data-cpraw-apply ${hasRaw?'':'disabled'}>解析并应用到梗概</button>
+          <span style="font-size:12px;color:var(--sub);align-self:center">${hasRaw?`共 ${raw.length} 字`:'（暂无原始响应数据）'}</span>
+        </div>
+        <pre class="cpraw-pre">${hasRaw?escRaw:'(暂无原始响应数据。生成一次逐章梗概后，原始响应会自动保存至此。)'}</pre>
+        <p class="muted" style="margin:6px 0 0;font-size:11px">💡 提示：也可点击「搜索最近日志」从 AI 请求日志中查找最近一次逐章梗概响应。</p>
+      </div>
+    </div>`;
+  document.body.appendChild(ov);
+  ov.querySelector('[data-cpraw-close]').onclick = closeCpRawPanel;
+  ov.addEventListener('click', e=>{ if(e.target===ov) closeCpRawPanel(); });
+  ov.querySelector('[data-cpraw-apply]').onclick = ()=> applyCpRawResponse(raw);
+  ov.querySelector('[data-cpraw-searchlog]').onclick = ()=>{
+    closeCpRawPanel();
+    openAiLogPanel();
+    // 自动展开最近一条逐章梗概日志
+    setTimeout(()=>{
+      const rows = $$('[data-ailog-toggle]');
+      if(rows.length){
+        // 从后往前找 task 包含"逐章梗概"的
+        for(let i=rows.length-1; i>=0; i--){
+          const row = rows[i];
+          const taskEl = row.closest('.ailog-row') && row.closest('.ailog-row').querySelector('.ailog-task');
+          if(taskEl && taskEl.textContent.includes('逐章梗概')){
+            row.click(); break;
+          }
+        }
+      }
+    }, 300);
+  };
+}
+function closeCpRawPanel(){ const p=$('#cpRawPanel'); if(p) p.remove(); }
+// 手动解析原始响应并应用到逐章梗概
+function applyCpRawResponse(raw){
+  if(!raw){ toast('无原始响应数据'); return; }
+  const o = state.outline;
+  if(!o){ toast('无当前项目'); return; }
+  try{
+    const j = parseJson(raw) || {};
+    const arr = Array.isArray(j.chapterPlans) ? j.chapterPlans.map(x=>String(x||'').trim()) : [];
+    if(!arr.length || !arr.some(Boolean)){ toast('解析失败：未找到 chapterPlans 数组'); return; }
+    const n = (o.chapters||[]).length;
+    const plans = Array.from({length:n},(_,i)=> arr[i] || '');
+    // 覆盖前先归档
+    pushChapterPlansSnapshot();
+    o.chapterPlans = plans;
+    persist();
+    closeCpRawPanel();
+    // 就地更新 UI
+    const cpList = document.querySelector('.cp-card .cp-list');
+    if(cpList){
+      const items = plans.map((t,i)=>`
+        <div class="cp-item">
+          <span class="cp-no">${i+1}</span>
+          <textarea class="cp-input" rows="3" data-cp-set="${i}" data-orig="${esc(t)}" placeholder="本章梗概（可编辑）">${esc(t)}</textarea>
+          <span class="cp-wc">${t.length}字</span>
+        </div>`).join('');
+      cpList.innerHTML = items;
+      // 重新绑定失焦存 + 字数统计
+      $$('.cp-input').forEach(inp=>{
+        inp.oninput = ()=>{
+          const wc = inp.parentNode && inp.parentNode.querySelector('.cp-wc');
+          if(wc) wc.textContent = inp.value.length + '字';
+        };
+        inp.onchange = ()=>{
+          const o = state.outline; if(!o) return;
+          if(!Array.isArray(o.chapterPlans)) o.chapterPlans = [];
+          const i = +inp.dataset.cpSet;
+          if(inp.value === inp.dataset.orig) return;
+          o.chapterPlans[i] = inp.value;
+          inp.dataset.orig = inp.value;
+          persist();
+        };
+      });
+    }
+    // 刷新版本按钮
+    const actionRow = document.querySelector('.cp-card .action-row');
+    if(actionRow){
+      const histBtn = actionRow.querySelector('[data-cp-hist]');
+      if(histBtn) histBtn.innerHTML = '📚 版本('+chapterPlansHistoryCount()+')';
+    }
+    bindChapterPlanFold();
+    toast('✅ 已手动解析并应用 '+plans.filter(Boolean).length+' 条逐章梗概');
+  }catch(e){
+    toast('解析失败：'+e.message+'。请检查原始数据格式');
+  }
+}
+
+/* ---------- P1-1v4 标题原始响应手动提取 ---------- */
+function openTitlesRawPanel(){
+  closeTitlesRawPanel();
+  let raw = state._lastTitlesRaw || '';
+  const hasRaw = !!raw;
+  const escRaw = esc(raw);
+  const ov = document.createElement('div'); ov.id='titlesRawPanel'; ov.className='gs-overlay';
+  ov.innerHTML = `
+    <div class="gs-modal" style="max-width:780px">
+      <div class="gs-modal-head"><b>🔧 原始 AI 响应 — 重生成全部标题</b>
+        <span style="display:flex;gap:6px">
+          <button class="btn small ghost" data-traw-searchlog>📋 搜索最近日志</button>
+          <button class="gs-x" data-traw-close>✕</button>
+        </span></div>
+      <div class="cv-body">
+        <div class="cv-div">这里是最近一次「重生成全部标题」时 AI 返回的原始 JSON 响应。如果自动更新失败，可手动点击「解析并应用到标题」来提取数据。</div>
+        <div class="cpraw-actions">
+          <button type="button" class="btn primary" data-traw-apply ${hasRaw?'':'disabled'}>解析并应用到标题</button>
+          <span style="font-size:12px;color:var(--sub);align-self:center">${hasRaw?`共 ${raw.length} 字`:'（暂无原始响应数据）'}</span>
+        </div>
+        <pre class="cpraw-pre">${hasRaw?escRaw:'(暂无原始响应数据。执行一次「重生成全部标题」后，原始响应会自动保存至此。)'}</pre>
+        <p class="muted" style="margin:6px 0 0;font-size:11px">💡 提示：也可点击「搜索最近日志」从 AI 请求日志中查找最近一次标题重生成响应。</p>
+      </div>
+    </div>`;
+  document.body.appendChild(ov);
+  ov.querySelector('[data-traw-close]').onclick = closeTitlesRawPanel;
+  ov.addEventListener('click', e=>{ if(e.target===ov) closeTitlesRawPanel(); });
+  ov.querySelector('[data-traw-apply]').onclick = ()=> applyTitlesRawResponse(raw);
+  ov.querySelector('[data-traw-searchlog]').onclick = ()=>{
+    closeTitlesRawPanel(); openAiLogPanel();
+    setTimeout(()=>{
+      const rows = $$('[data-ailog-toggle]');
+      if(rows.length){
+        for(let i=rows.length-1; i>=0; i--){
+          const row = rows[i]; const taskEl = row.closest('.ailog-row') && row.closest('.ailog-row').querySelector('.ailog-task');
+          if(taskEl && taskEl.textContent.includes('重生成全部标题')){ row.click(); break; }
+        }
+      }
+    }, 300);
+  };
+}
+function closeTitlesRawPanel(){ const p=$('#titlesRawPanel'); if(p) p.remove(); }
+function applyTitlesRawResponse(raw){
+  if(!raw){ toast('无原始响应数据'); return; }
+  const o = state.outline;
+  if(!o){ toast('无当前项目'); return; }
+  try{
+    const j = parseJson(raw) || {};
+    const titles = Array.isArray(j.titles) ? j.titles.map(t=>String(t||'').trim()).filter(Boolean) : [];
+    if(!titles.length){ toast('解析失败：未找到 titles 数组'); return; }
+    snapshotTitleBatch('手动提取前');
+    const cnt = setAllTitles(titles);
+    persist();
+    closeTitlesRawPanel();
+    // 就地更新标题行
+    document.querySelectorAll('.ct-row').forEach((row,i)=>{
+      const el = row.querySelector('.ct-title');
+      if(el && o.chapters[i] && o.chapters[i].title){ el.textContent = o.chapters[i].title; el.title = o.chapters[i].title; }
+    });
+    // 刷新标题版本按钮
+    const ctRow2 = document.querySelector('.ct-block .ct-row2');
+    if(ctRow2){
+      const existingBtn = ctRow2.querySelector('[data-ct-batch]');
+      const btCount = chTitleBatches().length;
+      if(btCount && !existingBtn){
+        const b = document.createElement('button'); b.type='button'; b.className='btn small ghost'; b.dataset.ctBatch='';
+        b.title='查看并可整批回退「重生成全部标题」的历史版本'; b.innerHTML = '🔁 标题版本('+btCount+'/5)';
+        b.onclick = ()=> openChTitleBatchPanel(); ctRow2.appendChild(b);
+      }else if(btCount && existingBtn){ existingBtn.innerHTML = '🔁 标题版本('+btCount+'/5)'; }
+    }
+    toast('✅ 已手动解析并应用 '+cnt+' 个章节标题');
+  }catch(e){ toast('解析失败：'+e.message+'。请检查原始数据格式'); }
+}
+
+/* ---------- P1-1v4 单章原始响应手动提取 ---------- */
+function openChRawPanel(i){
+  closeChRawPanel();
+  let raw = (state._lastChapterRaw && state._lastChapterRaw[i]) || '';
+  const hasRaw = !!raw;
+  const escRaw = esc(raw);
+  const c = state.chapters[i];
+  const title = c && c.title ? c.title : ('第'+(i+1)+'章');
+  const ov = document.createElement('div'); ov.id='chRawPanel'; ov.className='gs-overlay';
+  ov.innerHTML = `
+    <div class="gs-modal" style="max-width:780px">
+      <div class="gs-modal-head"><b>🔧 原始 AI 响应 — 第${i+1}章「${esc(cleanChapterTitle(title))}」</b>
+        <span style="display:flex;gap:6px">
+          <button class="btn small ghost" data-chraw-searchlog>📋 搜索最近日志</button>
+          <button class="gs-x" data-chraw-close>✕</button>
+        </span></div>
+      <div class="cv-body">
+        <div class="cv-div">这里是最近一次重生成本章时 AI 返回的原始响应。如果自动更新失败，可手动点击「应用原始内容到本章」来提取数据。</div>
+        <div class="cpraw-actions">
+          <button type="button" class="btn primary" data-chraw-apply ${hasRaw?'':'disabled'}>应用原始内容到本章</button>
+          <span style="font-size:12px;color:var(--sub);align-self:center">${hasRaw?`共 ${raw.length} 字`:'（暂无原始响应数据）'}</span>
+        </div>
+        <pre class="cpraw-pre">${hasRaw?escRaw:'(暂无原始响应数据。执行一次本章「重生成」后，原始响应会自动保存至此。)'}</pre>
+        <p class="muted" style="margin:6px 0 0;font-size:11px">💡 提示：也可点击「搜索最近日志」从 AI 请求日志中查找最近一次本章生成响应。</p>
+      </div>
+    </div>`;
+  document.body.appendChild(ov);
+  ov.querySelector('[data-chraw-close]').onclick = closeChRawPanel;
+  ov.addEventListener('click', e=>{ if(e.target===ov) closeChRawPanel(); });
+  ov.querySelector('[data-chraw-apply]').onclick = ()=> applyChRawResponse(i, raw);
+  ov.querySelector('[data-chraw-searchlog]').onclick = ()=>{
+    closeChRawPanel(); openAiLogPanel();
+    setTimeout(()=>{
+      const rows = $$('[data-ailog-toggle]');
+      if(rows.length){
+        // 找最近一条包含"第X章"的日志（task 字段可能包含章节信息）
+        const target = '第'+(i+1); // 简化匹配
+        for(let i2=rows.length-1; i2>=0; i2--){
+          const row = rows[i2]; const taskEl = row.closest('.ailog-row') && row.closest('.ailog-row').querySelector('.ailog-task');
+          if(taskEl && taskEl.textContent.includes(target)){ row.click(); break; }
+        }
+      }
+    }, 300);
+  };
+}
+function closeChRawPanel(){ const p=$('#chRawPanel'); if(p) p.remove(); }
+function applyChRawResponse(i, raw){
+  if(!raw){ toast('无原始响应数据'); return; }
+  const c = state.chapters[i];
+  if(!c){ toast('无此章节'); return; }
+  // 直接应用原始内容到本章
+  snapshotChapterVersion(i);
+  c.content = raw;
+  if(!isLong()) c.confirmed = false;
+  persist();
+  closeChRawPanel();
+  // 就地更新文本区
+  const ta = document.querySelector(`textarea[data-ch="${i}"]`);
+  if(ta) ta.value = raw;
+  patchChapter(i);
+  toast('✅ 已手动应用原始内容到第'+(i+1)+'章');
+}
 
 // 长篇：把整体结构/卷信息拼进章节生成的上下文（按所选结构注入）
 function longChapterContext(i){
@@ -5621,12 +5930,15 @@ function bindStructureEdit(){
 function splitChapterOutput(txt){
   return { content: String(txt||'').trim(), summary: '' };
 }
+let _chRawBuf = null;   // P1-1v4 单章原始响应缓存，供手动提取
+
 async function writeOneChapterContent(i, user, onPhase, onStream, styleOverride, signal){
   const mt = chapterMaxTokens();
   onPhase = onPhase || (()=>{});
   // onPhase 阶段上报；onStream 若提供则开启流式边收边显示（成本0，实时进度），否则一次性返回全文
   onPhase('撰写本章正文…');
   let txt = await callDeepSeek(longChapterSys(styleOverride), user, {maxTokens: mt, onStream, temperature: resolveActiveSpec().chapterTemp, signal: signal || _abortCtl?.signal});   // v10.8 章节温度 / v2.0 风格覆盖
+  _chRawBuf = { i, raw: txt, ts: Date.now() };   // 保存原始响应供手动提取
   // v10.11 全文即正文（无【本章梗概】标记需要拆分），直接过质检
   const sp = splitChapterOutput(txt);
   const { final, record } = await applyChapterQuality(sp.content, user, mt, onPhase);   // P1-4/P2-2：返回 {定稿, 质检记录}
@@ -6120,8 +6432,7 @@ async function genOneChapter(i, btn, opt={}){
   // 显示停止按钮：放在「阅读」按钮右侧
   const stopParent = btn && btn.closest('.btn-row') ? btn.closest('.btn-row') : null;
   if(stopParent){
-    if(_abortBtn){ _abortBtn.remove(); _abortBtn = null; }
-    _abortBtn = makeStopBtn();
+    if(!_abortBtn){ _abortBtn = makeStopBtn(); document.body.appendChild(_abortBtn); }
     _abortCtl = new AbortController();
     _abortBtn.style.display = '';
     const readBtn = stopParent.querySelector(`[data-read="${i}"]`);
@@ -6135,9 +6446,24 @@ async function genOneChapter(i, btn, opt={}){
   const st = $('#chStatus');
   const setPhase = msg => { if(st){ st.className='status'; st.textContent = `第 ${i+1}/${state.chapters.length} 章：${msg||''}`; } };
   setPhase('准备中…');
+  let _fullContent = '';
   try{
     const user = buildChapterUser(i, {regenerating:true, advice:opt.advice, styleOverride: opt.styleOverride});   // v2.4 本章覆盖时 user 风格重申同步
-    const txt = await writeOneChapterContent(i, user, setPhase, null, opt.styleOverride);   // v2.0 支持本章风格覆盖
+    // 实时进度：流式内容实时推送到文本区
+    const stStream = $('#chStatus');
+    let _s = 0;
+    const onStream = currentIsDeepSeek() ? (delta => {
+      const d = String(delta||'');
+      _s += d.length; _fullContent += d;
+      if(stStream){ stStream.className='status'; stStream.textContent = `第 ${i+1}/${state.chapters.length} 章：撰写中 · 已生成 ${_s} 字`; }
+      // 实时推送内容到文本区
+      const ta = document.querySelector(`textarea[data-ch="${i}"]`);
+      if(ta){ ta.value = _fullContent; ta.scrollTop = ta.scrollHeight; }
+    }) : null;
+    const txt = await writeOneChapterContent(i, user, setPhase, onStream, opt.styleOverride);   // 各阶段经 setPhase 上报，正文流式实时字数经 onStream；v2.0 支持本章风格覆盖
+    // ★ 保存原始 AI 响应到 state，供手动提取
+    if(!state._lastChapterRaw) state._lastChapterRaw = {};
+    if(_chRawBuf && _chRawBuf.i === i){ state._lastChapterRaw[i] = _chRawBuf.raw; _chRawBuf = null; persist(); }
     snapshotChapterVersion(i);            // v7.2：覆盖前存旧版，支持回退
     state.chapters[i].content = txt;
     chState[i] = 'done';
@@ -6160,7 +6486,14 @@ async function genTwoChapters(pairStart){
   for(let k=0;k<2;k++){
     const idx = pairStart + k;
     // 每章完整上下文：词典+内容块（大纲/结构/逐章梗概）+ longChapterContext（卷/阶段/结构）+ 上一章真实正文
-    const txt = await writeOneChapterContent(idx, buildChapterUser(idx), null, null);
+    let _s2 = 0; let _full2 = '';
+    const onStream = currentIsDeepSeek() ? (delta => {
+      const d = String(delta||'');
+      _s2 += d.length; _full2 += d;
+      const ta = document.querySelector(`textarea[data-ch="${idx}"]`);
+      if(ta){ ta.value = _full2; ta.scrollTop = ta.scrollHeight; }
+    }) : null;
+    const txt = await writeOneChapterContent(idx, buildChapterUser(idx), null, onStream);
     snapshotChapterVersion(idx);            // v7.2：覆盖前存旧版，支持回退
     state.chapters[idx].content = txt;
   }
@@ -6175,7 +6508,14 @@ async function genNChapters(start, n){
     const idx = start + k;
     // 上一章真实正文已被本循环上一轮写入 state.chapters[start+k-1].content，
     // buildChapterUser 的 prevChapter 自动读它为承接（genTwoChapters 同）。
-    const txt = await writeOneChapterContent(idx, buildChapterUser(idx), null, null);
+    let _sN = 0; let _fullN = '';
+    const onStream = currentIsDeepSeek() ? (delta => {
+      const d = String(delta||'');
+      _sN += d.length; _fullN += d;
+      const ta = document.querySelector(`textarea[data-ch="${idx}"]`);
+      if(ta){ ta.value = _fullN; ta.scrollTop = ta.scrollHeight; }
+    }) : null;
+    const txt = await writeOneChapterContent(idx, buildChapterUser(idx), null, onStream);
     snapshotChapterVersion(idx);            // v7.2：覆盖前存旧版，支持回退
     state.chapters[idx].content = txt;
   }
@@ -6522,6 +6862,7 @@ function renderHistList(){
           <span class="hist-meta">${histProgress(p)} · ${fmtHistTime(p.updatedAt)}</span>
         </button>
         <button class="hist-del" data-fypexp="${p.id}" title="导出 .fyp 项目">📤</button>
+        <button class="hist-del" data-histdict="${p.id}" title="导出该作词典">📇</button>
         <button class="hist-del" data-del="${p.id}" title="删除作品">🗑</button>
       </div>
       <div class="hist-body">${preview}</div>
@@ -6529,6 +6870,8 @@ function renderHistList(){
   }).join('') || `<div class="hist-empty">还没有作品，点击「＋ 新建小说」开始。</div>`;
   $$('#histList [data-switch]').forEach(b=> b.onclick = ()=> switchProject(b.dataset.switch));
   $$('#histList [data-del]').forEach(b=> b.onclick = (e)=>{ e.stopPropagation(); deleteProject(b.dataset.del); });
+  // 历史作品一键导出该作词典（阶段5）
+  $$('#histList [data-histdict]').forEach(b=> b.onclick = (e)=>{ e.stopPropagation(); exportWorkGlossaryJSON(b.dataset.histdict); });
   // 历史作品一键导出整本 .fyp 项目
   $$('#histList [data-fypexp]').forEach(b=> b.onclick = (e)=>{ e.stopPropagation(); exportProjectFile(b.dataset.fypexp); });
   // 折叠/展开单条项目详情：只影响当前项，不影响其它项的选择
@@ -6683,7 +7026,7 @@ function exportProjectFile(id){
   downloadBlob(`${title}.fyp`, blob);
   toast('已导出 .fyp 项目文件');
 }
-// 导入 .fyp 文件：解析后整体还原到历史列表，经 localStorage 落盘并打开
+// 导入 .fyp 文件：解析后整体还原到历史列表，经 IDB 落盘并打开
 function importProjectFile(file){
   if(!file) return;
   const big = file.size > 5 * 1024 * 1024;
@@ -6702,11 +7045,11 @@ function importProjectFile(file){
         const others = lib.items.filter(i=> i.id !== lib.curId && i.id !== newId);
         others.sort((a,b)=> (a.updatedAt||0) - (b.updatedAt||0));
         const victim = others[0];
-        if(victim){ lib.items = lib.items.filter(i=> i.id !== victim.id); }
+        if(victim){ lib.items = lib.items.filter(i=> i.id !== victim.id); idbDelete(victim.id).catch(function(){}); }
       }
       lib.curId = newId;
       applyProject(item);
-      saveLib(); // 经 localStorage 落盘
+      saveLib(); // 经 IDB 落盘（fire-and-forget）
       closeHistPanel();
       render();
       window.scrollTo(0,0);
@@ -7068,7 +7411,7 @@ async function testConn(){
 /* =========================================================
  * 初始化
  * ========================================================= */
-// 启动加载遮罩（从 localStorage 读取历史项目库，毫秒级无感）
+// 启动加载遮罩（首次 await 读取 IDB，毫秒级，无感；IDB 失败也有兜底不卡死）
 function showBootLoading(show){
   const el = $('#bootLoading'); if(!el) return;
   el.classList.toggle('hidden', !show);
