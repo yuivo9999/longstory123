@@ -599,16 +599,17 @@ function makeStopBtn(){
   b.style.display = 'none';
   return b;
 }
-// 显示停止按钮，挂载到父容器
+// 显示停止按钮，挂载到父容器（每次重新创建，避免单例孤儿问题）
 function showStopBtn(parent){
-  if(!_abortBtn){ _abortBtn = makeStopBtn(); document.body.appendChild(_abortBtn); }
+  if(_abortBtn){ _abortBtn.remove(); _abortBtn = null; }
+  _abortBtn = makeStopBtn();
   _abortCtl = new AbortController();
   _abortBtn.style.display = '';
   parent.appendChild(_abortBtn);
 }
 // 隐藏停止按钮
 function hideStopBtn(){
-  if(_abortBtn){ _abortBtn.style.display = 'none'; }
+  if(_abortBtn){ _abortBtn.remove(); _abortBtn = null; }
   _abortCtl = null;
 }
 
@@ -2957,7 +2958,7 @@ function bindChapterTitleFold(){
   const head = $('[data-ct-fold]');
   if(!head) return;
   head.onclick = (e)=>{
-    if(e.target.closest('.cp-style-toggle') || e.target.closest('[data-ct-hist]') || e.target.closest('[data-ct-copy]') || e.target.closest('[data-ct-batch]') || e.target.closest('[data-rt-gen]')) return;
+    if(e.target.closest('.cp-style-toggle') || e.target.closest('[data-ct-hist]') || e.target.closest('[data-ct-copy]') || e.target.closest('[data-ct-batch]') || e.target.closest('[data-rt-gen]') || e.target.closest('.stop-btn')) return;
     state.ctCollapsed = !state.ctCollapsed;
     persist();
     const body = $('.ct-body'); if(body) body.hidden = state.ctCollapsed;
@@ -3239,7 +3240,7 @@ async function regenAllTitles(btn){
     if(e.name==='AbortError'){ toast('已停止重生成标题'); }
     else { toast('重生成标题失败：'+e.message); }
   }
-  finally{ hideStopBtn(); if(preview) preview.remove(); if(btn) busy(btn,false); }
+  finally{ hideStopBtn(); if(btn) busy(btn,false); }
 }
 
 // v10.15 标题质检：qcTemp 0.2 调用 TITLE_QC_SYS；问题标题行标红 + toast（失败静默跳过）
@@ -3308,7 +3309,7 @@ function bindChapterPlanFold(){
   const head = $('[data-cp-fold]');
   if(!head) return;
   head.onclick = (e)=>{
-    if(e.target.closest('.cp-style-toggle') || e.target.closest('[data-cp-hist]') || e.target.closest('[data-cp-gen]')) return;   // 不拦截风格约束/版本/生成按钮
+    if(e.target.closest('.cp-style-toggle') || e.target.closest('[data-cp-hist]') || e.target.closest('[data-cp-gen]') || e.target.closest('.stop-btn')) return;   // 不拦截风格约束/版本/生成/停止按钮
     state.cpCollapsed = !state.cpCollapsed;
     persist();
     const body = $('.cp-body'); if(body) body.hidden = state.cpCollapsed;
@@ -5263,7 +5264,7 @@ async function genChapterPlans(btn){
     if(e.name==='AbortError'){ toast('已停止生成梗概'); }
     else { toast('梗概生成失败：'+e.message); }
   }
-  finally{ hideStopBtn(); if(preview) preview.remove(); if(btn){ btn.classList.remove('cp-gen-btn-loading'); busy(btn,false); } }
+  finally{ hideStopBtn(); if(btn){ btn.classList.remove('cp-gen-btn-loading'); busy(btn,false); } }
 }
 
 /* ---------- P1-1v3 逐章梗概批量版本（整批快照 ≤5 份，应用后生效） ---------- */
@@ -6119,7 +6120,8 @@ async function genOneChapter(i, btn, opt={}){
   // 显示停止按钮：放在「阅读」按钮右侧
   const stopParent = btn && btn.closest('.btn-row') ? btn.closest('.btn-row') : null;
   if(stopParent){
-    if(!_abortBtn){ _abortBtn = makeStopBtn(); document.body.appendChild(_abortBtn); }
+    if(_abortBtn){ _abortBtn.remove(); _abortBtn = null; }
+    _abortBtn = makeStopBtn();
     _abortCtl = new AbortController();
     _abortBtn.style.display = '';
     const readBtn = stopParent.querySelector(`[data-read="${i}"]`);
