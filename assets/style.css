@@ -635,9 +635,11 @@ body.reader-lock{overflow:hidden}
 /* 行容器 */
 .cp-head-row{display:flex;align-items:center}
 /* 动作行：历史记录 左 + 重生成 中 */
-.cp-head-row.action-row{display:flex;align-items:center;gap:10px;justify-content:center}
-.cp-head-row.action-row .btn{flex:0 0 auto;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.15);color:rgba(255,255,255,.8);border-radius:8px;font-size:12px;padding:3px 8px;line-height:1.4;cursor:pointer;transition:all .2s;margin-right:auto}
+.cp-head-row.action-row{display:flex;align-items:center;gap:10px;position:relative;min-height:32px}
+.cp-head-row.action-row .btn{flex:0 0 auto;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.15);color:rgba(255,255,255,.8);border-radius:8px;font-size:12px;padding:3px 8px;line-height:1.4;cursor:pointer;transition:all .2s}
 .cp-head-row.action-row .btn:hover{background:rgba(255,255,255,.2);color:#fff}
+/* 生成梗概按钮在动作行中绝对居中 */
+.cp-head-row.action-row .cp-gen-btn{position:absolute;left:50%;transform:translateX(-50%);z-index:1}
 /* 风格约束 - 在头部内的变体 */
 .cp-head .cp-style-toggle{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.15);color:rgba(255,255,255,.85)}
 .cp-head .cp-style-toggle:hover{background:rgba(255,255,255,.18)}

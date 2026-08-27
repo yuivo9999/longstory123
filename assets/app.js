@@ -7,7 +7,7 @@
 'use strict';
 
 /* ---------- 全局状态 ---------- */
-const APP_VERSION = '1.0.25';   // 应用版本号（fixed11 基线 + 新增：① 逐章梗概受风格影响(默认开/随书/首位要求)；② 重生成全部标题受风格影响，独立开关 titleStyleOn 默认开、独占卡片第二行、rt-input 高度翻倍）：index.html 的 ?v= 资源戳与之同步递增，用于标识产物已更新
+const APP_VERSION = '1.0.29';   // 应用版本号（fixed11 基线 + 新增：① 逐章梗概受风格影响(默认开/随书/首位要求)；② 重生成全部标题受风格影响，独立开关 titleStyleOn 默认开、独占卡片第二行、rt-input 高度翻倍）：index.html 的 ?v= 资源戳与之同步递增，用于标识产物已更新
 const KEY_CFG = 'fyp_cfg';
 const KEY_STATE = 'fyp_state';   // 旧版单项目 key（仅用于首次迁移）
 const KEY_LIB = 'fyp_lib';       // 新版多项目历史库
@@ -185,10 +185,11 @@ function currentSpecLabel(){
   const model = s.model.replace('deepseek-v4-','').split('-')[0]; // v4-pro → pro
   return (s.groupLabel||'AI') + ' · ' + (s.keyLabel||'默认') + ' · ' + model;
 }
-// 当前所选是否为 DeepSeek 模型：只有 DeepSeek 才启用流式进度反馈，其他 AI 不反馈。
+// 当前所选模型是否支持流式：DeepSeek / 火山引擎 Doubao 启用流式进度反馈，其他 AI 不反馈。
 function currentIsDeepSeek(){
   const s = resolveActiveSpec();
-  return /deepseek/i.test(s.model||'') || /deepseek/i.test(s.groupId||'');
+  return /deepseek/i.test(s.model||'') || /deepseek/i.test(s.groupId||'')
+      || /doubao/i.test(s.model||'') || /doubao/i.test(s.groupId||'');
 }
 
 /* ---------- 主题切换（单页内深色 / 3D 黑板 / 热血 FC） ---------- */
@@ -3187,12 +3188,13 @@ async function regenAllTitles(btn){
   if(!confirm('将覆盖全部章节标题，确认重生成？')) return;
     const req = ($('#rtInput') && $('#rtInput').value.trim()) || '';
     if(btn) busy(btn,true,'重生成标题中…');
-    // 创建预览区
+    // 创建预览区（仅流式可用时显示）
     const ctBlock = btn && btn.closest('.ct-block');
     let preview = null;
-    if(ctBlock){
+    const isStream = currentIsDeepSeek();
+    if(isStream && ctBlock){
       preview = document.createElement('pre');
-      preview.className = 'cp-stream-preview'; preview.textContent = '等待 AI 响应…';
+      preview.className = 'cp-stream-preview'; preview.textContent = '正在生成标题…';
       ctBlock.appendChild(preview);
     }
     // 显示停止按钮
@@ -3215,15 +3217,45 @@ async function regenAllTitles(btn){
       _streamBuf += String(delta||'');
       if(preview){ preview.textContent = _streamBuf; preview.scrollTop = preview.scrollHeight; }
     };
-    const txt = await callDeepSeek(REGEN_TITLES_SYS, user, {temperature: spec.titleTemp, onStream: currentIsDeepSeek() ? onStream : null, signal: _abortCtl?.signal});
+    const txt = await callDeepSeek(REGEN_TITLES_SYS, user, {temperature: spec.titleTemp, onStream: isStream ? onStream : null, signal: _abortCtl?.signal});
     const j = parseJson(txt) || {};
     const titles = Array.isArray(j.titles) ? j.titles.map(t=>String(t||'').trim()).filter(Boolean) : [];
     if(!titles.length){ toast('未解析到新标题，请重试'); return; }
     snapshotTitleBatch('重生成前');   // 把改动前的整批标题归档为可回退版本（≤5）
     const cnt = setAllTitles(titles);
-    render();   // 立即重绘章节标题区，让新标题立刻上屏（否则 DOM 中的 .ct-title 仍显示旧标题）
-    // 自动标题质检（qcTemp 0.2）：只提示不自动改（渲染后 .ct-row 已带新标题，标红能正确落在对应行）
-    runTitleQC(titles);
+    // 就地更新标题行，不刷新全页（保留预览区）
+    document.querySelectorAll('.ct-row').forEach((row,i)=>{
+      const el = row.querySelector('.ct-title');
+      if(el && o.chapters[i] && o.chapters[i].title){
+        el.textContent = o.chapters[i].title;
+        el.title = o.chapters[i].title;
+      }
+    });
+    // 立即刷新「标题版本」按钮（若已存在批次则显示）
+    const ctBlock2 = document.querySelector('.ct-block');
+    const ctTools = ctBlock2 && ctBlock2.querySelector('.ct-tools');
+    if(ctTools){
+      const existingBtn = ctTools.querySelector('[data-ct-batch]');
+      const btCount = chTitleBatches().length;
+      if(btCount && !existingBtn){
+        const b = document.createElement('button');
+        b.type='button'; b.className='btn small ghost'; b.dataset.ctBatch='';
+        b.title='查看并可整批回退「重生成全部标题」的历史版本';
+        b.innerHTML = '🔁 标题版本('+btCount+'/5)';
+        b.onclick = ()=> openChTitleBatchPanel();
+        // 插在复制按钮之前
+        const copyBtn = ctTools.querySelector('[data-ct-copy]');
+        if(copyBtn) ctTools.insertBefore(b, copyBtn);
+        else ctTools.appendChild(b);
+      }else if(btCount && existingBtn){
+        existingBtn.innerHTML = '🔁 标题版本('+btCount+'/5)';
+      }
+    }
+    // 清除旧标题质检数据（禁用标题质检）
+    if(o) o.titleQC = undefined;
+    // 移除所有行上的红色质检标记
+    document.querySelectorAll('.ct-row').forEach(row=> row.classList.remove('ct-issue'));
+    // 自动标题质检（已禁用）
     toast(`已重生成 ${cnt} 个章节标题`);
   }catch(e){
     if(e.name==='AbortError'){ toast('已停止重生成标题'); }
@@ -5176,11 +5208,15 @@ async function genChapterPlans(btn){
   const o = state.outline;
   if(!isLong() || !o) return;
   if(btn){ btn.classList.add('cp-gen-btn-loading'); busy(btn,true,'生成逐章梗概中…'); }
-  // 创建临时预览区
+  // 创建临时预览区（仅流式可用时显示）
   const cpBody = btn && btn.closest('.cp-card') && btn.closest('.cp-card').querySelector('.cp-body .cp-list');
-  const preview = document.createElement('pre');
-  preview.className = 'cp-stream-preview'; preview.textContent = '等待 AI 响应…';
-  if(cpBody) cpBody.parentNode.insertBefore(preview, cpBody);
+  let preview = null;
+  const isStream = currentIsDeepSeek();
+  if(isStream && cpBody){
+    preview = document.createElement('pre');
+    preview.className = 'cp-stream-preview'; preview.textContent = '正在生成梗概…';
+    cpBody.parentNode.insertBefore(preview, cpBody);
+  }
   // 显示停止按钮
   const stopParent = btn && btn.closest('.action-row') ? btn.closest('.action-row') : (btn&&btn.parentNode);
   if(stopParent) showStopBtn(stopParent);
@@ -5200,10 +5236,9 @@ async function genChapterPlans(btn){
     const user = parts.join('\n\n') + '\n\n' + ORIGINALITY_OUTLINE_SYS;   // v10.12 防套路：方向防套路 + 人名规避（复用大纲侧）
     const onStream = delta => {
       _streamBuf += String(delta||'');
-      preview.textContent = _streamBuf;
-      preview.scrollTop = preview.scrollHeight;
+      if(preview){ preview.textContent = _streamBuf; preview.scrollTop = preview.scrollHeight; }
     };
-    const txt = await callDeepSeek(CHAPTER_PLAN_SYS, user, {temperature: resolveActiveSpec().planTemp, onStream: currentIsDeepSeek() ? onStream : null, signal: _abortCtl?.signal});
+    const txt = await callDeepSeek(CHAPTER_PLAN_SYS, user, {temperature: resolveActiveSpec().planTemp, onStream: isStream ? onStream : null, signal: _abortCtl?.signal});
     const j = parseJson(txt) || {};
     const arr = Array.isArray(j.chapterPlans) ? j.chapterPlans.map(x=>String(x||'').trim()) : [];
     if(!arr.length || !arr.some(Boolean)){ toast('未解析到梗概，请重试'); return; }
@@ -5213,7 +5248,51 @@ async function genChapterPlans(btn){
     // P1-1v3 覆盖前把旧整批归档为可回退版本（整批、上限5、去重）
     pushChapterPlansSnapshot();
     o.chapterPlans = plans;
-    persist(); render();
+    persist();
+    // 就地更新梗概列表，不刷新全页（保留预览区；同时更新「版本」按钮）
+    const cpList = document.querySelector('.cp-card .cp-list');
+    if(cpList){
+      const items = plans.map((t,i)=>`
+        <div class="cp-item">
+          <span class="cp-no">${i+1}</span>
+          <textarea class="cp-input" rows="3" data-cp-set="${i}" data-orig="${esc(t)}" placeholder="本章梗概（可编辑）">${esc(t)}</textarea>
+          <span class="cp-wc">${t.length}字</span>
+        </div>`).join('');
+      cpList.innerHTML = items;
+      // 重新绑定失焦存 + 字数统计
+      $$('.cp-input').forEach(inp=>{
+        inp.oninput = ()=>{
+          const wc = inp.parentNode && inp.parentNode.querySelector('.cp-wc');
+          if(wc) wc.textContent = inp.value.length + '字';
+        };
+        inp.onchange = ()=>{
+          const o = state.outline; if(!o) return;
+          if(!Array.isArray(o.chapterPlans)) o.chapterPlans = [];
+          const i = +inp.dataset.cpSet;
+          if(inp.value === inp.dataset.orig) return;
+          o.chapterPlans[i] = inp.value;
+          inp.dataset.orig = inp.value;
+          persist();
+        };
+      });
+    }
+    // 刷新「版本」按钮
+    const actionRow = document.querySelector('.cp-card .action-row');
+    if(actionRow){
+      const histBtn = actionRow.querySelector('[data-cp-hist]');
+      const histCount = chapterPlansHistoryCount();
+      if(histCount && !histBtn){
+        const b = document.createElement('button');
+        b.type='button'; b.className='btn ghost'; b.dataset.cpHist='';
+        b.innerHTML = '📚 版本('+histCount+')';
+        b.onclick = ()=> openChapterPlansHistoryPanel();
+        actionRow.insertBefore(b, actionRow.querySelector('.cp-gen-btn'));
+      }else if(histCount && histBtn){
+        histBtn.innerHTML = '📚 版本('+histCount+')';
+      }
+    }
+    // 重新绑定折叠事件防止冲突
+    bindChapterPlanFold();
     toast(`已生成 ${plans.filter(Boolean).length} 条逐章梗概`);
   }catch(e){
     if(e.name==='AbortError'){ toast('已停止生成梗概'); }
