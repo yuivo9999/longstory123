@@ -7,7 +7,7 @@
 'use strict';
 
 /* ---------- 全局状态 ---------- */
-const APP_VERSION = '1.0.31';   // 应用版本号（fixed11 基线 + 新增：① 逐章梗概受风格影响(默认开/随书/首位要求)；② 重生成全部标题受风格影响，独立开关 titleStyleOn 默认开、独占卡片第二行、rt-input 高度翻倍）：index.html 的 ?v= 资源戳与之同步递增，用于标识产物已更新
+const APP_VERSION = '1.0.35';   // 应用版本号（fixed11 基线 + 新增：① 逐章梗概受风格影响(默认开/随书/首位要求)；② 重生成全部标题受风格影响，独立开关 titleStyleOn 默认开、独占卡片第二行、rt-input 高度翻倍）：index.html 的 ?v= 资源戳与之同步递增，用于标识产物已更新
 const KEY_CFG = 'fyp_cfg';
 const KEY_STATE = 'fyp_state';   // 旧版单项目 key（仅用于首次迁移）
 const KEY_LIB = 'fyp_lib';       // 新版多项目历史库
@@ -36,6 +36,7 @@ const state = {
   gsCollapsed: true,    // v8b：万物词典卡片是否整卡收缩（默认收缩，点圆形展开全部）
   stCollapsed: false,   // v10.3：长篇结构设计栏是否收缩（默认展开，点击标题收起）
   cpCollapsed: true,    // v10.14：逐章方向梗概卡是否收缩（默认折叠，点击标题展开）
+  ctCollapsed: true,    // v10.20：章节标题卡片是否收缩（默认折叠，点击标题展开）
   planStyleOn: true,    // 逐章梗概是否受顶部写作风格影响（默认开；作为生成时的首位硬要求；随每本书）
   titleStyleOn: true,   // 重生成全部标题是否受顶部写作风格影响（默认开；独立开关、首位硬要求、随每本书）
   autoQC: false,        // 自动质检开关（默认关闭，v10.18）：生成后自动两段式查错修正；关则直接落库
@@ -246,6 +247,7 @@ function projectSnapshot(){
     gsCollapsed: state.gsCollapsed,
     stCollapsed: state.stCollapsed,
     cpCollapsed: state.cpCollapsed,   // v10.14 梗概卡折叠透传
+    ctCollapsed: state.ctCollapsed,   // v10.20 章节标题卡折叠透传
     planStyleOn: (typeof state.planStyleOn === 'boolean') ? state.planStyleOn : true,   // 逐章梗概受写作风格影响开关（随书）
     titleStyleOn: (typeof state.titleStyleOn === 'boolean') ? state.titleStyleOn : true,   // 重生成标题受写作风格影响开关（独立、随书）
     polishOptions: state.polishOptions,   // v10.16 优化构想保留方案透传
@@ -289,6 +291,7 @@ function applyProject(p){
   state.gsCollapsed = (typeof p.gsCollapsed === 'boolean') ? p.gsCollapsed : true;
   state.stCollapsed = !!p.stCollapsed;
   state.cpCollapsed = (typeof p.cpCollapsed === 'boolean') ? p.cpCollapsed : true;   // v10.14 梗概卡默认折叠
+  state.ctCollapsed = (typeof p.ctCollapsed === 'boolean') ? p.ctCollapsed : true;   // v10.20 章节标题卡默认折叠
   state.planStyleOn = (typeof p.planStyleOn === 'boolean') ? p.planStyleOn : true;     // 逐章梗概风格约束默认开（随书）
   state.titleStyleOn = (typeof p.titleStyleOn === 'boolean') ? p.titleStyleOn : true;   // 重生成标题风格约束默认开（独立、随书）
   state.polishOptions = Array.isArray(p.polishOptions) ? p.polishOptions : undefined;   // v10.16 保留方案
@@ -346,57 +349,24 @@ function migrateRecipeSet(set, legacyRecipe){
   const legacyMap = { mesh:{structure:'mesh',rhythm:null,quality:[]}, layered:{structure:'layered',rhythm:null,quality:[]}, dual:{structure:'mesh',rhythm:null,quality:['dual']}, web:{structure:null,rhythm:'web',quality:[]}, web100:{structure:null,rhythm:'web',quality:[]}, causal:{structure:'causal',rhythm:null,quality:[]} };
   return legacyMap[legacyRecipe] || { structure:null, rhythm:null, quality:[] };
 }
-// 落盘：优先写 IndexedDB（突破 5MB）；IDB 不可用或写入失败时回退 localStorage 双写，保证不丢。
-// 注意：保持内存模型 lib 不变，仅替换"落盘通道"。调用方（persist/开关项目/新建/删除）无需改动。
-function idbSaveLib(){
-  if(!idbAvailable()){
-    // IDB 不可用：直接写回 localStorage 旧库路径（仅作回退，避免数据丢失）
-    try{ localStorage.setItem(KEY_LIB, JSON.stringify(lib)); }catch(e){}
-    return;
-  }
-  idbPutAll(lib.items, lib.curId).catch(function(){
-    // IDB 写入失败：回退 localStorage，保证本次改动不丢
-    try{ localStorage.setItem(KEY_LIB, JSON.stringify(lib)); }catch(e2){}
-  });
-}
+// 落盘：直接写 localStorage（~5MB 上限）
 function saveLib(){
-  idbSaveLib();   // 原同步落盘改为异步走 IDB（fire-and-forget）
+  try{ localStorage.setItem(KEY_LIB, JSON.stringify(lib)); }catch(e){}
 }
 function robustSaveLib(){
-  // 超过上限则淘汰最旧非当前项目（保持内存模型整洁，并清理 IDB 中孤儿记录）
+  // 超过上限则淘汰最旧非当前项目（保持内存模型整洁）
   while(lib.items.length > MAX_PROJECTS){
     const others = lib.items.filter(i=> i.id !== lib.curId);
     if(!others.length) break;
     others.sort((a,b)=> (a.updatedAt||0) - (b.updatedAt||0));
     const victim = others[0];
     lib.items = lib.items.filter(i=> i.id !== victim.id);
-    idbDelete(victim.id).catch(function(){}); // 清理 IDB 孤儿，避免重复
   }
-  idbSaveLib();
+  saveLib();
 }
-// 把现有 localStorage 旧库一次性灌入 IDB（双写一版，不删 localStorage 旧数据，零丢失）
-function idbMigrateFromLib(libObj){
-  if(!idbAvailable()) return;
-  idbPutAll(libObj.items, libObj.curId).catch(function(){});
-}
-// 首次加载（异步）：优先读 IndexedDB 全量项目；IDB 为空/不可用→回退旧 localStorage fyp_lib（双写迁移进 IDB）；再无→迁移旧单项目 fyp_state
+// 首次加载：从 localStorage 读取历史项目库（~5MB 上限）
 async function loadState(){
   clearState();
-  // 1) 优先读 IndexedDB
-  try{
-    if(idbAvailable()){
-      const items = await idbList();
-      if(items && items.length){
-        const curId = (await idbGetMeta()) || (items[0] && items[0].id);
-        lib = { curId: curId, items: items };
-        // 保持 curId 有效
-        if(!lib.items.some(i=> i.id === lib.curId)) lib.curId = lib.items[0] && lib.items[0].id;
-        if(lib.curId){ const cur = lib.items.find(i=> i.id === lib.curId); if(cur) applyProject(cur); }
-        return;
-      }
-    }
-  }catch(e){ /* IDB 读取失败，继续回退 localStorage */ }
-  // 2) IDB 空或不可用：回退旧 localStorage fyp_lib（并双写迁移进 IDB，不删旧数据）
   try{
     const raw = localStorage.getItem(KEY_LIB);
     if(raw){
@@ -405,12 +375,11 @@ async function loadState(){
         lib = parsed;
         if(!lib.items.some(i=> i.id === lib.curId)) lib.curId = lib.items[0] && lib.items[0].id;
         if(lib.curId){ const cur = lib.items.find(i=> i.id === lib.curId); if(cur) applyProject(cur); }
-        idbMigrateFromLib(lib); // 双写进 IDB（fire-and-forget），旧 localStorage 保留作回退
         return;
       }
     }
   }catch(e){}
-  // 3) 无新库：尝试迁移旧版单项目 fyp_state
+  // 无新库：尝试迁移旧版单项目 fyp_state
   migrateOldState();
 }
 function migrateOldState(){
@@ -2946,6 +2915,8 @@ function chapterTitleBlock(){
   const o = state.outline;
   const arr = (o && Array.isArray(o.chapters)) ? o.chapters : [];
   if(!arr.length) return '';
+  const collapsed = !!state.ctCollapsed;
+  const btCount = chTitleBatches().length;
   // P1-4 标题质检持久化：render 时从 o.titleQC 恢复标红（不再只存活一次渲染）
   const qc = (o.titleQC && Array.isArray(o.titleQC.issues)) ? o.titleQC.issues : [];
   const rows = arr.map((c,i)=>`
@@ -2954,10 +2925,13 @@ function chapterTitleBlock(){
       <span class="ct-title" title="${esc((c&&c.title)||'')}">${esc((c&&c.title)||('第'+(i+1)+'章'))}</span>
       <button type="button" class="ct-edit" data-ct-edit="${i}" title="编辑标题">✎</button>
     </div>`).join('');
-  return `<div class="ct-block">
-    <div class="ct-head">
-      <b>📚 章节标题</b>
-      <span class="ct-tools">
+  return `<div class="ct-card">
+    <div class="ct-head-fold" data-ct-fold role="button" tabindex="0" title="展开/收起">
+      <div class="ct-head-fold-left">
+        <span class="ct-arrow">${collapsed?'▸':'▾'}</span>
+        <b>📚 章节标题</b>
+      </div>
+      <span class="ct-head-fold-tools">
         <label class="cp-style-toggle" title="开启后，重生成全部标题会按顶部写作风格（语气/质感/元素/浓度）作为首位硬要求约束 AI；关闭则不受风格影响（开关随本书保存）">
           <input type="checkbox" data-rt-style ${state.titleStyleOn?'checked':''}/> 标题风格约束
         </label>
@@ -2965,13 +2939,30 @@ function chapterTitleBlock(){
         <button type="button" class="btn small ghost" data-ct-copy>📋 复制全部章节标题</button>
       </span>
     </div>
-    <div class="ct-row2">
-      <button type="button" class="btn small ghost" data-rt-gen>🔄 重生成全部标题</button>
-      ${chTitleBatches().length?`<button type="button" class="btn small ghost" data-ct-batch title="查看并可整批回退「重生成全部标题」的历史版本">🔁 标题版本(${chTitleBatches().length}/5)</button>`:''}
+    <div class="ct-body"${collapsed?' hidden':''}>
+      <div class="ct-row2">
+        <button type="button" class="btn small ghost" data-rt-gen>🔄 重生成全部标题</button>
+      </div>
+      <div class="ct-row3">
+        <button type="button" class="btn ct-ver-btn" data-ct-batch title="查看并可整批回退「重生成全部标题」的历史版本">🔁 版本(${btCount}/5)</button>
+      </div>
+      <input type="text" class="rt-input" id="rtInput" placeholder="重生成要求（选填）：如『标题更有悬念感』『避免剧透式标题』『每章标题用双字词』" />
+      <div class="ct-list">${rows}</div>
     </div>
-    <input type="text" class="rt-input" id="rtInput" placeholder="重生成要求（选填）：如『标题更有悬念感』『避免剧透式标题』『每章标题用双字词』" />
-    <div class="ct-list">${rows}</div>
   </div>`;
+}
+
+// v10.20 章节标题卡片折叠绑定：点击标题行切换，状态持久化
+function bindChapterTitleFold(){
+  const head = $('[data-ct-fold]');
+  if(!head) return;
+  head.onclick = (e)=>{
+    if(e.target.closest('.cp-style-toggle') || e.target.closest('[data-ct-hist]') || e.target.closest('[data-ct-copy]') || e.target.closest('[data-ct-batch]') || e.target.closest('[data-rt-gen]')) return;
+    state.ctCollapsed = !state.ctCollapsed;
+    persist();
+    const body = $('.ct-body'); if(body) body.hidden = state.ctCollapsed;
+    const ico = head.querySelector('.ct-arrow'); if(ico) ico.textContent = state.ctCollapsed ? '▸' : '▾';
+  };
 }
 
 // v10.14 章节标题绑定：复制全部 / ✎ 进入编辑态（失焦或回车存、Esc 还原、同刻单行互斥）
@@ -3192,19 +3183,9 @@ async function regenAllTitles(btn){
   if(!confirm('将覆盖全部章节标题，确认重生成？')) return;
     const req = ($('#rtInput') && $('#rtInput').value.trim()) || '';
     if(btn) busy(btn,true,'重生成标题中…');
-    // 创建预览区（仅流式可用时显示）
-    const ctBlock = btn && btn.closest('.ct-block');
-    let preview = null;
-    const isStream = currentIsDeepSeek();
-    if(isStream && ctBlock){
-      preview = document.createElement('pre');
-      preview.className = 'cp-stream-preview'; preview.textContent = '正在生成标题…';
-      ctBlock.appendChild(preview);
-    }
     // 显示停止按钮
     const stopParent = btn && btn.parentNode;
     if(stopParent) showStopBtn(stopParent);
-    let _streamBuf = '';
     try{
       const spec = resolveActiveSpec();
       const st = o.structure || {};
@@ -3217,11 +3198,7 @@ async function regenAllTitles(btn){
       }
       parts.push(`小说标题：${o.title||''}\n一句话梗概：${o.logline||''}\n\n【长篇结构设计】\n${JSON.stringify(st).slice(0,800)}\n\n【设定词典】\n${gloss}\n\n【现有章节标题】\n${(o.chapters||[]).map((c,i)=>`第${i+1}章 ${(c&&c.title)||''}`).join(' / ')}${req?`\n\n【重生成要求】\n${req}`:''}`);
       const user = parts.join('\n\n');
-    const onStream = delta => {
-      _streamBuf += String(delta||'');
-      if(preview){ preview.textContent = _streamBuf; preview.scrollTop = preview.scrollHeight; }
-    };
-    const txt = await callDeepSeek(REGEN_TITLES_SYS, user, {temperature: spec.titleTemp, onStream: isStream ? onStream : null, signal: _abortCtl?.signal});
+    const txt = await callDeepSeek(REGEN_TITLES_SYS, user, {temperature: spec.titleTemp, signal: _abortCtl?.signal});
     const j = parseJson(txt) || {};
     const titles = Array.isArray(j.titles) ? j.titles.map(t=>String(t||'').trim()).filter(Boolean) : [];
     if(!titles.length){ toast('未解析到新标题，请重试'); return; }
@@ -3235,21 +3212,21 @@ async function regenAllTitles(btn){
         el.title = o.chapters[i].title;
       }
     });
-    // 立即刷新「标题版本」按钮（放入 .ct-row2 最右）
-    const ctBlock2 = document.querySelector('.ct-block');
-    const ctRow2 = ctBlock2 && ctBlock2.querySelector('.ct-row2');
-    if(ctRow2){
-      const existingBtn = ctRow2.querySelector('[data-ct-batch]');
+    // 立即刷新「标题版本」按钮（放入 .ct-row3）
+    const ctCard = document.querySelector('.ct-card');
+    const ctRow3 = ctCard && ctCard.querySelector('.ct-row3');
+    if(ctRow3){
+      const existingBtn = ctRow3.querySelector('[data-ct-batch]');
       const btCount = chTitleBatches().length;
-      if(btCount && !existingBtn){
+      if(!existingBtn){
         const b = document.createElement('button');
-        b.type='button'; b.className='btn small ghost'; b.dataset.ctBatch='';
+        b.type='button'; b.className='btn ct-ver-btn'; b.dataset.ctBatch='';
         b.title='查看并可整批回退「重生成全部标题」的历史版本';
-        b.innerHTML = '🔁 标题版本('+btCount+'/5)';
+        b.innerHTML = '🔁 版本('+btCount+'/5)';
         b.onclick = ()=> openChTitleBatchPanel();
-        ctRow2.appendChild(b);
-      }else if(btCount && existingBtn){
-        existingBtn.innerHTML = '🔁 标题版本('+btCount+'/5)';
+        ctRow3.appendChild(b);
+      }else{
+        existingBtn.innerHTML = '🔁 版本('+btCount+'/5)';
       }
     }
     // 清除旧标题质检数据（禁用标题质检）
@@ -3314,7 +3291,7 @@ function chapterPlanBlock(){
         </span>
       </div>
       <div class="cp-head-row action-row">
-        ${hasChapterPlansHistory()?`<button type="button" class="btn ghost" data-cp-hist>📚 版本(${chapterPlansHistoryCount()})</button>`:''}
+        <button type="button" class="btn ghost" data-cp-hist>📚 版本(${chapterPlansHistoryCount()}/5)</button>
         <button type="button" class="cp-gen-btn" data-cp-gen>${hasPlans?'🔄 重生成梗概':'📝 生成逐章梗概'}</button>
       </div>
     </div>
@@ -4851,6 +4828,7 @@ function bindView(){
   bindStructureEdit();// P0-2 结构设计行内编辑（失焦即存 + 追加副线）
   bindChapterPlan();  // v10.11 逐章梗概区块绑定
   bindChapterPlanFold(); // v10.14 梗概卡折叠绑定
+  bindChapterTitleFold(); // v10.20 章节标题卡折叠绑定
   bindChapterTitles();// v10.14 章节标题编辑 + 复制绑定
   bindWriteStyle();   // v2.0 写作风格卡片绑定（chips/浓度/预设/收藏/管理/清空）
   bindPendingGlossary();
@@ -5209,19 +5187,9 @@ async function genChapterPlans(btn){
   const o = state.outline;
   if(!isLong() || !o) return;
   if(btn){ btn.classList.add('cp-gen-btn-loading'); busy(btn,true,'生成逐章梗概中…'); }
-  // 创建临时预览区（仅流式可用时显示）
-  const cpBody = btn && btn.closest('.cp-card') && btn.closest('.cp-card').querySelector('.cp-body .cp-list');
-  let preview = null;
-  const isStream = currentIsDeepSeek();
-  if(isStream && cpBody){
-    preview = document.createElement('pre');
-    preview.className = 'cp-stream-preview'; preview.textContent = '正在生成梗概…';
-    cpBody.parentNode.insertBefore(preview, cpBody);
-  }
   // 显示停止按钮
   const stopParent = btn && btn.closest('.action-row') ? btn.closest('.action-row') : (btn&&btn.parentNode);
   if(stopParent) showStopBtn(stopParent);
-  let _streamBuf = '';
   try{
     const titles = (o.chapters||[]).map((c,i)=> `第${i+1}章《${c&&c.title||''}》`).filter(Boolean).join(' / ');
     if(!titles){ toast('尚无章节标题'); return; }
@@ -5235,11 +5203,7 @@ async function genChapterPlans(btn){
     parts.push(structurePlanBlockNoTitles(o));   // 长篇结构设计（主线/副线/暗线/汇合，不含章节标题清单，避免与上方「全部章节标题」重复夹带，遵 v2.3）
     parts.push(chapterGlossaryBlock());
     const user = parts.join('\n\n') + '\n\n' + ORIGINALITY_OUTLINE_SYS;   // v10.12 防套路：方向防套路 + 人名规避（复用大纲侧）
-    const onStream = delta => {
-      _streamBuf += String(delta||'');
-      if(preview){ preview.textContent = _streamBuf; preview.scrollTop = preview.scrollHeight; }
-    };
-    const txt = await callDeepSeek(CHAPTER_PLAN_SYS, user, {temperature: resolveActiveSpec().planTemp, onStream: isStream ? onStream : null, signal: _abortCtl?.signal});
+    const txt = await callDeepSeek(CHAPTER_PLAN_SYS, user, {temperature: resolveActiveSpec().planTemp, signal: _abortCtl?.signal});
     const j = parseJson(txt) || {};
     const arr = Array.isArray(j.chapterPlans) ? j.chapterPlans.map(x=>String(x||'').trim()) : [];
     if(!arr.length || !arr.some(Boolean)){ toast('未解析到梗概，请重试'); return; }
@@ -5277,19 +5241,19 @@ async function genChapterPlans(btn){
         };
       });
     }
-    // 刷新「版本」按钮
+    // 刷新「版本」按钮（始终显示，格式 版本(x/5)）
     const actionRow = document.querySelector('.cp-card .action-row');
     if(actionRow){
       const histBtn = actionRow.querySelector('[data-cp-hist]');
       const histCount = chapterPlansHistoryCount();
-      if(histCount && !histBtn){
+      if(!histBtn){
         const b = document.createElement('button');
         b.type='button'; b.className='btn ghost'; b.dataset.cpHist='';
-        b.innerHTML = '📚 版本('+histCount+')';
+        b.innerHTML = '📚 版本('+histCount+'/5)';
         b.onclick = ()=> openChapterPlansHistoryPanel();
         actionRow.insertBefore(b, actionRow.querySelector('.cp-gen-btn'));
-      }else if(histCount && histBtn){
-        histBtn.innerHTML = '📚 版本('+histCount+')';
+      }else{
+        histBtn.innerHTML = '📚 版本('+histCount+'/5)';
       }
     }
     // 重新绑定折叠事件防止冲突
@@ -5334,7 +5298,7 @@ function deleteChapterPlansVersion(idx){
 }
 function openChapterPlansHistoryPanel(){
   closeChapterPlansHistoryPanel();
-  const hist = chapterPlansHistory(); if(!hist.length){ toast('暂无历史版本'); return; }
+  const hist = chapterPlansHistory(); if(!hist.length){ toast('暂无批量版本'); return; }
   const o = state.outline;
   const fmtTs = ts=>{ const d=new Date(ts); return (d.getMonth()+1)+'-'+d.getDate()+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); };
   const rows = hist.map((h,idx)=>{
@@ -6169,21 +6133,9 @@ async function genOneChapter(i, btn, opt={}){
   const st = $('#chStatus');
   const setPhase = msg => { if(st){ st.className='status'; st.textContent = `第 ${i+1}/${state.chapters.length} 章：${msg||''}`; } };
   setPhase('准备中…');
-  let _fullContent = '';
   try{
     const user = buildChapterUser(i, {regenerating:true, advice:opt.advice, styleOverride: opt.styleOverride});   // v2.4 本章覆盖时 user 风格重申同步
-    // 实时进度：流式内容实时推送到文本区
-    const stStream = $('#chStatus');
-    let _s = 0;
-    const onStream = currentIsDeepSeek() ? (delta => {
-      const d = String(delta||'');
-      _s += d.length; _fullContent += d;
-      if(stStream){ stStream.className='status'; stStream.textContent = `第 ${i+1}/${state.chapters.length} 章：撰写中 · 已生成 ${_s} 字`; }
-      // 实时推送内容到文本区
-      const ta = document.querySelector(`textarea[data-ch="${i}"]`);
-      if(ta){ ta.value = _fullContent; ta.scrollTop = ta.scrollHeight; }
-    }) : null;
-    const txt = await writeOneChapterContent(i, user, setPhase, onStream, opt.styleOverride);   // 各阶段经 setPhase 上报，正文流式实时字数经 onStream；v2.0 支持本章风格覆盖
+    const txt = await writeOneChapterContent(i, user, setPhase, null, opt.styleOverride);   // v2.0 支持本章风格覆盖
     snapshotChapterVersion(i);            // v7.2：覆盖前存旧版，支持回退
     state.chapters[i].content = txt;
     chState[i] = 'done';
@@ -6206,14 +6158,7 @@ async function genTwoChapters(pairStart){
   for(let k=0;k<2;k++){
     const idx = pairStart + k;
     // 每章完整上下文：词典+内容块（大纲/结构/逐章梗概）+ longChapterContext（卷/阶段/结构）+ 上一章真实正文
-    let _s2 = 0; let _full2 = '';
-    const onStream = currentIsDeepSeek() ? (delta => {
-      const d = String(delta||'');
-      _s2 += d.length; _full2 += d;
-      const ta = document.querySelector(`textarea[data-ch="${idx}"]`);
-      if(ta){ ta.value = _full2; ta.scrollTop = ta.scrollHeight; }
-    }) : null;
-    const txt = await writeOneChapterContent(idx, buildChapterUser(idx), null, onStream);
+    const txt = await writeOneChapterContent(idx, buildChapterUser(idx), null, null);
     snapshotChapterVersion(idx);            // v7.2：覆盖前存旧版，支持回退
     state.chapters[idx].content = txt;
   }
@@ -6228,14 +6173,7 @@ async function genNChapters(start, n){
     const idx = start + k;
     // 上一章真实正文已被本循环上一轮写入 state.chapters[start+k-1].content，
     // buildChapterUser 的 prevChapter 自动读它为承接（genTwoChapters 同）。
-    let _sN = 0; let _fullN = '';
-    const onStream = currentIsDeepSeek() ? (delta => {
-      const d = String(delta||'');
-      _sN += d.length; _fullN += d;
-      const ta = document.querySelector(`textarea[data-ch="${idx}"]`);
-      if(ta){ ta.value = _fullN; ta.scrollTop = ta.scrollHeight; }
-    }) : null;
-    const txt = await writeOneChapterContent(idx, buildChapterUser(idx), null, onStream);
+    const txt = await writeOneChapterContent(idx, buildChapterUser(idx), null, null);
     snapshotChapterVersion(idx);            // v7.2：覆盖前存旧版，支持回退
     state.chapters[idx].content = txt;
   }
@@ -6582,7 +6520,6 @@ function renderHistList(){
           <span class="hist-meta">${histProgress(p)} · ${fmtHistTime(p.updatedAt)}</span>
         </button>
         <button class="hist-del" data-fypexp="${p.id}" title="导出 .fyp 项目">📤</button>
-        <button class="hist-del" data-histdict="${p.id}" title="导出该作词典">📇</button>
         <button class="hist-del" data-del="${p.id}" title="删除作品">🗑</button>
       </div>
       <div class="hist-body">${preview}</div>
@@ -6590,8 +6527,6 @@ function renderHistList(){
   }).join('') || `<div class="hist-empty">还没有作品，点击「＋ 新建小说」开始。</div>`;
   $$('#histList [data-switch]').forEach(b=> b.onclick = ()=> switchProject(b.dataset.switch));
   $$('#histList [data-del]').forEach(b=> b.onclick = (e)=>{ e.stopPropagation(); deleteProject(b.dataset.del); });
-  // 历史作品一键导出该作词典（阶段5）
-  $$('#histList [data-histdict]').forEach(b=> b.onclick = (e)=>{ e.stopPropagation(); exportWorkGlossaryJSON(b.dataset.histdict); });
   // 历史作品一键导出整本 .fyp 项目
   $$('#histList [data-fypexp]').forEach(b=> b.onclick = (e)=>{ e.stopPropagation(); exportProjectFile(b.dataset.fypexp); });
   // 折叠/展开单条项目详情：只影响当前项，不影响其它项的选择
@@ -6746,7 +6681,7 @@ function exportProjectFile(id){
   downloadBlob(`${title}.fyp`, blob);
   toast('已导出 .fyp 项目文件');
 }
-// 导入 .fyp 文件：解析后整体还原到历史列表，经 IDB 落盘并打开
+// 导入 .fyp 文件：解析后整体还原到历史列表，经 localStorage 落盘并打开
 function importProjectFile(file){
   if(!file) return;
   const big = file.size > 5 * 1024 * 1024;
@@ -6765,11 +6700,11 @@ function importProjectFile(file){
         const others = lib.items.filter(i=> i.id !== lib.curId && i.id !== newId);
         others.sort((a,b)=> (a.updatedAt||0) - (b.updatedAt||0));
         const victim = others[0];
-        if(victim){ lib.items = lib.items.filter(i=> i.id !== victim.id); idbDelete(victim.id).catch(function(){}); }
+        if(victim){ lib.items = lib.items.filter(i=> i.id !== victim.id); }
       }
       lib.curId = newId;
       applyProject(item);
-      saveLib(); // 经 IDB 落盘（fire-and-forget）
+      saveLib(); // 经 localStorage 落盘
       closeHistPanel();
       render();
       window.scrollTo(0,0);
@@ -7131,7 +7066,7 @@ async function testConn(){
 /* =========================================================
  * 初始化
  * ========================================================= */
-// 启动加载遮罩（首次 await 读取 IDB，毫秒级，无感；IDB 失败也有兜底不卡死）
+// 启动加载遮罩（从 localStorage 读取历史项目库，毫秒级无感）
 function showBootLoading(show){
   const el = $('#bootLoading'); if(!el) return;
   el.classList.toggle('hidden', !show);
