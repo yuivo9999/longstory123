@@ -1664,7 +1664,7 @@ const CHAPTER_PLAN_SYS = `你是一名全书级叙事架构师与逐章梗概生
 0. 若用户提示中出现【写作风格约束（首位要求，须优先遵循）】块，必须作为首位硬约束执行。
 1. 输出与章节数完全一致的 JSON 数组，顺序对应每一章：{"chapterPlans":["本","本…"]}
 2. 禁止输出节奏和埋点/回收之外的其他内容。
-3. 全局埋点与回收规划：先建立全书埋点清单，明确埋点章节、回收章节、关联逻辑。只在出现埋点或回收的章节梗概内写出该埋点或回收的详细剧情，且必须写清具体情境、对话或线索。完成后自查埋点与回收是否形成闭环，无遗漏、无悬空。回收的时候，必须说出埋点来自哪一章节，以及埋点内容。
+3. 全局埋点与回收规划：先建立全书埋点清单，明确埋点章节、回收章节、关联逻辑。只在出现埋点或回收的章节梗概内写出该埋点或回收的详细剧情，且必须写清具体情境、对话或线索。完成后自查埋点与回收是否形成闭环，无遗漏、无悬空。回收的时候，必须说出埋点来自哪一章节，以及埋点原本所有的内容。
 4. 全局节奏规划：为每章指定不同节奏，如急促/紧凑/舒缓/沉淀/渐进等，并在章节梗概中明确写出本章节奏表现及原因。执行节奏变速自查，检索本章与前、后一章调性：若上一章急促/紧凑，本章转为舒缓/平衡形成弛；若上一章舒缓/松散，本章转为紧凑/渐进形成张。全书需有意识安排张弛交替，避免连续五章以上同节奏。
 5. 不输出任何解释、不要 markdown 代码块。`;
 
@@ -3329,7 +3329,7 @@ function chapterPlanBlock(){
       <div class="cp-head-row action-row">
         <button type="button" class="btn ghost" data-cp-raw title="手动提取 AI 原始响应数据，当自动更新失败时使用">🔧 原始数据</button>
         ${hasChapterPlansHistory()?`<button type="button" class="btn ghost" data-cp-hist>📚 版本(${chapterPlansHistoryCount()})</button>`:''}
-        <button type="button" class="cp-gen-btn" data-cp-gen>${hasPlans?'🔄 重生成梗概':'📝 生成逐章梗概'}</button>
+        <button type="button" class="cp-gen-btn" data-cp-gen>${hasPlans?' 重生成':'新生成'}</button>
       </div>
     </div>
     <div class="cp-body"${collapsed?' hidden':''}>
@@ -5227,7 +5227,7 @@ async function genOutline(){
 async function genChapterPlans(btn){
   const o = state.outline;
   if(!isLong() || !o) return;
-  if(btn){ btn.classList.add('cp-gen-btn-loading'); busy(btn,true,'生成逐章梗概中…'); }
+  if(btn){ btn.classList.add('cp-gen-btn-loading'); busy(btn,true,'生成中…'); }
   // 创建临时预览区（仅流式可用时显示）
   const cpBody = btn && btn.closest('.cp-card') && btn.closest('.cp-card').querySelector('.cp-body .cp-list');
   let preview = null;
