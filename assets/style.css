@@ -640,6 +640,8 @@ body.reader-lock{overflow:hidden}
 .cp-head-row.action-row .btn:hover{background:rgba(255,255,255,.2);color:#fff}
 /* 生成梗概按钮在动作行中绝对居中 */
 .cp-head-row.action-row .cp-gen-btn{position:absolute;left:50%;transform:translateX(-50%);z-index:1}
+/* 停止按钮在动作行中靠右 */
+.cp-head-row.action-row .stop-btn{position:absolute;right:0;top:50%;transform:translateY(-50%);z-index:2}
 /* 风格约束 - 在头部内的变体 */
 .cp-head .cp-style-toggle{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.15);color:rgba(255,255,255,.85)}
 .cp-head .cp-style-toggle:hover{background:rgba(255,255,255,.18)}
@@ -685,6 +687,11 @@ body.reader-lock{overflow:hidden}
 .rt-style-row{display:flex;align-items:center;gap:4px;font-size:12px;font-weight:600;color:var(--txt);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:5px 8px;margin-bottom:6px;width:fit-content;user-select:none;cursor:pointer}
 .rt-style-row input{accent-color:var(--accent);margin:0}
 .rt-input{width:100%;min-height:64px;padding:8px 10px;font-size:13px;line-height:1.6;box-sizing:border-box;margin-bottom:6px;border-radius:8px;border:1px solid var(--line);background:var(--panel2)}
+/* 重生成全部标题行：按钮左 + 标题版本右 */
+.ct-row2{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.ct-row2 .btn{flex:0 0 auto}
+.ct-row2 .btn[data-rt-gen]{margin-right:auto}
+.ct-row2 .btn[data-ct-batch]{margin-left:auto}
 .ct-issue .ct-title{color:#e5534b}
 .ct-issue .ct-no{color:#e5534b;font-weight:700}
 .ct-list{max-height:220px;overflow:auto;display:flex;flex-direction:column;gap:2px}

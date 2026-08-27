@@ -7,7 +7,7 @@
 'use strict';
 
 /* ---------- 全局状态 ---------- */
-const APP_VERSION = '1.0.29';   // 应用版本号（fixed11 基线 + 新增：① 逐章梗概受风格影响(默认开/随书/首位要求)；② 重生成全部标题受风格影响，独立开关 titleStyleOn 默认开、独占卡片第二行、rt-input 高度翻倍）：index.html 的 ?v= 资源戳与之同步递增，用于标识产物已更新
+const APP_VERSION = '1.0.31';   // 应用版本号（fixed11 基线 + 新增：① 逐章梗概受风格影响(默认开/随书/首位要求)；② 重生成全部标题受风格影响，独立开关 titleStyleOn 默认开、独占卡片第二行、rt-input 高度翻倍）：index.html 的 ?v= 资源戳与之同步递增，用于标识产物已更新
 const KEY_CFG = 'fyp_cfg';
 const KEY_STATE = 'fyp_state';   // 旧版单项目 key（仅用于首次迁移）
 const KEY_LIB = 'fyp_lib';       // 新版多项目历史库
@@ -539,9 +539,11 @@ async function callDeepSeek(system, user, {temperature=null, signal=null, maxTok
     if(maxTokens && maxTokens>0) body.max_tokens = maxTokens;
     let res;
     try{
+      const hdrs = {'Content-Type':'application/json','Authorization':'Bearer '+s.apiKey};
+      if(streaming){ hdrs['Accept'] = 'text/event-stream'; hdrs['Cache-Control'] = 'no-cache'; }
       res = await fetch(url, {
         method:'POST',
-        headers:{'Content-Type':'application/json','Authorization':'Bearer '+s.apiKey},
+        headers: hdrs,
         body: JSON.stringify(body),
         signal
       });
@@ -2960,10 +2962,12 @@ function chapterTitleBlock(){
           <input type="checkbox" data-rt-style ${state.titleStyleOn?'checked':''}/> 标题风格约束
         </label>
         ${hasChTitleHistory()?`<button type="button" class="btn small ghost" data-ct-hist>🕘 曾用标题(${chTitleHistory().length})</button>`:''}
-        ${chTitleBatches().length?`<button type="button" class="btn small ghost" data-ct-batch title="查看并可整批回退「重生成全部标题」的历史版本">🔁 标题版本(${chTitleBatches().length}/5)</button>`:''}
         <button type="button" class="btn small ghost" data-ct-copy>📋 复制全部章节标题</button>
-        <button type="button" class="btn small ghost" data-rt-gen>🔄 重生成全部标题</button>
       </span>
+    </div>
+    <div class="ct-row2">
+      <button type="button" class="btn small ghost" data-rt-gen>🔄 重生成全部标题</button>
+      ${chTitleBatches().length?`<button type="button" class="btn small ghost" data-ct-batch title="查看并可整批回退「重生成全部标题」的历史版本">🔁 标题版本(${chTitleBatches().length}/5)</button>`:''}
     </div>
     <input type="text" class="rt-input" id="rtInput" placeholder="重生成要求（选填）：如『标题更有悬念感』『避免剧透式标题』『每章标题用双字词』" />
     <div class="ct-list">${rows}</div>
@@ -3231,11 +3235,11 @@ async function regenAllTitles(btn){
         el.title = o.chapters[i].title;
       }
     });
-    // 立即刷新「标题版本」按钮（若已存在批次则显示）
+    // 立即刷新「标题版本」按钮（放入 .ct-row2 最右）
     const ctBlock2 = document.querySelector('.ct-block');
-    const ctTools = ctBlock2 && ctBlock2.querySelector('.ct-tools');
-    if(ctTools){
-      const existingBtn = ctTools.querySelector('[data-ct-batch]');
+    const ctRow2 = ctBlock2 && ctBlock2.querySelector('.ct-row2');
+    if(ctRow2){
+      const existingBtn = ctRow2.querySelector('[data-ct-batch]');
       const btCount = chTitleBatches().length;
       if(btCount && !existingBtn){
         const b = document.createElement('button');
@@ -3243,10 +3247,7 @@ async function regenAllTitles(btn){
         b.title='查看并可整批回退「重生成全部标题」的历史版本';
         b.innerHTML = '🔁 标题版本('+btCount+'/5)';
         b.onclick = ()=> openChTitleBatchPanel();
-        // 插在复制按钮之前
-        const copyBtn = ctTools.querySelector('[data-ct-copy]');
-        if(copyBtn) ctTools.insertBefore(b, copyBtn);
-        else ctTools.appendChild(b);
+        ctRow2.appendChild(b);
       }else if(btCount && existingBtn){
         existingBtn.innerHTML = '🔁 标题版本('+btCount+'/5)';
       }
