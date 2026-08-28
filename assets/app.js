@@ -12,7 +12,7 @@ const KEY_CFG = 'fyp_cfg';
 const KEY_STATE = 'fyp_state';   // 旧版单项目 key（仅用于首次迁移）
 const KEY_LIB = 'fyp_lib';       // 新版多项目历史库
 const KEY_GLIB = 'fyp_glib';     // v8 词典库（跨作品的多套可复用词典，独立于项目轨道）
-const MAX_PROJECTS = 50;         // 历史项目上限
+const MAX_PROJECTS = 500;         // 历史项目上限
 let lib = { curId: null, items: [] }; // {curId, items:[{id, idea, outline, ..., step, title, logline, updatedAt}]}
 let gglib = [];                  // v8 词典库：[{id, name, note, savedAt, g:{characters,places,propernouns}}]
 
@@ -488,11 +488,11 @@ function openAiLogPanel(){
         <p class="muted" style="font-size:11px">500 字仅为日志预览上限，实际发送/接收为全量，不影响请求。</p>
       </div>
     </div>`;
-  }).join('') : '<p class="muted">暂无请求记录。每次调用 AI 都会记录（最近 50 条，仅存本机）。</p>';
+  }).join('') : '<p class="muted">暂无请求记录。每次调用 AI 都会记录（最近 50 0条，仅存本机）。</p>';
   const ov = document.createElement('div'); ov.id='ailogPanel'; ov.className='gs-overlay';
   ov.innerHTML = `
     <div class="gs-modal">
-      <div class="gs-modal-head"><b>🗒️ AI 请求日志（${aiLog.length}/50）</b>
+      <div class="gs-modal-head"><b>🗒️ AI 请求日志（${aiLog.length}/500）</b>
         <span style="display:flex;gap:6px">
           <button class="btn small ghost" data-ailog-clear>🗑 清空</button>
           <button class="gs-x" data-ailog-close>✕</button>
@@ -957,7 +957,7 @@ function snapshotPolishBatch(label){
       JSON.stringify(hist[0].options) === JSON.stringify(snap.options) &&
       hist[0].adopted === snap.adopted) return;
   hist.unshift({ ts: Date.now(), label: label||'快照', options: snap.options, adopted: snap.adopted });
-  if(hist.length > 5) hist.length = 5;
+  if(hist.length > 50) hist.length = 50;
   persist();
 }
 // 整批应用某版：先把当前态归档（保留再回退机会），再覆盖当前保留方案
@@ -1662,7 +1662,7 @@ const CHAPTER_PLAN_SYS = `你是一名全书级叙事架构师与逐章梗概生
 【核心任务】负责完成全局埋点回收与节奏张弛的系统化设计，确保全书结构完整、情绪饱满。基于用户提供的小说书名、故事大纲、全部章节标题、万物词典，为每章标注本章节奏类型及原因，同时在全书层面完成埋点与回收规划。
 【硬性约束】
 0. 若用户提示中出现【写作风格约束（首位要求，须优先遵循）】块，必须作为首位硬约束执行。
-1. 输出与章节数完全一致的 JSON 数组，顺序对应每一章：{"chapterPlans":["本","本…"]}
+1. 输出与章节数完全一致的 JSON 数组，顺序对应每一章：{"chapterPlans":["第1章：本章梗概…","第2章：本章梗概…"]}
 2. 全局埋点与回收规划：先建立全书埋点清单，明确埋点章节、回收章节、关联逻辑。只在出现埋点或回收的章节梗概内写出该埋点或回收的详细剧情，且必须写清具体情境、对话或线索。
 3. 全局节奏规划：为每章指定不同节奏，如急促/紧凑/舒缓/沉淀/渐进等，并在章节梗概中明确写出本章节奏表现及原因。执行节奏变速自查，检索本章与前、后一章调性：若上一章急促/紧凑，本章转为舒缓/平衡形成弛；若上一章舒缓/松散，本章转为紧凑/渐进形成张。全书需有意识安排张弛交替，避免连续五章以上同节奏。
 4. 每章梗概强制按以下三段格式输出，不得添加任何额外文字：
@@ -2983,7 +2983,7 @@ function chapterTitleBlock(){
     </div>
     <div class="ct-row2">
       <button type="button" class="btn small ghost" data-rt-gen>🔄 重生成全部标题</button>
-      <button type="button" class="btn small ghost" data-ct-raw title="手动提取 AI 原始响应数据，当自动更新失败时使用">🔧 原始数据</button>
+      <button type="button" class="btn small ghost" data-ct-raw title="手动提取 AI 原始响应数据，当自动更新失败时使用">🔧</button>
       ${chTitleBatches().length?`<button type="button" class="btn small ghost" data-ct-batch title="查看并可整批回退「重生成全部标题」的历史版本">🔁 标题版本(${chTitleBatches().length}/5)</button>`:''}
     </div>
     <input type="text" class="rt-input" id="rtInput" placeholder="重生成要求（选填）：如『标题更有悬念感』『避免剧透式标题』『每章标题用双字词』" />
@@ -3335,7 +3335,7 @@ function chapterPlanBlock(){
         </span>
       </div>
       <div class="cp-head-row action-row">
-        <button type="button" class="btn ghost" data-cp-raw title="手动提取 AI 原始响应数据，当自动更新失败时使用">🔧 原始数据</button>
+        <button type="button" class="btn ghost" data-cp-raw title="手动提取 AI 原始响应数据，当自动更新失败时使用">🔧</button>
         ${hasChapterPlansHistory()?`<button type="button" class="btn ghost" data-cp-hist>📚 版本(${chapterPlansHistoryCount()})</button>`:''}
         <button type="button" class="cp-gen-btn" data-cp-gen>${hasPlans?' 重生成':'新生成'}</button>
       </div>
@@ -4047,7 +4047,7 @@ function renderChapters(){
           <div class="btn-row">
             <button class="btn ghost" data-regen="${i}" ${state.generating?'disabled':''}>🔄 重生成</button>
             <button class="btn ghost" data-read="${i}">📖 阅读</button>
-            <button class="btn ghost" data-ch-raw="${i}" title="手动提取 AI 原始响应数据，当自动更新失败时使用">🔧 原始数据</button>
+            <button class="btn ghost" data-ch-raw="${i}" title="手动提取 AI 原始响应数据，当自动更新失败时使用">🔧</button>
             ${hasChVersions(i)?`<button class="btn ghost" data-ver="${i}">📚 版本(${chVersions(i).length})</button>`:''}
             ${hasEditHistory(i)?`<button class="btn ghost" data-undo="${i}" title="撤销最近一次手动编辑">↩ 撤销编辑</button>`:''}
             ${isLong() && c.qcRecord ? `<button class="btn ghost" data-qc="${i}" title="查看本次生成的质检记录（AI 改了哪里）">🧪 质检记录</button>`:''}
@@ -4077,7 +4077,7 @@ function renderChapters(){
         <div class="btn-row">
           <button class="btn ghost" data-regen="${i}">🔄 重生成</button>
           <button class="btn ghost" data-read="${i}">📖 阅读</button>
-          <button class="btn ghost" data-ch-raw="${i}" title="手动提取 AI 原始响应数据，当自动更新失败时使用">🔧 原始数据</button>
+          <button class="btn ghost" data-ch-raw="${i}" title="手动提取 AI 原始响应数据，当自动更新失败时使用">🔧</button>
           ${hasChVersions(i)?`<button class="btn ghost" data-ver="${i}">📚 版本(${chVersions(i).length})</button>`:''}
           ${hasEditHistory(i)?`<button class="btn ghost" data-undo="${i}" title="撤销最近一次手动编辑">↩ 撤销编辑</button>`:''}
           <button class="btn ghost" data-toggle="${i}">${c.confirmed?'↺ 取消确认':'✓ 标记已确认'}</button>
@@ -5345,7 +5345,7 @@ if(planTexts.length && state.glossAutoFill && sourceHasGlossary(state.outline.gl
 function chapterPlansHistory(){ const o=state.outline; return (o && Array.isArray(o.chapterPlansHistory)) ? o.chapterPlansHistory : []; }
 function hasChapterPlansHistory(){ return chapterPlansHistory().length > 0; }
 function chapterPlansHistoryCount(){ return chapterPlansHistory().length; }
-// 把「当前全部逐章梗概」整批压入版本栈（最新在前、去重、上限5）；空则不记
+// 把「当前全部逐章梗概」整批压入版本栈（最新在前、去重、上限50）；空则不记
 function pushChapterPlansSnapshot(){
   const o = state.outline;
   if(!Array.isArray(o.chapterPlans) || !o.chapterPlans.some(Boolean)) return;
@@ -5353,7 +5353,7 @@ function pushChapterPlansSnapshot(){
   const snap = o.chapterPlans.slice();
   if(o.chapterPlansHistory.length && JSON.stringify(o.chapterPlansHistory[0].plans) === JSON.stringify(snap)) return;
   o.chapterPlansHistory.unshift({ plans: snap, ts: Date.now() });
-  if(o.chapterPlansHistory.length > 20) o.chapterPlansHistory.length = 20;
+  if(o.chapterPlansHistory.length > 50) o.chapterPlansHistory.length = 50;
 }
 // 整批应用某版：先把当前态归档（保留再回退机会），再覆盖全部逐章梗概
 function applyChapterPlansVersion(idx){
@@ -5424,14 +5424,9 @@ function openCpRawPanel(){
   closeCpRawPanel();
   const o = state.outline;
   let raw = state._lastCpRaw || '';
-  // 若 state 无保存，尝试从 aiLog 搜索最近一条"逐章梗概"请求
   if(!raw && aiLog.length){
     const match = [...aiLog].reverse().find(r => r.task && r.task.includes('逐章梗概'));
-    if(match && match.respLen > 0){
-      // 从 aiLog 重建完整响应（日志只存前500字，但 resp 字段存了完整响应，只是展示时截断500）
-      // 实际 resp 存的是完整内容，只是展示截断
-      raw = match.resp || '';
-    }
+    if(match && match.respLen > 0){ raw = match.resp || ''; }
   }
   const hasRaw = !!raw;
   const escRaw = esc(raw);
@@ -5441,42 +5436,99 @@ function openCpRawPanel(){
       <div class="gs-modal-head"><b>🔧 原始 AI 响应 — 逐章梗概</b>
         <span style="display:flex;gap:6px">
           <button class="btn small ghost" data-cpraw-searchlog>📋 搜索最近日志</button>
+          <button class="btn small ghost" data-cpraw-import>📂 导入 JSON</button>
+          <button class="btn small ghost" data-cpraw-export ${hasRaw?'':'disabled'}>💾 导出 JSON</button>
+          <button class="btn small ghost" data-cpraw-copy ${hasRaw?'':'disabled'}>📋 复制全部</button>
+          <input type="file" id="cprawImportFile" accept=".json,application/json" hidden />
           <button class="gs-x" data-cpraw-close>✕</button>
         </span></div>
       <div class="cv-body">
-        <div class="cv-div">这里是最近一次生成梗概时 AI 返回的原始 JSON 响应。如果自动更新失败（日志显示 AI 已回复但梗概未更新），可手动点击「解析并应用到梗概」来提取数据。</div>
+        <div class="cv-div">这里是最近一次生成梗概时 AI 返回的原始 JSON 响应。如果自动更新失败，可手动点击下方按钮来提取数据。</div>
         <div class="cpraw-actions">
           <button type="button" class="btn primary" data-cpraw-apply ${hasRaw?'':'disabled'}>解析并应用到梗概</button>
           <span style="font-size:12px;color:var(--sub);align-self:center">${hasRaw?`共 ${raw.length} 字`:'（暂无原始响应数据）'}</span>
         </div>
+        <div class="cpraw-tools" style="display:${hasRaw?'flex':'none'};flex-direction:column;gap:6px;border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--panel2);margin:6px 0">
+          <div style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--sub)">
+            <span>🔍 替换</span>
+            <span style="font-weight:400;font-size:11px;color:var(--dim)">在下方内容中查找并替换，替换结果立即生效，点击「解析并应用到梗概」即可写入</span>
+          </div>
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+            <input type="text" class="cpraw-inp" id="cprawFind" placeholder="查找..." style="flex:1;min-width:80px">
+            <input type="text" class="cpraw-inp" id="cprawReplace" placeholder="替换为..." style="flex:1;min-width:80px">
+            <button type="button" class="btn small" data-cpraw-replaceall>🔄 替换全部</button>
+          </div>
+        </div>
         <pre class="cpraw-pre">${hasRaw?escRaw:'(暂无原始响应数据。生成一次逐章梗概后，原始响应会自动保存至此。)'}</pre>
-        <p class="muted" style="margin:6px 0 0;font-size:11px">💡 提示：也可点击「搜索最近日志」从 AI 请求日志中查找最近一次逐章梗概响应。</p>
+        <p class="muted" style="margin:6px 0 0;font-size:11px">💡 提示：导入 JSON 文件后自动解析并应用；替换后点「解析并应用到梗概」写入；导入的梗概会自动进入历史版本。</p>
       </div>
     </div>`;
   document.body.appendChild(ov);
   ov.querySelector('[data-cpraw-close]').onclick = closeCpRawPanel;
   ov.addEventListener('click', e=>{ if(e.target===ov) closeCpRawPanel(); });
-  ov.querySelector('[data-cpraw-apply]').onclick = ()=> applyCpRawResponse(raw);
+  // ★ 改为从 pre 元素读取最新内容（替换/导入后的内容）
+  ov.querySelector('[data-cpraw-apply]').onclick = ()=>{
+    const pre = ov.querySelector('.cpraw-pre');
+    applyCpRawResponse(pre ? pre.textContent : raw);
+  };
   ov.querySelector('[data-cpraw-searchlog]').onclick = ()=>{
-    closeCpRawPanel();
-    openAiLogPanel();
-    // 自动展开最近一条逐章梗概日志
+    closeCpRawPanel(); openAiLogPanel();
     setTimeout(()=>{
       const rows = $$('[data-ailog-toggle]');
       if(rows.length){
-        // 从后往前找 task 包含"逐章梗概"的
         for(let i=rows.length-1; i>=0; i--){
-          const row = rows[i];
-          const taskEl = row.closest('.ailog-row') && row.closest('.ailog-row').querySelector('.ailog-task');
-          if(taskEl && taskEl.textContent.includes('逐章梗概')){
-            row.click(); break;
-          }
+          const taskEl = rows[i].closest('.ailog-row') && rows[i].closest('.ailog-row').querySelector('.ailog-task');
+          if(taskEl && taskEl.textContent.includes('逐章梗概')){ rows[i].click(); break; }
         }
       }
     }, 300);
   };
+  // 导入 JSON：点击按钮 → 触发隐藏 file input → 读取后自动调用 applyCpRawResponse
+  const importBtn = ov.querySelector('[data-cpraw-import]');
+  const importFile = ov.querySelector('#cprawImportFile');
+  if(importBtn && importFile){
+    importBtn.onclick = ()=> importFile.click();
+    importFile.onchange = (e)=>{
+      const f = e.target.files && e.target.files[0];
+      if(f){
+        const r = new FileReader();
+        r.onload = ()=>{
+          applyCpRawResponse(r.result);
+          importFile.value = '';
+        };
+        r.readAsText(f);
+      }
+    };
+  }
+  // 导出 JSON：导出当前 pre 元素内容为 .json 文件
+  ov.querySelector('[data-cpraw-export]').onclick = ()=>{
+    const txt = ov.querySelector('.cpraw-pre').textContent;
+    const blob = new Blob([txt], {type:'text/plain;charset=utf-8'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = '逐章梗概原始响应.json';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(a.href); toast('✅ 已导出');
+  };
+  // 复制全部
+  const copyBtn = ov.querySelector('[data-cpraw-copy]');
+  if(copyBtn) copyBtn.onclick = ()=>{
+    navigator.clipboard.writeText(ov.querySelector('.cpraw-pre').textContent)
+      .then(()=> toast('✅ 已复制原始响应')).catch(()=> toast('❌ 复制失败'));
+  };
+  // 替换全部：替换后立即在 pre 中生效
+  ov.querySelector('[data-cpraw-replaceall]').onclick = ()=>{
+    const find = ov.querySelector('#cprawFind').value;
+    const repl = ov.querySelector('#cprawReplace').value;
+    if(!find) { toast('请输入查找内容'); return; }
+    const pre = ov.querySelector('.cpraw-pre');
+    const before = pre.textContent;
+    const after = before.replaceAll(find, repl);
+    if(before === after) { toast('未找到匹配内容'); return; }
+    pre.textContent = after;
+    toast('✅ 已替换 ' + (before.split(find).length - 1) + ' 处');
+  };
 }
-function closeCpRawPanel(){ const p=$('#cpRawPanel'); if(p) p.remove(); }
+
 // 手动解析原始响应并应用到逐章梗概
 function applyCpRawResponse(raw){
   if(!raw){ toast('无原始响应数据'); return; }

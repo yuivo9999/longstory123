@@ -475,3 +475,15 @@
   --wc-fg: #4a2c1f;
   --wc-border: rgba(166,50,50,.4);
 }
+
+/* 写作风格卡片适配宣纸底色，文字改为深墨色 */
+[data-theme="guofeng"] .ws-card { background: #faf6ed; border-color: #d9cbb0; }
+[data-theme="guofeng"] .ws-head h3 { color: var(--gf-red); }
+[data-theme="guofeng"] .ws-sum { color: var(--gf-dim); }
+[data-theme="guofeng"] .ws-group-t { color: var(--gf-ink); }
+[data-theme="guofeng"] .ws-manage-btn { color: var(--gf-ink); border-color: rgba(212,168,75,0.4); background: rgba(212,168,75,0.12); }
+[data-theme="guofeng"] .ws-manage-btn:hover { background: rgba(212,168,75,0.25); color: var(--gf-ink); }
+[data-theme="guofeng"] .ws-chip { color: var(--gf-ink); border-color: #c9b896; background: rgba(244,236,216,0.6); }
+[data-theme="guofeng"] .ws-chip:hover { border-color: var(--gf-gold); background: rgba(212,168,75,0.15); }
+[data-theme="guofeng"] .ws-chip.on { background: var(--gf-red); border-color: var(--gf-red); color: #fff; }
+[data-theme="guofeng"] .ws-subcat-t { color: var(--gf-dim); }
