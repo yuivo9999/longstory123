@@ -485,7 +485,7 @@ function openAiLogPanel(){
         <div class="ailog-sec"><b>System · 前500字 / 共 ${(r.sysLen||r.sys.length).toLocaleString('en-US')} 字：</b><div class="ailog-pre">${esc(String(r.sys||''))}</div></div>
         <div class="ailog-sec"><b>User · 前500字 / 共 ${(r.userLen||r.user.length).toLocaleString('en-US')} 字：</b><div class="ailog-pre">${esc(String(r.user||''))}</div></div>
         <div class="ailog-sec"><b>响应 · 前500字 / 共 ${(r.respLen||0).toLocaleString('en-US')} 字：</b><div class="ailog-pre">${esc(String(r.resp||''))}</div></div>
-        <p class="muted" style="font-size:11px">500 字仅为日志预览上限，实际发送/接收为全量，不影响请求。</p>
+        <p class="muted" style="font-size:11px">50000 字仅为日志预览上限，实际发送/接收为全量，不影响请求。</p>
       </div>
     </div>`;
   }).join('') : '<p class="muted">暂无请求记录。每次调用 AI 都会记录（最近 50 0条，仅存本机）。</p>';
@@ -567,7 +567,7 @@ async function callDeepSeek(system, user, {temperature=null, signal=null, maxTok
     if(!streaming){
       const data = await res.json();
       const out = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
-      _rec.resp = String(out).slice(0,500); _rec.respLen = String(out).length; _rec.ms = Date.now()-_t0; _rec.ok = true;
+      _rec.resp = String(out).slice(0,50000); _rec.respLen = String(out).length; _rec.ms = Date.now()-_t0; _rec.ok = true;
       aiLogPush(_rec);
       return out;
     }
@@ -597,7 +597,7 @@ async function callDeepSeek(system, user, {temperature=null, signal=null, maxTok
       feed(decoder.decode(value, {stream:true}));
     }
     feed(decoder.decode());
-    _rec.resp = String(full).slice(0,500); _rec.respLen = String(full).length; _rec.ms = Date.now()-_t0; _rec.ok = true;
+    _rec.resp = String(full).slice(0,50000); _rec.respLen = String(full).length; _rec.ms = Date.now()-_t0; _rec.ok = true;
     aiLogPush(_rec);
     return full;
   }catch(e){
@@ -4067,18 +4067,19 @@ function renderChapters(){
     wrap.innerHTML = state.chapters.map((c,i)=>`
       <div class="card ch-card" data-ch-card="${i}">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
-          <div style="display:flex;align-items:center;gap:8px;min-width:0">
-            <h3 style="margin:0;word-break:break-word;line-height:1.35" title="第${i+1}章 · ${esc(cleanChapterTitle(c.title))}">第${i+1}章 · ${esc(cleanChapterTitle(c.title))}</h3>
-            ${wcBadge(c.content, `data-wc-ch="${i}"`)}
-          </div>
-          <span class="pill ${c.confirmed?'tag-ok':'tag-warn'}">${c.confirmed?'✓ 已确认':'待确认'}</span>
+         <div style="display:flex;align-items:center;gap:8px;min-width:0">
+  <h3 style="margin:0;word-break:break-word;line-height:1.35" title="第${i+1}章 · ${esc(cleanChapterTitle(c.title))}">第${i+1}章 · ${esc(cleanChapterTitle(c.title))}</h3>
+  <button class="btn ghost" data-ver="${i}" style="padding:2px 6px;font-size:11px;flex-shrink:0" title="版本历史">📚 ${chVersions(i).length}</button>
+  ${wcBadge(c.content, `data-wc-ch="${i}"`)}
+</div>
+<span class="pill ${c.confirmed?'tag-ok':'tag-warn'}">${c.confirmed?'✓ 已确认':'待确认'}</span>
         </div>
         <textarea data-ch="${i}" style="margin-top:8px">${esc(c.content)}</textarea>
         <div class="btn-row">
           <button class="btn ghost" data-regen="${i}">🔄 重生成</button>
           <button class="btn ghost" data-read="${i}">📖 阅读</button>
           <button class="btn ghost" data-ch-raw="${i}" title="手动提取 AI 原始响应数据，当自动更新失败时使用">🔧</button>
-          ${hasChVersions(i)?`<button class="btn ghost" data-ver="${i}">📚 版本(${chVersions(i).length})</button>`:''}
+        
           ${hasEditHistory(i)?`<button class="btn ghost" data-undo="${i}" title="撤销最近一次手动编辑">↩ 撤销编辑</button>`:''}
           <button class="btn ghost" data-toggle="${i}">${c.confirmed?'↺ 取消确认':'✓ 标记已确认'}</button>
         </div>
@@ -4162,7 +4163,12 @@ function bindReaderScrollSave(){
 function closeReader(){
   const ov = $('#readerOverlay'); if(!ov) return;
   ov.classList.add('hidden');
-  // 关闭阅读时同时收起目录
+  // 如果是导出阅读模式，恢复隐藏的按钮
+  if(ov.dataset.exportReader === '1'){
+    delete ov.dataset.exportReader;
+    const tocBtn = $('#readerTocBtn'); if(tocBtn) tocBtn.style.display = '';
+    const synBtn = $('#readerSynBtn'); if(synBtn) synBtn.style.display = '';
+  }
   const toc = $('#readerToc'); if(toc) toc.classList.add('hidden');
   document.body.classList.remove('reader-lock');
 }
@@ -4623,7 +4629,8 @@ function longExportView(){
       <p class="sub">汇总故事大纲 / 章节梗概 / 章节全文，复制后粘贴到文档，或下载 .md。</p>
       <div class="btn-row">
         <button id="lnCopyAll" class="btn primary">📋 复制全部</button>
-        <button id="lnDownload" class="btn ghost">⬇️ 下载 .md</button>
+<button id="lnExportReader" class="btn ghost">📖 阅读</button>
+<button id="lnDownload" class="btn ghost">⬇️ 下载 .md</button>
       </div>
     </div>
     <div class="card"><textarea id="lnExportArea" style="min-height:300px" readonly>${esc(md)}</textarea></div>
@@ -4654,6 +4661,34 @@ function longExportView(){
       <p id="exportStatus" class="status"></p>
     </div>`;
 }
+
+// 导出内容「阅读」模式：复用阅读器展示全文
+function openExportReader(){
+  const ta = $('#lnExportArea');
+  if(!ta || !ta.value.trim()){ toast('暂无导出内容'); return; }
+  const ov = $('#readerOverlay'); if(!ov) return;
+  $('#readerTitle').textContent = `📖 全文阅读 · ${esc(state.outline?.title||'未命名')}`;
+  // 解析 markdown 行，章节标题渲染为 h3，其他为段落
+  const lines = ta.value.split('\n').map(l=>l.trim());
+  let html = '';
+  for(const l of lines){
+    if(!l) continue;
+    if(/^#{1,3}\s/.test(l)) html += `<h3>${esc(l.replace(/^#+\s*/,''))}</h3>`;
+    else if(/^第\d+[章节]/.test(l) || /^第[一二三四五六七八九十百千]+[章节]/.test(l)) html += `<h3>${esc(l)}</h3>`;
+    else html += `<p>${esc(l)}</p>`;
+  }
+  $('#readerBody').innerHTML = html || '<p class="muted">（暂无内容）</p>';
+  // 隐藏章节目录和梗概按钮（全文阅读不适用）
+  const tocBtn = $('#readerTocBtn'); if(tocBtn) tocBtn.style.display = 'none';
+  const synBtn = $('#readerSynBtn'); if(synBtn) synBtn.style.display = 'none';
+  // 重置滚动位置
+  const body0 = $('#readerBody');
+  if(body0) body0.scrollTop = 0;
+  ov.dataset.exportReader = '1';   // 标记为导出阅读模式
+  ov.classList.remove('hidden');
+  document.body.classList.add('reader-lock');
+}
+
 // 长篇导出「资产包」内容：故事大纲 + 逐章梗概 + 章节全文（与普通 buildMarkdown 的结构对齐，取长篇字段）
 function buildLongMarkdown(){
   const o = state.outline;
@@ -4987,6 +5022,7 @@ function bindView(){
     // 资产包（与普通模式同款）：复制全部 / 下载 .md
     const lnCA = $('#lnCopyAll'); if(lnCA) lnCA.onclick = ()=> copyText(buildLongMarkdown());
     const lnDL = $('#lnDownload'); if(lnDL) lnDL.onclick = ()=> download(`长篇资产包_${state.outline?.title||'story'}.md`, buildLongMarkdown());
+const lnER = $('#lnExportReader'); if(lnER) lnER.onclick = openExportReader;
     $$('#view [data-expch]').forEach(cb=> cb.onchange = ()=>{
       const i = +cb.dataset.expch;
       if(cb.checked){ if(!state.expSel.includes(i)) state.expSel.push(i); } else state.expSel = state.expSel.filter(x=>x!==i);
@@ -6271,8 +6307,10 @@ function openChapterRegenPanel(i){
             <span class="muted" style="font-size:11px;font-weight:400">默认跟随全书 · 一次性不保存</span>
           </div>
           <div class="rp-style-body hidden">
-            <label class="rp-radio-row"><input type="radio" name="rpov" value="off" checked> 跟随全书风格</label>
-            <label class="rp-radio-row"><input type="radio" name="rpov" value="on"> 仅本章覆盖（重生成这章时用下面的风格，不保存）</label>
+           <div class="rp-ov-toggle" data-rpov-toggle>
+  <span class="rp-ov-opt active" data-rpov-val="off">📖 全文</span>
+  <span class="rp-ov-opt" data-rpov-val="on">🎨 仅本章</span>
+</div>
             <div class="rp-style-sub hidden" id="rpOvBox">
               <div class="rp-style-label">覆盖风格（语气单选 · 质感/元素多选）</div>
               ${writeStyleChipsHtml(rpOv, 'rpov')}
@@ -6343,7 +6381,7 @@ function openChapterRegenPanel(i){
     const ap = ov.querySelector('[data-rpov-apply]'); const st = ov.querySelector('#rpOvStatus');
     if(!ap) return;
     ap.disabled = !rpOv.on; ap.classList.toggle('disabled', !rpOv.on);
-    if(st){ st.textContent = rpOvApplied ? '✔ 已确认' : (rpOv.on ? '⚠️ 待应用' : '跟随全书，无需应用'); st.classList.toggle('ok', !!rpOvApplied); }
+   if(st){ st.textContent = rpOvApplied ? '✔ 已确认' : (rpOv.on ? '⚠️ 待应用' : '全文，无需应用'); st.classList.toggle('ok', !!rpOvApplied); }
   }
   function refreshRpCmpApply(){
     const ap = ov.querySelector('[data-rpcmp-apply]'); const st = ov.querySelector('#rpCmpStatus');
@@ -6367,13 +6405,16 @@ function openChapterRegenPanel(i){
     toast('B 稿对比风格已应用，生成 A/B 两稿时生效');
   };
   // v2.0 本章覆盖：radio 切换 + chips + 浓度（任一改动后清空确认态，须重新点「应用」）
-  ov.querySelectorAll('input[name="rpov"]').forEach(r=> r.onchange = ()=>{
-    rpOv.on = r.value === 'on';
-    rpOvApplied = null;
-    const box = ov.querySelector('#rpOvBox'); if(box) box.classList.toggle('hidden', !rpOv.on);
-    refreshRpCmpState();
-    refreshRpOvApply(); refreshRpCmpApply();   // 覆盖开关影响两块的应用按钮可用性
-  });
+  ov.querySelectorAll('[data-rpov-val]').forEach(el=> el.onclick = ()=>{
+  ov.querySelectorAll('[data-rpov-val]').forEach(x=> x.classList.remove('active'));
+  el.classList.add('active');
+  rpOv.on = el.dataset.rpovVal === 'on';
+  rpOvApplied = null;
+  const box = ov.querySelector('#rpOvBox'); if(box) box.classList.toggle('hidden', !rpOv.on);
+  refreshRpCmpState();
+  refreshRpOvApply(); refreshRpCmpApply();
+});
+
   ov.querySelectorAll('[data-rpov-tag]').forEach(b=> b.onclick = ()=>{ toggleWriteTag(rpOv, b.dataset.rpovTag); ov.querySelectorAll('[data-rpov-tag]').forEach(x=> x.classList.toggle('on', rpOv.tags.includes(x.dataset.rpovTag))); rpOvApplied = null; refreshRpOvApply(); });
   ov.querySelectorAll('[data-rpov-int]').forEach(b=> b.onclick = ()=>{ rpOv.intensity = +b.dataset.rpovInt; ov.querySelectorAll('[data-rpov-int]').forEach(x=> x.classList.toggle('on', rpOv.intensity===+x.dataset.rpovInt)); rpOvApplied = null; refreshRpOvApply(); });
   // v2.0 对比 B 风格：chips + 浓度（任一改动后清空确认态，须重新点「应用」）

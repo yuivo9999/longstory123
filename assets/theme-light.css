@@ -45,7 +45,46 @@
 /* 顶部胶囊导航（机甲主题外通用） */
 [data-theme="light"] .chip{background:var(--panel2);color:var(--sub)}
 [data-theme="light"] .chip.active{background:var(--accent);color:#fff}
-
+/* 白天主题：写作风格卡片适配白底，文字改为深色 */
+[data-theme="light"] .ws-card {
+  background: var(--panel);
+  border-color: var(--line);
+}
+[data-theme="light"] .ws-head h3 {
+  color: var(--txt);
+}
+[data-theme="light"] .ws-sum {
+  color: var(--sub);
+}
+[data-theme="light"] .ws-group-t {
+  color: var(--txt);
+}
+[data-theme="light"] .ws-manage-btn {
+  color: var(--sub);
+  border-color: var(--line);
+  background: var(--panel2);
+}
+[data-theme="light"] .ws-manage-btn:hover {
+  background: var(--line);
+  color: var(--txt);
+}
+[data-theme="light"] .ws-chip {
+  color: var(--txt);
+  border-color: var(--line);
+  background: var(--panel2);
+}
+[data-theme="light"] .ws-chip:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+}
+[data-theme="light"] .ws-chip.on {
+  background: var(--accent2);
+  border-color: var(--accent2);
+  color: #fff;
+}
+[data-theme="light"] .ws-subcat-t {
+  color: var(--sub);
+}
 /* 古风浅底：写作风格卡片适配宣纸底色，文字改为深墨色 */
 [data-theme="guofeng"] .ws-card {
   background: #faf6ed;
@@ -85,4 +124,59 @@
 }
 [data-theme="guofeng"] .ws-subcat-t {
   color: var(--gf-dim);
+}
+
+
+/* 白天主题：逐章梗概卡片适配白底 */
+[data-theme="light"] .cp-card {
+  background: var(--panel);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+}
+[data-theme="light"] .cp-head {
+  background: linear-gradient(135deg, #d94a4a 0%, #b33030 100%);
+}
+[data-theme="light"] .cp-head h3 {
+  color: #fff;
+}
+[data-theme="light"] .cp-head-sub {
+  color: rgba(255,255,255,0.65);
+}
+[data-theme="light"] .cp-head-row.action-row .btn {
+  background: rgba(255,255,255,0.15);
+  border-color: rgba(255,255,255,0.2);
+  color: rgba(255,255,255,0.9);
+}
+[data-theme="light"] .cp-head-row.action-row .btn:hover {
+  background: rgba(255,255,255,0.25);
+  color: #fff;
+}
+[data-theme="light"] .cp-body {
+  background: var(--panel);
+}
+[data-theme="light"] .cp-body .sub {
+  color: var(--sub);
+}
+[data-theme="light"] .cp-item {
+  background: var(--panel2);
+  border-color: var(--line);
+}
+[data-theme="light"] .cp-no {
+  background: var(--accent2);
+  color: #fff;
+  border-color: transparent;
+}
+[data-theme="light"] .cp-input {
+  background: #fff;
+  border-color: var(--line);
+  color: var(--txt);
+}
+[data-theme="light"] .cp-input:focus {
+  border-color: var(--accent2);
+  box-shadow: 0 0 0 2px rgba(47,127,224,0.12);
+}
+[data-theme="light"] .cp-wc {
+  color: var(--muted);
+}
+[data-theme="light"] .cp-body .muted {
+  color: var(--muted);
 }

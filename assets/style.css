@@ -647,7 +647,7 @@ body.reader-lock{overflow:hidden}
 #cpRawPanel .cpraw-pre{background:#111;border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:12px;font-size:12px;line-height:1.5;max-height:420px;overflow:auto;white-space:pre-wrap;word-break:break-all;color:#ccc}
 #cpRawPanel .cpraw-actions{display:flex;gap:8px;margin:8px 0}
   /* 生成梗概按钮在动作行中绝对居中 */
-.cp-head-row.action-row .cp-gen-btn{position:absolute;right:56px;z-index:1}
+.cp-head-row.action-row .cp-gen-btn{position:relative;right:auto;z-index:auto;margin-left:auto}
 /* 停止按钮在动作行中靠右 */
 .cp-head-row.action-row .stop-btn{position:absolute;right:0;top:50%;transform:translateY(-50%);z-index:2}
 /* 风格约束 - 在头部内的变体 */
@@ -987,8 +987,10 @@ textarea[readonly]::selection{ background:color-mix(in srgb, var(--accent2) 45%,
 .rp-style-head:hover{background:color-mix(in srgb, var(--accent) 8%, var(--panel2))}
 .rp-style-arrow{color:var(--muted);font-size:12px}
 .rp-style-body{padding:10px 12px;background:var(--panel)}
-.rp-radio-row{display:flex;align-items:flex-start;justify-content:flex-start;gap:6px;font-size:12.5px;padding:3px 0;margin:0;width:100%;box-sizing:border-box;cursor:pointer}
-.rp-radio-row input{accent-color:var(--accent);flex:0 0 auto;margin-top:2px}
+.rp-ov-toggle{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;margin:6px 0}
+.rp-ov-opt{flex:1;text-align:center;padding:7px 6px;font-size:12.5px;cursor:pointer;background:var(--panel2);color:var(--sub);transition:all .15s;user-select:none;font-family:inherit}
+.rp-ov-opt.active{background:var(--accent);color:#fff;font-weight:600}
+.rp-ov-opt:not(.active):hover{background:var(--line);color:var(--txt)};flex:0 0 auto;margin-top:2px}
 .rp-style-sub{margin-top:8px;border-top:1px dashed var(--line);padding-top:8px}
 .rp-style-sub .rp-style-label:first-child{margin-top:0}
 .rp-style-body .ws-group:first-child .ws-group-t{margin-top:0}
