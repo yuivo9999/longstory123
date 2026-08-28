@@ -85,6 +85,30 @@
 [data-theme="light"] .ws-subcat-t {
   color: var(--sub);
 }
+[data-theme="light"] .ws-opt {
+  border-color: var(--line);
+  background: var(--panel2);
+}
+[data-theme="light"] .ws-opt:hover {
+  border-color: var(--accent);
+}
+[data-theme="light"] .ws-opt-name {
+  color: var(--txt);
+}
+[data-theme="light"] .ws-opt-note {
+  color: var(--sub);
+}
+[data-theme="light"] .ws-opt.on {
+  border-color: var(--accent2);
+  background: color-mix(in srgb, var(--accent2) 12%, var(--panel));
+  box-shadow: inset 3px 0 0 var(--accent2);
+}
+[data-theme="light"] .ws-opt.on .ws-opt-name {
+  color: var(--accent2);
+}
+[data-theme="light"] .ws-opt.on .ws-opt-note {
+  color: var(--sub);
+}
 /* 古风浅底：写作风格卡片适配宣纸底色，文字改为深墨色 */
 [data-theme="guofeng"] .ws-card {
   background: #faf6ed;
