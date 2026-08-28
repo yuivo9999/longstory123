@@ -647,7 +647,8 @@ body.reader-lock{overflow:hidden}
 #cpRawPanel .cpraw-pre{background:#111;border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:12px;font-size:12px;line-height:1.5;max-height:420px;overflow:auto;white-space:pre-wrap;word-break:break-all;color:#ccc}
 #cpRawPanel .cpraw-actions{display:flex;gap:8px;margin:8px 0}
   /* 生成梗概按钮在动作行中绝对居中 */
-.cp-head-row.action-row .cp-gen-btn{position:relative;right:auto;z-index:auto;margin-left:auto}
+.cp-head-row.action-row .cp-gen-btn{position:relative;right:auto;z-index:auto;margin-left:auto;margin-right:60px}
+
 /* 停止按钮在动作行中靠右 */
 .cp-head-row.action-row .stop-btn{position:absolute;right:0;top:50%;transform:translateY(-50%);z-index:2}
 /* 风格约束 - 在头部内的变体 */

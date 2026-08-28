@@ -494,9 +494,9 @@ function openAiLogPanel(){
     <div class="gs-modal">
       <div class="gs-modal-head"><b>🗒️ AI 请求日志（${aiLog.length}/500）</b>
         <span style="display:flex;gap:6px">
-          <button class="btn small ghost" data-ailog-clear>🗑 清空</button>
           <button class="gs-x" data-ailog-close>✕</button>
         </span></div>
+        <div style="display:flex;gap:6px;padding:0 16px 8px"><button class="btn small ghost" data-ailog-clear>🗑 清空</button></div>
       <div class="cv-body">
         <div class="cv-div">排查「AI 为什么写偏/漏设定」、复现 bug 的唯一证据；只存本机，可一键清空。</div>
         ${rows}
@@ -1664,18 +1664,22 @@ const CHAPTER_PLAN_SYS = `你是一名全书级叙事架构师与逐章梗概生
 0. 若用户提示中出现【写作风格约束（首位要求，须优先遵循）】块，必须作为首位硬约束执行。
 1. 输出与章节数完全一致的 JSON 数组，顺序对应每一章：{"chapterPlans":["第1章：本章梗概…","第2章：本章梗概…"]}
 2. 全局埋点与回收规划：先建立全书埋点清单，明确埋点章节、回收章节、关联逻辑。只在出现埋点或回收的章节梗概内写出该埋点或回收的详细剧情，且必须写清具体情境、对话或线索。
-3. 全局节奏规划：为每章指定不同节奏，如急促/紧凑/舒缓/沉淀/渐进等，并在章节梗概中明确写出本章节奏表现及原因。执行节奏变速自查，检索本章与前、后一章调性：若上一章急促/紧凑，本章转为舒缓/平衡形成弛；若上一章舒缓/松散，本章转为紧凑/渐进形成张。全书需有意识安排张弛交替，避免连续五章以上同节奏。
+3. 全局节奏规划：为每章指定不同节奏，如急促/紧凑/舒缓/沉淀/渐进等，并在章节梗概中明确写出本章节奏表现及原因。
+
 4. 每章梗概强制按以下三段格式输出，不得添加任何额外文字：
 
-【节奏】：（用一段话描述本章节奏：①快慢程度及依据，从急促/紧凑/舒缓/沉淀/渐进等词中选择；②紧张度高/中/低及依据；③转折位置：写清本章属于章内转折/章间转折/过渡章三类中的哪一种，转折点具体在哪个位置；若本章全章维持同一种节奏、无任何变化，则写"无"。章内转折指同一章内部前半段与后半段节奏不同，变化点在该章内部某个位置；章间转折指本章与上一章节奏不同，变化点在两章交界处；过渡章指前后两章节奏差异过大，需要中间用一章做逐级缓冲过渡，变化点分散在过渡章全章。）
+【节奏】：（用一段话描述本章节奏：①快慢程度及依据，从急促/紧凑/舒缓/沉淀/渐进等词中选择；
 
-【埋点】：（填写具体伏笔情境+线索，无则填"无"。埋点必须包含欢快的喜剧伏笔或可笑的细节，可作为后续笑点回收。）
+【埋点】：（填写具体伏笔情境+线索，无则填"无"）
 
 【回收】：（填写回收哪一章的埋点；若有回收，按顺序在同一段内写出【回收哪章】【原埋点】【回收方式】。【回收哪章】写明第几章；【原埋点】逐字粘贴被回收章节的原文，禁止缩写与转述；【回收方式】写明本章如何呼应或收束该伏笔。无则填"无"。回收时需体现喜剧效果的延续与笑点兑现。）
 
 5. 不要 markdown 代码块。
-6. 喜剧基调强制执行：每章梗概必须明确包含欢快的剧情走向、至少一个逗趣的事件设计、以及让人不由自主发笑的具hair对话内容。需写出具体的人物台词、夸张反应、误会或乌龙情境，不得仅用“搞笑”“欢乐”等抽象描述代替。喜剧元素必须融入【节奏】、【埋点】、【回收】三段的描述中，成为本章梗概的核心推动力。
-全局规则：全书所有埋点必须回收，不得悬空，完成后自查闭环。节奏变速自检（内部执行，不写入正文）：输出前检查本章快慢、紧张度与前后章是否形成张弛交替。硬性规定：上一章急促或紧凑，本章不得继续急促或紧凑，必须转为舒缓/沉淀/渐进等；连续三章紧张度不得均为高；全书每五章内至少安排一章舒缓或沉淀作为弛段。若违反，调整本章节奏后重新生成。`;
+6. 喜剧基调强制执行：每章梗概必须明确包含欢快的剧情走向、至少一个逗趣的事件设计。
+
+全局规则：全书所有埋点必须回收，不得悬空，完成后自查闭环。节奏变速自检（内部执行，不写入正文）：输出前检查本章快慢、紧张度与前后章是否形成张弛交替。
+
+硬性规定：全书每五章内至少安排一章舒缓或沉淀作为弛段。若违反，调整本章节奏后重新生成。`;
 
 
 // v10.12 原创性要求（防雷同）· 大纲侧：防套路结构 + 高频人名 + 流水线标题。
@@ -4630,10 +4634,10 @@ function longExportView(){
       <h3>📦 导出资产包 · ${esc(title)}</h3>
       <p class="sub">汇总故事大纲 / 章节梗概 / 章节全文，复制后粘贴到文档，或下载 .md。</p>
       <div class="btn-row">
-        <button id="lnCopyAll" class="btn primary">📋 复制全部</button>
+      <button id="lnCopyAll" class="btn primary">📋 复制全部</button>
 <button id="lnExportReader" class="btn ghost">📖 阅读</button>
 <button id="lnDownload" class="btn ghost">⬇️ 下载 .md</button>
-      </div>
+    </div>
     </div>
     <div class="card"><textarea id="lnExportArea" style="min-height:300px" readonly>${esc(md)}</textarea></div>
     <div class="card">
@@ -5023,7 +5027,7 @@ function bindView(){
   if(isLong()){
     // 资产包（与普通模式同款）：复制全部 / 下载 .md
     const lnCA = $('#lnCopyAll'); if(lnCA) lnCA.onclick = ()=> copyText(buildLongMarkdown());
-    const lnDL = $('#lnDownload'); if(lnDL) lnDL.onclick = ()=> download(`长篇资产包_${state.outline?.title||'story'}.md`, buildLongMarkdown());
+const lnDL = $('#lnDownload'); if(lnDL) lnDL.onclick = ()=> download(`长篇资产包_${state.outline?.title||'story'}.md`, buildLongMarkdown());
 const lnER = $('#lnExportReader'); if(lnER) lnER.onclick = openExportReader;
     $$('#view [data-expch]').forEach(cb=> cb.onchange = ()=>{
       const i = +cb.dataset.expch;

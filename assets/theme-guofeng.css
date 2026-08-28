@@ -487,3 +487,39 @@
 [data-theme="guofeng"] .ws-chip:hover { border-color: var(--gf-gold); background: rgba(212,168,75,0.15); }
 [data-theme="guofeng"] .ws-chip.on { background: var(--gf-red); border-color: var(--gf-red); color: #fff; }
 [data-theme="guofeng"] .ws-subcat-t { color: var(--gf-dim); }
+
+
+/* 逐章梗概卡片适配古风宣纸底色 */
+[data-theme="guofeng"] .cp-card {
+  background: var(--gf-paper);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+[data-theme="guofeng"] .cp-head {
+  background: linear-gradient(135deg, var(--gf-red) 0%, #822a2a 100%);
+}
+[data-theme="guofeng"] .cp-body {
+  background: var(--gf-paper);
+}
+[data-theme="guofeng"] .cp-item {
+  background: var(--panel2);
+  border-color: var(--line);
+}
+[data-theme="guofeng"] .cp-no {
+  background: var(--gf-paper-dim);
+  color: var(--gf-ink);
+  border-color: var(--line);
+}
+[data-theme="guofeng"] .cp-input {
+  background: var(--gf-paper);
+  border-color: var(--line);
+  color: var(--gf-ink);
+}
+[data-theme="guofeng"] .cp-body .sub {
+  color: var(--gf-dim);
+}
+[data-theme="guofeng"] .cp-body .muted {
+  color: var(--gf-dim);
+}
+[data-theme="guofeng"] .cp-wc {
+  color: var(--gf-dim);
+}
