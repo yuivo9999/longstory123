@@ -5528,7 +5528,7 @@ function openCpRawPanel(){
     toast('✅ 已替换 ' + (before.split(find).length - 1) + ' 处');
   };
 }
-
+function closeCpRawPanel(){ const p=$('#cpRawPanel'); if(p) p.remove(); }
 // 手动解析原始响应并应用到逐章梗概
 function applyCpRawResponse(raw){
   if(!raw){ toast('无原始响应数据'); return; }
