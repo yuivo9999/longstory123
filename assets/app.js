@@ -1603,24 +1603,25 @@ let aiSource = 'desc';
 // AI 配方助手卡片（仅长篇小说模式在渲染层调用）
 function aiRecipeCard(){
   const lib = writeStyleLib();
-  return `<div class="card ai-recipe-card">
-    <div class="card-head-row" style="display:flex;align-items:center;gap:8px">
-      <h3 style="margin:0">🧪 AI 配方助手</h3>
-      <span class="muted" style="font-size:11px;font-weight:400">为「写作风格」而生 · 描述一段风格，或上传一部小说的逐章梗概 AI 提炼可模仿配方</span>
+  const collapsed = getCfg().aiRecipeCollapsed !== false; // v10.31 默认折叠，用户可随时展开；状态持久化
+  return `<div class="card ai-recipe-card${collapsed?' collapsed':''}">
+    <div class="ai-recipe-head" data-ai-recipe-fold role="button" tabindex="0" title="展开/收起">
+      <h3 style="margin:0">🧪 AI 配方助手 <span class="sc-fold-ico">${collapsed?'▸':'▾'}</span></h3>
+      <span class="muted" style="font-size:11px;font-weight:400">为「写作风格」而生 · 描述一段风格，或上传逐章梗概 AI 提炼配方</span>
     </div>
-    <div class="ai-upload-row">
-      <button type="button" class="ai-upload-btn" data-ai-recipe-file title="上传逐章梗概TXT">＋</button>
-      <span class="ai-up-label">上传一部小说的逐章梗概 TXT</span>
-      <span class="ai-upload-name muted" data-ai-upload-name></span>
+    <div class="ai-recipe-body">
+      <div class="ai-desc-wrap">
+        <span class="ai-upload-name" data-ai-upload-name></span>
+        <textarea id="aiReDesc" rows="3" maxlength="300" placeholder="用一段话描述你想要的风格/题材/氛围。例如：轻松治愈的都市言情，带点温馨笑料，配角俏皮，节奏明快。" style="width:100%;box-sizing:border-box"></textarea>
+      </div>
+      <div class="ai-recipe-tool">
+        <button type="button" class="btn primary" data-ai-recipe-gen>✨ 生成配方</button>
+        <button type="button" class="btn small ghost" data-ai-recipe-clear>清空</button>
+        <button type="button" class="ai-upload-btn" data-ai-recipe-file title="上传逐章梗概TXT">＋</button>
+      </div>
+      <input type="file" id="aiReFile" accept=".txt,text/plain" hidden />
+      <div data-ai-recipe-out>${ aiRecipeResultHtml(lib) }</div>
     </div>
-    <input type="file" id="aiReFile" accept=".txt,text/plain" hidden />
-    <textarea id="aiReDesc" rows="3" maxlength="300" placeholder="用一段话描述你想要的风格/题材/氛围。例如：轻松治愈的都市言情，带点温馨笑料，配角俏皮，节奏明快。" style="width:100%;box-sizing:border-box"></textarea>
-    <div class="ai-recipe-tool">
-      <button type="button" class="btn primary" data-ai-recipe-gen>✨ 生成候选配方 (2-5)</button>
-      <button type="button" class="btn small ghost" data-ai-recipe-clear>✕ 清空</button>
-      <span class="muted" style="font-size:11px">仅长篇小说模式支持 · 缺口词条确认后立即纳入当前配方</span>
-    </div>
-    <div data-ai-recipe-out>${ aiRecipeResultHtml(lib) }</div>
   </div>`;
 }
 function aiRecipeResultHtml(lib){
@@ -2913,11 +2914,24 @@ function writeStyleChipsHtml(sel, dataPrefix, opts){
   const comboList = dataPrefix==='ws' ? availableCombos() : [];
   const comboRemovedN = (getCfg().styleCustom||{}).comboRemoved && getCfg().styleCustom.comboRemoved.length ? getCfg().styleCustom.comboRemoved.length : 0;
   const customCombos = dataPrefix==='ws' ? ((getCfg().styleCustom||{}).customCombos||[]) : [];
+  const comboOpen = (dataPrefix==='ws' && getCfg().styleCustom && getCfg().styleCustom.comboOpen) || {}; // v10.31 内置/我的配方独立折叠
   // 单个组合卡片模板（内置/自定义通用）
   const mkCombo = c=> `<div class="ws-opt ws-combo-btn" data-ws-combo="${c.id}"><span class="ws-combo-del" data-ws-combo-del="${c.id}" title="删除此组合">✕</span><div class="ws-opt-name">${esc(c.name)}</div><div class="ws-opt-note">${esc(c.desc||'')}</div></div>`;
   const comboBar = dataPrefix==='ws'
-    ? `<div class="ws-combo"><div class="ws-subcat-t">🎬 组合配方（点击即替换当前选择，可再叠加细项）${comboRemovedN?`<button type="button" class="ws-combo-restore" data-ws-combo-restore>恢复已删组合(${comboRemovedN})</button>`:''}</div><div class="ws-opt-list">${comboList.filter(c=>!c.custom).map(mkCombo).join('')}</div></div>
-       <div class="ws-combo ws-combo-mine"><div class="ws-subcat-t"><span>🏷 我的配方</span><button type="button" class="ws-combo-add" data-ws-combo-add title="把当前草稿保存为自定义组合配方">＋</button></div><div class="ws-opt-list">${customCombos.map(mkCombo).join('')}</div></div>`
+    ? `<div class="ws-combo${comboOpen.builtin===false?'':' open'}" data-ws-combofold="builtin">
+       <div class="ws-subcat-t" role="button" tabindex="0" title="展开/收起">
+         <span class="ws-combo-title"><span class="sc-fold-ico">${comboOpen.builtin===false?'▸':'▾'}</span> 🎬 组合配方 <span class="muted" style="font-size:10px;font-weight:400">点击即替换当前选择，可再叠加细项</span></span>
+         ${comboRemovedN?`<button type="button" class="ws-combo-restore" data-ws-combo-restore>恢复已删组合(${comboRemovedN})</button>`:''}
+       </div>
+       <div class="ws-subcat-fold"><div class="ws-opt-list">${comboList.filter(c=>!c.custom).map(mkCombo).join('')}</div></div>
+     </div>
+     <div class="ws-combo ws-combo-mine${comboOpen.custom===false?'':' open'}" data-ws-combofold="custom">
+       <div class="ws-subcat-t" role="button" tabindex="0" title="展开/收起">
+         <span class="ws-combo-title"><span class="sc-fold-ico">${comboOpen.custom===false?'▸':'▾'}</span> 🏷 我的配方</span>
+         <button type="button" class="ws-combo-add" data-ws-combo-add title="把当前草稿保存为自定义组合配方">＋</button>
+       </div>
+       <div class="ws-subcat-fold"><div class="ws-opt-list">${customCombos.map(mkCombo).join('')}</div></div>
+     </div>`
     : '';
   return `${comboBar}${blocks}<div class="ws-chips"><span class="ws-group-tip">可多选</span>${plus}</div>`;
 }
@@ -3071,8 +3085,22 @@ function bindWriteStyle(){
     wsCard.addEventListener('click', e=>{
       const t = e.target.closest('.ws-subcat-t');
       if(!t || !t.hasAttribute('role')) return;
-      const sub = t.closest('.ws-subcat');
-      if(!sub || sub.dataset.wsCatfold===undefined) return;
+      // 组合板块的加号/恢复按钮不触发布内折叠
+      if(e.target.closest('.ws-combo-add, .ws-combo-restore')) return;
+      const sub = t.closest('.ws-subcat, .ws-combo');
+      if(!sub) return;
+      // v10.31 组合配方独立折叠（data-ws-combofold → cfg.styleCustom.comboOpen.builtin/custom）
+      if(sub.dataset.wsCombofold!==undefined){
+        const cfg = getCfg(); cfg.styleCustom = cfg.styleCustom || {};
+        cfg.styleCustom.comboOpen = cfg.styleCustom.comboOpen || {};
+        const open = !sub.classList.contains('open');
+        cfg.styleCustom.comboOpen[sub.dataset.wsCombofold] = open; saveCfg(cfg);
+        sub.classList.toggle('open', open);
+        const ico = t.querySelector('.sc-fold-ico'); if(ico) ico.textContent = open?'▾':'▸';
+        return;
+      }
+      // 五大类折叠（state.chapterStyle.catOpen）
+      if(sub.dataset.wsCatfold===undefined) return;
       const st = writeStyleState(); st.catOpen = st.catOpen || {};
       const open = !sub.classList.contains('open');
       st.catOpen[sub.dataset.wsCatfold] = open; persist();
@@ -3401,7 +3429,7 @@ function viewStory(){
   const o = state.outline;
   let html = `
     ${ origIdeaCard() }
-    ${ isLong() ? aiRecipeCard() : '' }   // v10.30 AI配方助手（仅长篇小说模式，位于原始构想与写作风格之间）
+    ${ isLong() ? aiRecipeCard() : '' }
     ${ writeStyleCard() }
     ${ recipeSummaryBar() }
     <div class="card">
@@ -3496,7 +3524,16 @@ function bindAiRecipe(){
     aiRp = null; aiSource = 'desc';
     const out = card.querySelector('[data-ai-recipe-out]'); if(out) out.innerHTML = aiRecipeResultHtml();
   };
-  // v1.0.62 上传逐章梗概 TXT：圆形加号 + 拖拽区 → FileReader.readAsText → AI 通读提炼配方
+  // v10.31 卡片折叠：点头部整卡展开/收起，状态持久化到 cfg.aiRecipeCollapsed（默认折叠）
+  const foldHead = card.querySelector('[data-ai-recipe-fold]');
+  if(foldHead) foldHead.addEventListener('click', ()=>{
+    const cfg = getCfg();
+    card.classList.toggle('collapsed');
+    const nowCollapsed = card.classList.contains('collapsed');
+    cfg.aiRecipeCollapsed = nowCollapsed; saveCfg(cfg);
+    const ico = foldHead.querySelector('.sc-fold-ico'); if(ico) ico.textContent = nowCollapsed?'▸':'▾';
+  });
+  // v1.0.62 上传逐章梗概 TXT：圆形加号 → FileReader.readAsText → AI 通读提炼配方
   const fIn = $('#aiReFile');
   const readOutline = (f)=>{
     if(!f) return;
@@ -3515,8 +3552,6 @@ function bindAiRecipe(){
   const openPick = ()=>{ if(fIn) fIn.click(); };
   const fileBtn = card.querySelector('[data-ai-recipe-file]');
   if(fileBtn) fileBtn.onclick = openPick;
-  const upLabel = card.querySelector('.ai-up-label');
-  if(upLabel) upLabel.onclick = openPick;
   // 事件委托：选用候选 / 加入缺口词条（点选候选后内部 render()，事件需在容器上重查）
   card.addEventListener('click', (e)=>{
     const pick = e.target.closest('[data-ai-recipe-pick]');
@@ -7159,9 +7194,12 @@ function aiAdviceResultHtml(){
   if(!Array.isArray(aiAdviceCand) || !aiAdviceCand.length) return '';
   return aiAdviceCand.map((a,ai)=>`
     <div class="advice-ai-cand" data-advice-ai-pick="${ai}">
-      <b>${esc(a.title||('方案'+(ai+1)))}</b>
+      <div class="advice-ai-head">
+        <span class="advice-ai-idx">${'①②③'[ai]||(ai+1)}</span>
+        <b>${esc(a.title||('方案'+(ai+1)))}</b>
+        <button type="button" class="advice-ai-use">✔ 采用</button>
+      </div>
       <p>${esc(a.text||'')}</p>
-      <span class="advice-ai-use">→ 采用</span>
     </div>`).join('');
 }
 

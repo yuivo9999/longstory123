@@ -27,6 +27,7 @@
   --muted: var(--gf-dim);
   --line: var(--gf-line);
   --accent: var(--gf-gold);
+  --on-accent: var(--gf-ink);
 }
 
 /* 背景：深红木纹（代码兜底）或用户提供的背景图 */

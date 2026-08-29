@@ -1,7 +1,7 @@
 :root{
   --bg:#0f1115; --panel:#181b22; --panel2:#1f232c; --line:#2a2f3a;
   --txt:#e7e9ee; --sub:#9aa3b2; --muted:#6b7280;
-  --accent:#ff6a3d; --accent2:#3da9ff; --ok:#37c98b; --warn:#f5b942;
+  --accent:#ff6a3d; --accent2:#3da9ff; --ok:#37c98b; --warn:#f5b942; --on-accent:#fff;
   --radius:14px;
 }
 .hidden{display:none!important}
@@ -983,6 +983,11 @@ textarea[readonly]::selection{ background:color-mix(in srgb, var(--accent2) 45%,
 .ws-opt.on .ws-opt-note{color:rgba(255,255,255,.72)}
 /* v2.4 组合配方栏：一键配齐入口，置于五大类之上，视觉上与普通词条区分 */
 .ws-combo .ws-subcat-t{color:var(--accent);font-size:12px}
+.ws-combo-title{display:inline-flex;align-items:center;gap:4px;min-width:0}
+/* v10.31 组合配方独立折叠：内置/我的配方各自可折叠（grid 平滑动画） */
+.ws-combo .ws-subcat-fold{display:grid;grid-template-rows:1fr;transition:grid-template-rows .22s ease}
+.ws-combo:not(.open) .ws-subcat-fold{grid-template-rows:0fr}
+.ws-combo .ws-subcat-fold > .ws-opt-list{overflow-y:auto;overflow-x:hidden;min-height:0;margin:0}
 /* v2.6 组合配方栏双列网格：7 个组合在窄屏不换行铺开 */
 .ws-combo .ws-opt-list{display:grid;grid-template-columns:1fr 1fr;gap:8px;max-height:240px;overflow-y:auto;padding-right:4px}
 .ws-combo-btn{border-style:dashed;border-color:rgba(255,255,255,.22);background:rgba(64,140,255,.06);border-radius:10px}
@@ -1003,11 +1008,19 @@ textarea[readonly]::selection{ background:color-mix(in srgb, var(--accent2) 45%,
 .ws-combo-add:hover{background:color-mix(in srgb, var(--accent) 14%, transparent)}
 /* v10.30 AI 配方助手卡片（服务写作风格 · 仅长篇） */
 .ai-recipe-card .ai-recipe-tool{display:flex;align-items:center;gap:8px;margin:8px 0}
-.ai-upload-row{display:flex;align-items:center;gap:8px;margin:0 0 6px;flex-wrap:wrap}
-.ai-upload-btn{width:26px;height:26px;border-radius:50%;border:1px solid color-mix(in srgb,var(--accent) 45%,transparent);background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--accent);font-size:16px;font-weight:700;line-height:1;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s;padding:0}
+.ai-upload-btn{width:22px;height:22px;border-radius:50%;border:1px solid color-mix(in srgb,var(--accent) 45%,transparent);background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--accent);font-size:14px;font-weight:700;line-height:1;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s;padding:0;margin-left:auto;flex:none}
 .ai-upload-btn:hover{background:color-mix(in srgb,var(--accent) 22%,transparent)}
-.ai-up-label{font-size:11px;color:var(--sub);cursor:pointer;padding:4px 2px}
-.ai-upload-name{color:var(--accent);font-size:11px}
+/* v10.31 工具行按钮高度统一约 22px（宽度不变，仅本卡片作用域） */
+.ai-recipe-tool .btn{height:22px;line-height:20px;padding:0 10px;font-size:12px;min-height:0;box-sizing:border-box}
+.ai-recipe-tool .btn.primary,.ai-recipe-tool .btn.small.ghost{width:auto}
+/* v10.31 卡片折叠：头部常显，身体整块收起 */
+.ai-recipe-head{display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer;user-select:none;flex-wrap:wrap}
+.ai-recipe-head:hover .sc-fold-ico{color:var(--accent)}
+.ai-recipe-card.collapsed .ai-recipe-body{display:none}
+/* v10.31 文件名显示在描述框右上角外侧（强调色，空则隐藏） */
+.ai-desc-wrap{display:flex;flex-direction:column;align-items:flex-end}
+.ai-upload-name{font-size:11px;color:var(--accent);margin-bottom:2px;line-height:1.2;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ai-upload-name:empty{display:none}
 .ai-recipe-card textarea{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);border-radius:10px;color:var(--txt);padding:8px 10px;font-family:inherit;font-size:12.5px;resize:vertical}
 .ai-recipe-card textarea:focus{outline:none;border-color:var(--accent)}
 .ai-recipe-cand{border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px;background:rgba(255,255,255,.03)}
@@ -1031,12 +1044,21 @@ textarea[readonly]::selection{ background:color-mix(in srgb, var(--accent2) 45%,
 .ai-recipe-gapitem .btn{margin-top:6px}
 /* v1.0.60 AI 提炼优化建议（重生成弹窗内） */
 .advice-ai-row{display:flex;align-items:center;gap:8px;margin:8px 0 4px;flex-wrap:wrap}
-.advice-ai-cand{border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin:6px 0;background:rgba(255,255,255,.03);cursor:pointer;transition:border-color .15s}
+/* v10.32 AI优化建议按钮：22px 高，accent 幽灵强调；进行中(:disabled)转虚线弱化 */
+.advice-ai-row .btn{height:22px;line-height:20px;padding:0 10px;font-size:12px;font-weight:600;color:var(--accent);border:1px solid color-mix(in srgb,var(--accent) 55%,transparent);background:transparent;box-sizing:border-box}
+.advice-ai-row .btn:hover:not(:disabled){background:color-mix(in srgb,var(--accent) 12%,transparent)}
+.advice-ai-row .btn:disabled{background:color-mix(in srgb,var(--accent) 10%,transparent);border:1px dashed color-mix(in srgb,var(--accent) 45%,transparent);color:var(--sub);opacity:.6}
+.advice-ai-row .muted{color:var(--sub);font-size:11.5px}
+.advice-ai-cand{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:6px 0;background:rgba(255,255,255,.03);cursor:pointer;transition:border-color .15s}
 .advice-ai-cand:hover{border-color:var(--accent2)}
 .advice-ai-cand.on{border-color:var(--accent);background:color-mix(in srgb, var(--accent) 10%, transparent)}
-.advice-ai-cand b{color:var(--accent2);font-size:12.5px;display:block}
-.advice-ai-cand p{margin:4px 0;font-size:11.5px;color:var(--txt);white-space:pre-wrap}
-.advice-ai-use{display:inline-block;font-size:11px;color:var(--accent);margin-top:2px}
+.advice-ai-head{display:flex;align-items:center;gap:8px}
+.advice-ai-idx{flex:none;width:18px;height:18px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--on-accent);background:var(--accent)}
+.advice-ai-cand b{color:var(--accent2);font-size:13px;flex:1;min-width:0}
+.advice-ai-cand p{margin:8px 0 0;font-size:12px;color:var(--txt);white-space:pre-wrap;line-height:1.55}
+/* v10.32 采用按钮：高度一键减半（约 11px），accent 实底强强调 */
+.advice-ai-use{display:inline-flex;align-items:center;justify-content:center;gap:2px;height:11px;padding:0 6px;font-size:10px;font-weight:600;border-radius:5px;background:var(--accent);border:1px solid var(--accent);color:var(--on-accent);cursor:pointer;flex:none;box-sizing:border-box;line-height:9px}
+.advice-ai-use:hover{filter:brightness(1.08)}
 .ws-chip{display:inline-flex;align-items:center;padding:5px 11px;border-radius:20px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:rgba(255,255,255,.68);font-size:12.5px;cursor:pointer;transition:all .15s;font-family:inherit}
 .ws-chip:active{transform:scale(.96)}
 .ws-chip:hover{border-color:rgba(255,255,255,.2)}

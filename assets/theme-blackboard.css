@@ -7,7 +7,7 @@
 [data-theme="blackboard"]{
   --bg:#0f2a20; --panel:rgba(19,53,42,.92); --panel2:rgba(12,36,27,.92);
   --line:rgba(255,255,255,.35); --txt:#eafaf2; --sub:#9be8c8; --muted:#6f9c86;
-  --accent:#ffd27f; --accent2:#ffd27f; --ok:#7fe3b0; --warn:#ffd27f;
+  --accent:#ffd27f; --accent2:#ffd27f; --ok:#7fe3b0; --warn:#ffd27f; --on-accent:#0f2a20;
   --chalk:#f3fbf6;
 }
 [data-theme="blackboard"] body{
