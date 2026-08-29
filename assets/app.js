@@ -36,7 +36,7 @@ const state = {
   gsCollapsed: true,    // v8b：万物词典卡片是否整卡收缩（默认收缩，点圆形展开全部）
   stCollapsed: false,   // v10.3：长篇结构设计栏是否收缩（默认展开，点击标题收起）
   cpCollapsed: true,    // v10.14：逐章方向梗概卡是否收缩（默认折叠，点击标题展开）
-  cpAllFolded: false,   // v10.23：逐章梗概列表中所有条目是否收起成一行概览（配合限高内滚，缓解超长章节列表）
+  useChapterPlans: true,  // v10.29：逐章梗概本稿是否参与正文生成（默认开）；关则保留内容与历史、仅不注入 AI
   autoQC: false,        // 自动质检开关（默认关闭，v10.18）：生成后自动两段式查错修正；关则直接落库
   chapters: [],         // [{title, content, confirmed, editHistory:[], qcRecord:{}}]
   characters: [],       // [{name, role, profile:{...}, prompts:{...}}]
@@ -246,7 +246,7 @@ function projectSnapshot(){
     gsCollapsed: state.gsCollapsed,
     stCollapsed: state.stCollapsed,
     cpCollapsed: state.cpCollapsed,   // v10.14 梗概卡折叠透传
-    cpAllFolded: state.cpAllFolded,   // v10.23 梗概列表全收/全展透传
+    useChapterPlans: (typeof state.useChapterPlans === 'boolean') ? state.useChapterPlans : true,   // v10.29
     expOpenGroups: state.expOpenGroups,   // P5 长篇导出分组折叠所展开的分组透传
     polishOptions: state.polishOptions,   // v10.16 优化构想保留方案透传
     polishAdopted: state.polishAdopted,   // v10.16 当前采用的方案名
@@ -292,7 +292,7 @@ function applyProject(p){
   state.gsCollapsed = (typeof p.gsCollapsed === 'boolean') ? p.gsCollapsed : true;
   state.stCollapsed = !!p.stCollapsed;
   state.cpCollapsed = (typeof p.cpCollapsed === 'boolean') ? p.cpCollapsed : true;   // v10.14 梗概卡默认折叠
-  state.cpAllFolded = (typeof p.cpAllFolded === 'boolean') ? p.cpAllFolded : false;   // v10.23 梗概列表默认先展开（配合内滚）
+  state.useChapterPlans = (typeof p.useChapterPlans === 'boolean') ? p.useChapterPlans : true;   // v10.29 默认参与生成
   state.expOpenGroups = Array.isArray(p.expOpenGroups) ? p.expOpenGroups : [];   // P5 长篇导出分组折叠所展开的分组
   state.polishOptions = Array.isArray(p.polishOptions) ? p.polishOptions : undefined;   // v10.16 保留方案
   state.polishAdopted = (typeof p.polishAdopted === 'string') ? p.polishAdopted : undefined;
@@ -330,6 +330,7 @@ function clearState(){
   state.idea = ''; state.outline = null; state.coverPrompt = ''; state.coverWithTitle = false; state.outlineConfirmed = false;
   state.pendingGlossary = null; state.glossAdherence = 60; state.glossAllowFill = false; state.glossAutoFill = true; state.gsCollapsed = true;
   state.autoQC = false;  // 自动质检默认关闭（v10.18）
+  state.useChapterPlans = true;  // v10.29 新建作品默认参与生成
   state.chapters = []; state.characters = []; state.scenes = []; state.storyboard = []; state.boardConcepts = []; state.titleHistory = []; state.raw = {};
   state.outlineHistory = []; state.expSel = [];
   state.hist = { characters:[], scenes:[], cover:[], storyboard:[] };
@@ -1539,10 +1540,17 @@ const WRITE_COMBOS = [
   { id:'scheme',   name:'⚔️ 权谋对峙',   desc:'一触即发＋锋利冷冽＋机锋对白，句句试探、胜负在话里。', tags:['standoff','cutting','jifeng'] },
 ];
 // v2.5 组合删除支持：cfg.styleCustom.comboRemoved 记录被用户删除的组合 id；「恢复默认词库」会一并还原
+// v10.28 自定义组合：cfg.styleCustom.customCombos 存用户「＋」新建的组合；并入可用列表，并过滤已被词库删除的词条引用
 function availableCombos(){
   const c = getCfg().styleCustom || {};
+  c.customCombos = Array.isArray(c.customCombos) ? c.customCombos : [];
   const removed = Array.isArray(c.comboRemoved) ? c.comboRemoved : [];
-  return WRITE_COMBOS.filter(x=> !removed.includes(x.id));
+  const libIds = writeStyleLib().map(s=>s.id);
+  const builtin = WRITE_COMBOS.filter(x=> !removed.includes(x.id));
+  const mine = c.customCombos
+    .map(x=>({ ...x, custom:true, tags:(x.tags||[]).filter(id=> libIds.includes(id)) }))
+    .filter(x=> x.tags.length > 0);
+  return builtin.concat(mine);
 }
 const WRITE_GROUP_LABEL = { tone:'① 标题风格', texture:'② 梗概风格', element:'③ 章节风格' };
 
@@ -2709,8 +2717,12 @@ function writeStyleChipsHtml(sel, dataPrefix, opts){
   // v2.5 支持删除内置组合（写入 cfg.styleCustom.comboRemoved），卡片右上角 ✕ 删除；被删后显示「恢复已删组合」
   const comboList = dataPrefix==='ws' ? availableCombos() : [];
   const comboRemovedN = (getCfg().styleCustom||{}).comboRemoved && getCfg().styleCustom.comboRemoved.length ? getCfg().styleCustom.comboRemoved.length : 0;
+  const customCombos = dataPrefix==='ws' ? ((getCfg().styleCustom||{}).customCombos||[]) : [];
+  // 单个组合卡片模板（内置/自定义通用）
+  const mkCombo = c=> `<div class="ws-opt ws-combo-btn" data-ws-combo="${c.id}"><span class="ws-combo-del" data-ws-combo-del="${c.id}" title="删除此组合">✕</span><div class="ws-opt-name">${esc(c.name)}</div><div class="ws-opt-note">${esc(c.desc||'')}</div></div>`;
   const comboBar = dataPrefix==='ws'
-    ? `<div class="ws-combo"><div class="ws-subcat-t">🎬 组合配方（点击即替换当前选择，可再叠加细项）${comboRemovedN?`<button type="button" class="ws-combo-restore" data-ws-combo-restore>恢复已删组合(${comboRemovedN})</button>`:''}</div><div class="ws-opt-list">${comboList.map(c=>`<div class="ws-opt ws-combo-btn" data-ws-combo="${c.id}"><span class="ws-combo-del" data-ws-combo-del="${c.id}" title="删除此组合">✕</span><div class="ws-opt-name">${esc(c.name)}</div><div class="ws-opt-note">${esc(c.desc)}</div></div>`).join('')}</div></div>`
+    ? `<div class="ws-combo"><div class="ws-subcat-t">🎬 组合配方（点击即替换当前选择，可再叠加细项）${comboRemovedN?`<button type="button" class="ws-combo-restore" data-ws-combo-restore>恢复已删组合(${comboRemovedN})</button>`:''}</div><div class="ws-opt-list">${comboList.filter(c=>!c.custom).map(mkCombo).join('')}</div></div>
+       <div class="ws-combo ws-combo-mine"><div class="ws-subcat-t"><span>🏷 我的配方</span><button type="button" class="ws-combo-add" data-ws-combo-add title="把当前草稿保存为自定义组合配方">＋</button></div><div class="ws-opt-list">${customCombos.map(mkCombo).join('')}</div></div>`
     : '';
   return `${comboBar}${blocks}<div class="ws-chips"><span class="ws-group-tip">可多选</span>${plus}</div>`;
 }
@@ -2773,24 +2785,51 @@ function bindWriteStyle(){
     refreshWsUI();
   });
   // v2.4 组合配方按钮：点击即以「替换」方式覆盖草稿标签（清空当前 + 填入组合），再点「✔ 应用并保存」生效
+  // v10.28 兼容自定义组合（availableCombos 返回内置+我的配方）
   $$('[data-ws-combo]').forEach(b=> b.onclick = ()=>{
-    const combo = WRITE_COMBOS.find(c=> c.id === b.dataset.wsCombo); if(!combo) return;
+    const combo = availableCombos().find(c=> c.id === b.dataset.wsCombo); if(!combo) return;
     const d = wsDraftInit();
     const libIds = writeStyleLib().map(s=>s.id);
     d.tags = (combo.tags||[]).filter(id=> libIds.includes(id));
     refreshWsUI();
     toast(`已套用组合「${combo.name}」：${(d.tags.map(id=>{const s=writeStyleById(id);return s?s.name:id}).join(' + '))||'（部分词条已删，未套用）'}，点「✔ 应用并保存」生效`);
   });
-  // v2.5 组合删除：写入 styleCustom.comboRemoved → 完整 render 重建卡片（可经「恢复已删组合」或「恢复默认」还原）
+  // v2.5 组合删除：内置写入 styleCustom.comboRemoved / 自定义直接移除 customCombos → 完整 render 重建卡片
   $$('[data-ws-combo-del]').forEach(b=> b.onclick = (e)=>{
     e.stopPropagation();
-    const combo = WRITE_COMBOS.find(c=> c.id === b.dataset.wsComboDel); if(!combo) return;
-    if(!window.confirm(`删除组合「${combo.name}」后不再显示，可通过「恢复已删组合」还原。确定删除？`)) return;
+    const id = b.dataset.wsComboDel; if(!id) return;
     const cfg = getCfg(); cfg.styleCustom = cfg.styleCustom || {};
-    cfg.styleCustom.comboRemoved = cfg.styleCustom.comboRemoved || [];
-    if(!cfg.styleCustom.comboRemoved.includes(combo.id)) cfg.styleCustom.comboRemoved.push(combo.id);
-    saveCfg(cfg); render(); toast(`已删除组合「${combo.name}」`);
+    const isBuiltin = WRITE_COMBOS.some(c=> c.id === id);
+    if(isBuiltin){
+      const combo = WRITE_COMBOS.find(c=> c.id === id);
+      if(!combo) return;
+      if(!window.confirm(`删除组合「${combo.name}」后不再显示，可通过「恢复已删组合」还原。确定删除？`)) return;
+      cfg.styleCustom.comboRemoved = cfg.styleCustom.comboRemoved || [];
+      if(!cfg.styleCustom.comboRemoved.includes(id)) cfg.styleCustom.comboRemoved.push(id);
+      saveCfg(cfg); render(); toast(`已删除组合「${combo.name}」`);
+    } else {
+      const combo = (cfg.styleCustom.customCombos||[]).find(c=> c.id === id);
+      if(window.confirm(`删除自定义组合「${combo?combo.name:id}」？删后不可撤销。确定删除？`)){
+        cfg.styleCustom.customCombos = (cfg.styleCustom.customCombos||[]).filter(x=> x.id !== id);
+        saveCfg(cfg); render(); toast('已删除自定义组合');
+      }
+    }
   });
+  // v10.28 「我的配方」加号：把当前草稿（未编辑时取生效配置）保存为自定义组合配方
+  const cadd = $('[data-ws-combo-add]');
+  if(cadd) cadd.onclick = ()=>{
+    const cur = wsDraft || writeStyleState();
+    const tags = (cur.tags||[]).slice();
+    if(!tags.length){ toast('当前无风格，暂无可保存的组合配方'); return; }
+    const cfg = getCfg(); cfg.styleCustom = cfg.styleCustom || {};
+    cfg.styleCustom.customCombos = cfg.styleCustom.customCombos || [];
+    const name = prompt('给这个组合配方起个名字：', '我的配方' + (cfg.styleCustom.customCombos.length + 1));
+    if(!name || !name.trim()) return;
+    const desc = tags.map(id=>{ const s=writeStyleById(id); return s? s.name : id; }).join(' + ');
+    cfg.styleCustom.customCombos.push({ id:'cu'+Date.now().toString(36), name:name.trim(), desc, tags });
+    saveCfg(cfg); render();
+    toast('已保存为自定义组合「' + name.trim() + '」，点它即可一键套用');
+  };
   const cre = $('[data-ws-combo-restore]');
   if(cre) cre.onclick = ()=>{
     if(!window.confirm('恢复全部被删除的组合配方？')) return;
@@ -3636,9 +3675,8 @@ function chapterPlanBlock(){
   const plans = (o && Array.isArray(o.chapterPlans)) ? o.chapterPlans : [];
   const hasPlans = plans.some(Boolean);
   const collapsed = !!state.cpCollapsed;
-  const allFolded = !!state.cpAllFolded;
   const items = plans.map((t,i)=>`
-    <div class="cp-item${allFolded?' cp-collapsed':''}" data-cp-item="${i}">
+    <div class="cp-item" data-cp-item="${i}">
       <span class="cp-no">${i+1}</span>
       <textarea class="cp-input" rows="3" data-cp-set="${i}" data-orig="${esc(t)}" placeholder="本章梗概（可编辑）">${esc(t)}</textarea>
       <span class="cp-wc">${t.length}字</span>
@@ -3649,17 +3687,19 @@ function chapterPlanBlock(){
         <div class="cp-head-left">
           <h3>🧭 逐章梗概 <span class="cp-arrow">${collapsed?'▸':'▾'}</span></h3>
         </div>
+        <div class="cp-head-use">
+          <button type="button" class="btn small ${state.useChapterPlans?'on':''}" data-cp-use title="关闭后逐章梗概内容保留、历史仍在，但写正文时不发送给 AI">📝 参与生成：${state.useChapterPlans?'开':'关'}</button>
+        </div>
       </div>
       <div class="cp-head-row action-row">
         <button type="button" class="btn ghost" data-cp-raw title="手动提取 AI 原始响应数据，当自动更新失败时使用">🔧</button>
         ${hasChapterPlansHistory()?`<button type="button" class="btn ghost" data-cp-hist>📚 版本(${chapterPlansHistoryCount()})</button>`:''}
-        ${hasPlans && plans.length>6 ? `<button type="button" class="btn ghost" data-cp-allfold title="将全部梗概收成一行概览 / 展开完整文本">📑 ${allFolded?`展开全部(${plans.length})`:`收起全部(${plans.length})`}</button>` : ''}
         <button type="button" class="cp-gen-btn" data-cp-gen>${hasPlans?' 重生成':'新生成'}</button>
       </div>
     </div>
     <div class="cp-body"${collapsed?' hidden':''}>
       ${hasPlans ? `<div class="cp-list">${items}</div>
-        <p class="muted" style="margin:6px 0 0">每条可编辑，失焦即存；写正文时注入为【本章梗概】。</p>`
+        ${state.useChapterPlans ? '<p class="muted" style="margin:6px 0 0">每条可编辑，失焦即存；写正文时注入为【本章梗概】。</p>' : '<p class="muted" style="margin:6px 0 0">已暂停参与生成：内容与历史版本保留，写正文时不发送给 AI；可点上方「参与生成：关」恢复。</p>'}`
         : `<p class="sub">可选步骤：为每章写一段本章梗概（核心事件/起因经过结果/走向），写正文时据此执笔，统一各章走向。不做也不影响默认流程。</p>`}
     </div>
   </div>`;
@@ -3670,7 +3710,7 @@ function bindChapterPlanFold(){
   const head = $('[data-cp-fold]');
   if(!head) return;
   head.onclick = (e)=>{
-    if(e.target.closest('[data-cp-hist]') || e.target.closest('[data-cp-gen]') || e.target.closest('[data-cp-raw]')) return;   // 不拦截版本/生成/原始数据按钮
+    if(e.target.closest('[data-cp-hist]') || e.target.closest('[data-cp-gen]') || e.target.closest('[data-cp-raw]') || e.target.closest('[data-cp-use]') || e.target.closest('.stop-btn')) return;   // 不拦截版本/生成/原始数据/参与生成开关/停止按钮
     state.cpCollapsed = !state.cpCollapsed;
     persist();
     const body = $('.cp-body'); if(body) body.hidden = state.cpCollapsed;
@@ -3690,14 +3730,15 @@ function bindChapterPlan(){
   if(hist) hist.onclick = ()=> openChapterPlansHistoryPanel();
   const rawBtn = $('[data-cp-raw]');
   if(rawBtn) rawBtn.onclick = ()=> openCpRawPanel();
-  // v10.23 全部收起/展开：切换所有条目折叠类并持久化，/重生成按钮互不干扰
-  const allFold = $('[data-cp-allfold]');
-  if(allFold) allFold.onclick = ()=>{
-    state.cpAllFolded = !state.cpAllFolded;
+  // v10.29 「参与生成」开关：关则保留逐章梗概内容与历史、仅不注入正文生成
+  const useCp = $('[data-cp-use]');
+  if(useCp) useCp.onclick = (e)=>{
+    e.stopPropagation();
+    state.useChapterPlans = !(typeof state.useChapterPlans === 'boolean' ? state.useChapterPlans : true);
     persist();
-    $$('.cp-item').forEach(it=> it.classList.toggle('cp-collapsed', state.cpAllFolded));
-    const n = (state.outline && Array.isArray(state.outline.chapterPlans)) ? state.outline.chapterPlans.length : 0;
-    allFold.textContent = state.cpAllFolded ? `📑 展开全部(${n})` : `📑 收起全部(${n})`;
+    useCp.classList.toggle('on', !!state.useChapterPlans);
+    useCp.textContent = '📝 参与生成：' + (state.useChapterPlans ? '开' : '关');
+    toast('逐章梗概将' + (state.useChapterPlans ? '参与本章生成' : '不参与生成（内容与历史保留）'));
   };
   $$('[data-cp-set]').forEach(inp=>{
     // 实时更新字数
@@ -5627,8 +5668,8 @@ async function genChapterPlans(btn){
     preview.className = 'cp-stream-preview'; preview.textContent = '正在生成梗概…';
     cpBody.parentNode.insertBefore(preview, cpBody);
   }
-  // 显示停止按钮
-  const stopParent = btn && btn.closest('.action-row') ? btn.closest('.action-row') : (btn&&btn.parentNode);
+  // 显示停止按钮（v10.29 挂到标题行居中；回退 action-row）
+  const stopParent = btn && btn.closest('.cp-head-top') ? btn.closest('.cp-head-top') : (btn && btn.closest('.action-row') ? btn.closest('.action-row') : (btn&&btn.parentNode));
   if(stopParent) showStopBtn(stopParent);
   let _streamBuf = '';
   try{
@@ -6540,10 +6581,12 @@ function buildChapterUser(i, opt={}){
   } else {
     parts.push(`【开篇说明】本章为全书第一章，无前文，请直接开篇立住基调。`);
   }
-  // ③ 本章任务 + 本章梗概
+  // ③ 本章任务 + 本章梗概（v10.29 「参与生成」关闭时不注入梗概，仅保留任务与自由展开）
   let task = `【本章任务】第 ${curN} 章《${chap.title}》`;
-  const plan = (Array.isArray(o.chapterPlans) && o.chapterPlans[i]) ? String(o.chapterPlans[i]).trim() : '';
-  if(plan) task += `\n【本章梗概】\n${plan}\n按此梗概写本章，细节自行展开、可合理微调。`;
+  if(state.useChapterPlans){
+    const plan = (Array.isArray(o.chapterPlans) && o.chapterPlans[i]) ? String(o.chapterPlans[i]).trim() : '';
+    if(plan) task += `\n【本章梗概】\n${plan}\n按此梗概写本章，细节自行展开、可合理微调。`;
+  }
   parts.push(task);
   // ④ 本章边界 + 下一章边界（禁越界）/ 末章收束
   const isLast = (i + 1) >= (o.chapters||[]).length;
@@ -6552,7 +6595,7 @@ function buildChapterUser(i, opt={}){
     boundary += `\n【全书收束】本章为全书最后一章：请收束全书，交代主要线索与人物归宿，给出结局，不留开放式烂尾。`;
   } else {
     const nextC = o.chapters[i+1];
-    const nextPlan = (Array.isArray(o.chapterPlans) && o.chapterPlans[i+1]) ? String(o.chapterPlans[i+1]).trim() : '';
+    const nextPlan = (state.useChapterPlans && Array.isArray(o.chapterPlans) && o.chapterPlans[i+1]) ? String(o.chapterPlans[i+1]).trim() : '';
     boundary += `\n【下一章边界】下一章为第 ${i+2} 章《${(nextC&&nextC.title)||''}》${nextPlan?`，其梗概：${nextPlan}`:''}。\n本章严禁展开、暗示或提前完成下一章内容；下一章的情节一律留到下一章再写。`;
   }
   parts.push(boundary);

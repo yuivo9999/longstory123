@@ -354,7 +354,15 @@ input.tw-in[data-first]::placeholder{color:color-mix(in srgb,var(--accent) 70%, 
 .sc-add-sub{margin-top:6px}
 
 /* 长篇模式：导出页多选章节列表 */
-.exp-ch-list{display:flex;flex-direction:column;gap:8px}
+.exp-ch-list{display:flex;flex-direction:column;gap:8px;max-height:min(52vh,480px);overflow-y:auto;padding-right:6px}
+/* P5 长篇导出章节 分组折叠（借鉴 shutters-accordion 的 grid 折叠动画）*/
+.exp-group{display:grid;grid-template-rows:1fr;transition:grid-template-rows .22s ease}
+.exp-group:not(.open){grid-template-rows:0fr}
+.exp-group-body{overflow:hidden;min-height:0;display:flex;flex-direction:column;gap:8px}
+.exp-group-t{display:flex;align-items:center;gap:8px;padding:8px 11px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;cursor:pointer;font-size:13px;font-weight:700;color:var(--txt);user-select:none}
+.exp-group-t:hover{background:var(--panel)}
+.exp-group-ttl{flex:0 0 auto}
+.exp-group-sum{flex:1;text-align:right}
 .exp-ch{display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;cursor:pointer}
 .exp-ch input[type=checkbox]{width:18px;height:18px;accent-color:var(--accent);flex:0 0 auto}
 .exp-ch.disabled{opacity:.45;cursor:not-allowed}
@@ -625,10 +633,17 @@ body.reader-lock{overflow:hidden}
 .cp-head{display:flex;flex-direction:column;gap:6px;cursor:pointer;background:linear-gradient(135deg,#8b1a1a 0%,#5c1010 100%);padding:10px 14px;border-radius:18px 18px 0 0;user-select:none}
 .cp-head:hover{background:linear-gradient(135deg,#9e2020 0%,#6a1414 100%)}
 /* 第一行：标题 + 风格约束 */
-.cp-head-top{display:flex;align-items:center;justify-content:space-between;width:100%}
+.cp-head-top{display:flex;align-items:center;justify-content:space-between;width:100%;position:relative}   /* v10.29 相对定位供停止按钮居中 */
 .cp-head-left{display:flex;align-items:center;gap:6px;min-width:0}
 .cp-head-left h3{margin:0;font-size:14px;font-weight:700;color:#fff;letter-spacing:.4px;white-space:nowrap}
 .cp-arrow{display:inline-block;font-size:10px;color:rgba(255,255,255,.55);margin-left:1px;transition:transform .2s}
+/* v10.29 「参与生成」开/关开关（标题行右端） */
+.cp-head-use{margin-left:auto;flex-shrink:0;display:flex;align-items:center}
+.cp-head-use .btn{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.15);color:rgba(255,255,255,.8);font-size:11px;padding:2px 9px;border-radius:20px;line-height:1.5;cursor:pointer;transition:all .2s}
+.cp-head-use .btn:hover{background:rgba(255,255,255,.2);color:#fff}
+.cp-head-use .btn.on{background:rgba(120,255,190,.18);border-color:rgba(120,255,190,.35);color:var(--ok)}
+/* v10.29 停止按钮在标题行正中央 */
+.cp-head-top .stop-btn{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:3}
 .cp-head-sub{font-size:10.5px;font-weight:400;color:rgba(255,255,255,.5);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* 头部右侧工具区 */
 .cp-head-tools{display:flex;align-items:center;flex-shrink:0}
@@ -979,6 +994,13 @@ textarea[readonly]::selection{ background:color-mix(in srgb, var(--accent2) 45%,
 .ws-combo-del{position:absolute;top:6px;right:8px;width:16px;height:16px;line-height:15px;text-align:center;border-radius:50%;cursor:pointer;color:var(--muted);font-size:11px}
 .ws-combo-del:hover{color:#e5484d;background:rgba(229,72,77,.14)}
 .ws-combo-restore{margin-left:8px;padding:0;background:none;border:none;color:var(--accent);font-size:11px;cursor:pointer;text-decoration:underline}
+/* v10.28 我的配方：自定义组合子区 + 加号入口，基于主题强调色（color-mix）自动适配 */
+.ws-combo-mine{margin-top:6px}
+.ws-combo-mine .ws-combo-btn{background:color-mix(in srgb, var(--accent) 8%, transparent);border-color:color-mix(in srgb, var(--accent) 32%, transparent)}
+.ws-combo-mine .ws-combo-btn:hover{border-color:color-mix(in srgb, var(--accent) 60%, transparent);background:color-mix(in srgb, var(--accent) 15%, transparent)}
+.ws-combo-mine .ws-subcat-t{color:var(--accent);font-size:12px;display:flex;align-items:center;justify-content:space-between;margin-bottom:5px}
+.ws-combo-add{margin-left:auto;padding:0 6px;background:none;border:none;color:var(--accent);font-size:16px;font-weight:700;line-height:1;cursor:pointer;border-radius:6px}
+.ws-combo-add:hover{background:color-mix(in srgb, var(--accent) 14%, transparent)}
 .ws-chip{display:inline-flex;align-items:center;padding:5px 11px;border-radius:20px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:rgba(255,255,255,.68);font-size:12.5px;cursor:pointer;transition:all .15s;font-family:inherit}
 .ws-chip:active{transform:scale(.96)}
 .ws-chip:hover{border-color:rgba(255,255,255,.2)}
