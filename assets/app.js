@@ -1660,7 +1660,10 @@ function aiRecipeResultHtml(lib){
       <div class="ai-recipe-gap">
         ${ gapHtml(c, ci) }
       </div>
-      <button type="button" class="btn small primary" data-ai-recipe-pick="${ci}">✔ 选用此配方</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button type="button" class="btn small primary" data-ai-recipe-pick="${ci}">✔ 选用此配方</button>
+        <button type="button" class="btn small ghost" data-ai-recipe-save="${ci}" title="仅存入「我的配方」，不应用到写作风格">＋ 收藏不采用</button>
+      </div>
     </div>`).join('');
 }
 function gapHtml(c, ci){
@@ -1724,10 +1727,9 @@ function parseAiJsonList(raw){
     return null;
   }
 }
-// 选用候选配方 → 进入「我的配方」（customCombos），并跳过已入库的缺口词条
-function aiRecipePick(ci){
-  if(!aiRp || !Array.isArray(aiRp.list)) return;
-  const c = aiRp.list[ci]; if(!c) return;
+// 选用候选配方：① 存入「我的配方」（customCombos）；②（选用时）应用到写作风格并立即持久化生效
+function aiRecipeStore(ci){
+  const c = aiRp.list[ci]; if(!c) return null;
   const cfg = getCfg(); cfg.styleCustom = cfg.styleCustom || {};
   cfg.styleCustom.customCombos = cfg.styleCustom.customCombos || [];
   const libIds = writeStyleLib().map(s=>s.id);
@@ -1740,11 +1742,32 @@ function aiRecipePick(ci){
   (c.gap||[]).forEach(g=>{ if(g && g.id && libIds.includes(g.id) && !tags.includes(g.id)) tags.push(g.id); });
   cfg.styleCustom.customCombos.push({ id:'cu'+Date.now().toString(36)+Math.random().toString(36).slice(2,5), name, desc:(c.desc||''), tags });
   saveCfg(cfg);
-  // 同时把标签并入当前写作草稿（尚未应用则草稿态；已生效则进入生效配置下一稿）
-  const d = wsDraftInit(); (c.tags||[]).forEach(id=>{ if(libIds.includes(id) && !d.tags.includes(id)) d.tags.push(id); });
+  return { combo:cfg.styleCustom.customCombos[cfg.styleCustom.customCombos.length-1], name };
+}
+// 选用此配方 → 存储 + 立即应用（替换式写生效配置并持久化）
+function aiRecipePick(ci){
+  if(!aiRp || !Array.isArray(aiRp.list)) return;
+  const stored = aiRecipeStore(ci); if(!stored) return;
+  const c = aiRp.list[ci];
+  const libIds = writeStyleLib().map(s=>s.id);
+  // v10.48 选用即应用：替换写生效配置并持久化；回退依赖「收藏当前」预设或本配方仍存于「我的配方」
+  const st2 = writeStyleState();
+  const d2 = wsDraftInit();                       // 从生效配置取 intensity
+  d2.tags = (c.tags||[]).filter(id=> libIds.includes(id));   // 替换而非并集
+  (c.gap||[]).forEach(g=>{ if(g && g.id && libIds.includes(g.id) && !d2.tags.includes(g.id)) d2.tags.push(g.id); });
+  st2.tags = d2.tags.slice(); st2.intensity = d2.intensity||2;
+  persist();
+  wsDraft = null;                                 // 草稿与生效合一 -> 卡片显示「✔已生效」
   aiRp = null;
   render();
-  toast('已加入「我的配方」：'+name);
+  refreshWsUI();                                  // 卡片即时高亮已选中词条 / 摘要行
+  toast('已应用到「写作风格」：'+stored.name);
+}
+// 收藏不采用：仅存入「我的配方」，不应用到写作风格
+function aiRecipeSave(ci){
+  if(!aiRp || !Array.isArray(aiRp.list)) return;
+  const stored = aiRecipeStore(ci); if(!stored) return;
+  toast('已加入「我的配方」（未应用）：'+stored.name);
 }
 // 确认加入缺口词条 → styleCustom.added，并立即纳入当前配方草稿（决策2）
 function aiRecipeAddGap(key){
@@ -2925,7 +2948,7 @@ function writeStyleChipsHtml(sel, dataPrefix, opts){
     const isOpen = useFold ? ((catOpen[cat] !== undefined) ? catOpen[cat] : hasSel) : true;
     const fold = useFold ? `<span class="sc-fold-ico">${isOpen?'▾':'▸'}</span>` : '';
     return `<div class="ws-subcat${isOpen?' open':''}"${useFold?` data-ws-catfold="${cat}"`:''}>
-      <div class="ws-subcat-t"${useFold?' role="button" tabindex="0" title="展开/收起"':''}>${CAT_LABEL[cat]||cat}${fold}</div>
+      <div class="ws-subcat-t"${useFold?' role="button" tabindex="0" title="展开/收起"':''}>${CAT_LABEL[cat]||cat}（${its.length}）${fold}</div>
       <div class="ws-subcat-fold"><div class="ws-opt-list">${its.map(mkOpt).join('')}</div></div>
     </div>`;
   }).filter(Boolean).join('');
@@ -2986,6 +3009,10 @@ function writeStyleCard(){
       <span class="sc-fold-ico">${st.collapsed?'▸':'▾'}</span>
     </div>
     <div class="ws-body"${st.collapsed?' hidden':''}>
+      <div class="ws-fold-tools">
+        <button type="button" class="btn small ghost" data-ws-fold-all title="展开全部词条类别">⤵ 全部展开</button>
+        <button type="button" class="btn small ghost" data-ws-fold-none title="收起全部词条类别">⤴ 全部收起</button>
+      </div>
       ${writeStyleChipsHtml(draft, 'ws', { plus:true, cardFold:true })}
       <div class="ws-tools">
         <label class="ws-preset"><span>预设</span>
@@ -3100,6 +3127,19 @@ function bindWriteStyle(){
   // v10.22 五大类分类折叠（主卡，事件委托处理动态渲染）：点类标题展开/收起，偏好持久化到 state.chapterStyle.catOpen
   // 兼容重生成面板（.ws-subcat-t 无 role，不响应）；render 重建后 .ws-card 为新节点，dataset 为空会重新绑定一次
   const wsCard = $('.ws-card');
+  // v10.51 一键全部展开/收起（仅作用于词条五大类 data-ws-catfold；组合配方 data-ws-combofold 不动）
+  const fa = wsCard && wsCard.querySelector('[data-ws-fold-all]');
+  if(fa) fa.onclick = ()=>{ const st=writeStyleState(); st.catOpen=st.catOpen||{};
+    Object.keys(st.catOpen).forEach(k=> st.catOpen[k]=true);
+    wsCard.querySelectorAll('[data-ws-catfold]').forEach(sub=>{ sub.classList.add('open');
+      const ico=sub.querySelector('.sc-fold-ico'); if(ico) ico.textContent='▾'; });
+    persist(); };
+  const fn = wsCard && wsCard.querySelector('[data-ws-fold-none]');
+  if(fn) fn.onclick = ()=>{ const st=writeStyleState(); st.catOpen=st.catOpen||{};
+    Object.keys(st.catOpen).forEach(k=> st.catOpen[k]=false);
+    wsCard.querySelectorAll('[data-ws-catfold]').forEach(sub=>{ sub.classList.remove('open');
+      const ico=sub.querySelector('.sc-fold-ico'); if(ico) ico.textContent='▸'; });
+    persist(); };
   if(wsCard && !wsCard.dataset.catfoldBound){
     wsCard.dataset.catfoldBound = '1';
     wsCard.addEventListener('click', e=>{
@@ -3228,7 +3268,7 @@ function openStyleLibPanel(){
             ${s.custom?`<button type="button" class="btn small ghost" data-lib-del="${s.id}" title="删除该自定义词条">🗑 删除</button>`:`<button type="button" class="btn small ghost" data-lib-hide="${s.id}" title="从选择中移除该词条（「恢复默认」可还原）">🚫 停用</button>`}
           </div>
         </div>`).join('')}
-        ${its.length?'':`<p class="muted" style="margin:4px 0">该组暂无词条：回到写作风格卡片点该组「＋」新建，或在上方「新增风格」选择本组添加。</p>`}
+        ${its.length?'':`<p class="muted" style="margin:4px 0">该组暂无词条：回到写作风格卡片点该组「＋」新建。</p>`}
       </div>
     </div>`;
   }).join('');
@@ -3238,6 +3278,14 @@ function openStyleLibPanel(){
       <span class="muted" style="font-size:11px">${(p.tags||[]).map(id=>{const s=writeStyleById(id); return s?s.name:id;}).join('+')||'无'} · ${['','轻','中','重'][p.intensity]||'中'}</span>
       <button type="button" class="btn small ghost del" data-sp-del="${i}">删</button>
     </div>`).join('') || '<p class="muted">暂无收藏。</p>';
+  // v10.50 全部配方查看：内置🎬 + 我的配方🏷 + AI配方（availableCombos 已合并），展示完整原始信息
+  const combos_ = availableCombos();
+  const combosHtml = combos_.length ? combos_.map(c=>`
+    <div class="ws-lib-item">
+      <div class="ws-lib-name">${c.custom?'🏷':'🎬'} ${esc(c.name||'未命名')}</div>
+      <div class="ws-lib-note" style="white-space:pre-wrap;margin:2px 0 4px">${esc(c.desc||'')}</div>
+      <span class="muted" style="font-size:11px">词条：${(c.tags||[]).map(id=>{const s=writeStyleById(id); return s?s.name:id;}).join(' + ')||'无'}</span>
+    </div>`).join('') : '<p class="muted">暂无配方。</p>';
   const ov = document.createElement('div'); ov.id='wsLibPanel'; ov.className='gs-overlay';
   ov.innerHTML = `
     <div class="gs-modal">
@@ -3248,23 +3296,13 @@ function openStyleLibPanel(){
           <button class="gs-x" data-lib-close>✕</button>
         </span></div>
       <div class="cv-body">
-        <div class="ws-lib-add">
-          <div class="ws-group-t">＋ 新增风格</div>
-          <div class="ws-add-row">
-            <select id="wsAddGroup">
-              <option value="语言质感">① 语言质感</option>
-              <option value="情绪与张力">② 情绪与张力</option>
-              <option value="节奏与网感">③ 节奏与网感</option>
-              <option value="叙事技法">④ 叙事技法</option>
-              <option value="台词设计">⑤ 台词设计</option>
-              <option value="custom">⭐ 我的自定义</option>
-            </select>
-            <input type="text" id="wsAddName" placeholder="风格名称（如：民国腔调）" maxlength="20" />
+        <div class="ws-lib-group ws-lib-fold">
+          <div class="ws-lib-fold-t" data-lib-fold="combos" role="button" tabindex="0" title="展开/收起">
+            <span>🧪 全部配方（${combos_.length}）</span><span class="sc-fold-ico">▾</span>
           </div>
-          <textarea id="wsAddNote" rows="4" maxlength="500" placeholder="指令文本（≤500字）。推荐三行配方：&#10;写法：…&#10;避免：…&#10;自查：…"></textarea>
-          <button type="button" class="btn small primary" data-lib-add>＋ 新增</button>
+          <div class="ws-lib-fold-b">${combosHtml}</div>
         </div>
-        <div class="cv-div">每组词条均可修改指令（打"已改"标记）、可停用内置项（🚫）、可删除自定义项（🗑）；也可在卡片内该组「＋」或此处新增自定义风格。内置项被停用后由「恢复默认」一并还原；「恢复默认」清空全部词库改动。改动即时生效。</div>
+        <div class="cv-div">「全部配方」为只读查看区（名称/说明/所含词条）；需新增或删除配方请回到写作风格卡片操作。下方每组词条均可修改指令（打"已改"标记）、可停用内置项（🚫）、可删除自定义项（🗑）；内置项被停用后由「恢复默认」一并还原；「恢复默认」清空全部词库改动。改动即时生效。</div>
         ${groupHtml}
         <div class="ws-lib-group ws-lib-fold">
           <div class="ws-lib-fold-t" data-lib-fold="mine" role="button" tabindex="0" title="展开/收起">
@@ -3342,18 +3380,6 @@ function openStyleLibPanel(){
     cfg.styleCustom = { notes:{}, added:[], removed:[], comboRemoved:[] };
     saveCfg(cfg); render(); toast('已恢复默认词库');
     closeStyleLibPanel(); openStyleLibPanel();   // 立即重建面板：清掉「已改」标记、自定义项与编辑过的指令
-  };
-  // 新增风格
-  ov.querySelector('[data-lib-add]').onclick = ()=>{
-    const name = ($('#wsAddName') && $('#wsAddName').value.trim()) || '';
-    const note = ($('#wsAddNote') && $('#wsAddNote').value.trim().slice(0,500)) || '';
-    if(!name){ toast('请填写风格名称'); return; }
-    const group = ($('#wsAddGroup') && $('#wsAddGroup').value) || 'tone';
-    cfg.styleCustom.added = cfg.styleCustom.added || [];
-    cfg.styleCustom.added.push({ id:'c'+Date.now().toString(36), group, name, note });
-    saveCfg(cfg); render();
-    toast('已新增风格：'+name);
-    closeStyleLibPanel(); openStyleLibPanel();   // 刷新弹窗让新项立即可见
   };
 }
 // v10.32 写作风格「词条+组合」整套导出：写 writing-styles-YYYYMMDD-HHmmss.json（覆盖式导入用）
@@ -3643,6 +3669,8 @@ function bindAiRecipe(){
   card.addEventListener('click', (e)=>{
     const pick = e.target.closest('[data-ai-recipe-pick]');
     if(pick){ aiRecipePick(+pick.dataset.aiRecipePick); return; }
+    const save = e.target.closest('[data-ai-recipe-save]');
+    if(save){ aiRecipeSave(+save.dataset.aiRecipeSave); return; }
     const ag = e.target.closest('[data-ai-recipe-addgap]');
     if(ag){ aiRecipeAddGap(ag.dataset.aiRecipeAddgap); return; }
   });

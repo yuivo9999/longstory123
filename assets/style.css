@@ -70,17 +70,18 @@ label.field>span{display:block;font-size:12px;color:var(--sub);margin-bottom:6px
 }
 .btn.ghost.is-busy:hover{background:linear-gradient(135deg,#fbbf24 0%,#f59e0b 100%);opacity:1}
 .btn.ghost.is-busy .spinner{border-color:rgba(255,255,255,.4);border-top-color:#fff}
-/* v10.47 生成章节内容 · 重生成(data-regen)/阅读(data-read)：纯色金黄，无渐变 */
-.btn.ghost[data-regen]{background:#f0a500;border-color:transparent;color:#fff}
-.btn.ghost[data-regen]:hover:not(:disabled):not(.is-busy){background:#ffb81c;color:#fff}
-.btn.ghost[data-regen].is-busy{background:#f0a500;border-color:transparent;color:#fff;opacity:1;box-shadow:none}
-.btn.ghost[data-regen].is-busy .spinner{border-color:rgba(255,255,255,.45);border-top-color:#fff}
-.btn.ghost[data-read]{background:#f0a500;border-color:transparent;color:#fff}
-.btn.ghost[data-read]:hover{background:#ffb81c;color:#fff}
+/* v10.48 生成章节内容 · 跨主题统一（固定色，不随主题变量漂移；#app 抬特异度抗主题覆写）
+   重生成=蓝渐变常态/金黄渐变生成中 · 阅读=金黄渐变 */
+#app .btn.ghost[data-regen]{background:linear-gradient(135deg,#4db8ff 0%,#2a7fe3 100%);border:1px solid transparent;color:#fff;font-weight:600;box-shadow:0 1px 6px rgba(45,130,230,.35)}
+#app .btn.ghost[data-regen]:hover:not(:disabled):not(.is-busy){background:linear-gradient(135deg,#69c6ff 0%,#3a93e8 100%);color:#fff}
+#app .btn.ghost[data-regen].is-busy{background:linear-gradient(135deg,#f59e0b 0%,#d97706 100%);border-color:transparent;color:#fff;font-weight:600;opacity:1;box-shadow:0 1px 6px rgba(245,158,11,.4)}
+#app .btn.ghost[data-regen].is-busy .spinner{border-color:rgba(255,255,255,.45);border-top-color:#fff}
+#app .btn.ghost[data-read]{background:linear-gradient(135deg,#f59e0b 0%,#d97706 100%);border:1px solid transparent;color:#fff;font-weight:600;box-shadow:0 1px 6px rgba(245,158,11,.4)}
+#app .btn.ghost[data-read]:hover{background:linear-gradient(135deg,#fbbf24 0%,#f59e0b 100%);color:#fff}
 .btn-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
-/* v10.36 导出界面「阅读」按钮：推到行最右 + 上亮下暗金黄色渐变 */
-#lnExportReader{margin-left:auto;background:linear-gradient(180deg,#ffd97a 0%,#f59e0b 55%,#c97d0e 100%);border:1px solid rgba(210,140,20,.6);color:#5b3a00;font-weight:700;box-shadow:0 1px 4px rgba(200,130,20,.25)}
-#lnExportReader:hover{background:linear-gradient(180deg,#ffe29a 0%,#fbbf24 55%,#d9921a 100%);color:#4a3000;transform:translateY(-1px)}
+/* v10.48 导出界面「阅读」：与章内阅读统一为 135° 金黄渐变（白字、无描边、右推保留） */
+#lnExportReader{margin-left:auto;background:linear-gradient(135deg,#f59e0b 0%,#d97706 100%);border:1px solid transparent;color:#fff;font-weight:600;box-shadow:0 1px 6px rgba(245,158,11,.4)}
+#lnExportReader:hover{background:linear-gradient(135deg,#fbbf24 0%,#f59e0b 100%);color:#fff;transform:translateY(-1px)}
 
 .pill{display:inline-block;font-size:12px;padding:2px 9px;border-radius:20px;background:var(--panel2);border:1px solid var(--line);color:var(--sub);margin:2px 4px 2px 0}
 .tag-ok{color:var(--ok);border-color:var(--ok)}
@@ -956,6 +957,15 @@ textarea[readonly]::selection{ background:color-mix(in srgb, var(--accent2) 45%,
 .ws-head .ws-manage-btn{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:rgba(255,255,255,.5)}
 .ws-head .ws-manage-btn:hover{background:rgba(255,255,255,.12);color:rgba(255,255,255,.85)}
 .ws-body{margin-top:10px}
+/* v10.51 写作风格标题条 → 手绘深蓝（高光发光）；标题条内文字统一白字（压过各主题覆写，全主题一致） */
+.ws-card .ws-head{background:linear-gradient(135deg,#1e5aa8 0%,#87ceeb 100%);border-radius:12px;padding:10px 12px;box-shadow:0 4px 16px rgba(30,90,168,.45), inset 0 1px 1px rgba(255,255,255,.3)}
+.ws-card .ws-head:hover{background:linear-gradient(135deg,#2a6bc0 0%,#9fdcf5 100%)}
+.ws-card .ws-head h3{color:#fff !important}
+.ws-card .ws-head .ws-sum{color:#fff !important;opacity:.92;text-shadow:0 1px 2px rgba(20,50,100,.35)}
+.ws-card .ws-head .ws-manage-btn{background:rgba(255,255,255,.22);border:1px solid rgba(255,255,255,.5);color:#fff !important;text-shadow:0 1px 2px rgba(20,50,100,.35)}
+.ws-card .ws-head .ws-manage-btn:hover{background:rgba(255,255,255,.34);color:#fff !important}
+.ws-card .ws-head .sc-fold-ico{color:#fff !important;opacity:.9}
+.ws-fold-tools{display:flex;gap:8px;margin:2px 0 8px;flex-wrap:wrap}
 .ws-group{margin-bottom:10px}
 .ws-group-t{font-size:11.5px;font-weight:700;color:rgba(255,255,255,.52);margin-bottom:6px;letter-spacing:.3px}
 /* v10.19 写作风格三组区块配色（[data-cs=方案id] 由顶栏「🎨 颜色」选择，默认无色） */
