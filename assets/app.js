@@ -42,6 +42,7 @@ const state = {
   characters: [],       // [{name, role, profile:{...}, prompts:{...}}]
   outlineHistory: [],   // 大纲版本历史（上限10）：[{outline, ts}] 覆盖前快照，支持预览/恢复
   expSel: [],           // 长篇导出勾选的章节索引（随项目快照持久化，P3-4）
+  expOpenGroups: [],    // 长篇导出章节选择：手动展开的分组序号（配合限高内滚+分组折叠，缓解超长章节列表，P5）
   hist: { characters:[], scenes:[], cover:[], storyboard:[] },  // P1-3 角色/场景/封面/分镜覆盖前快照（各上限10）
   chapterStyle: { tags: [], intensity: 2, collapsed: false, elemOpen: false },   // 写作风格（v2.0）：tags=风格id数组（多选，分 标题/梗概/章节 三组）；elemOpen=卡片内「章节风格」组是否展开（默认收拢）
   scenes: [],           // [{name, 作用, description, prompt}]
@@ -246,6 +247,7 @@ function projectSnapshot(){
     stCollapsed: state.stCollapsed,
     cpCollapsed: state.cpCollapsed,   // v10.14 梗概卡折叠透传
     cpAllFolded: state.cpAllFolded,   // v10.23 梗概列表全收/全展透传
+    expOpenGroups: state.expOpenGroups,   // P5 长篇导出分组折叠所展开的分组透传
     polishOptions: state.polishOptions,   // v10.16 优化构想保留方案透传
     polishAdopted: state.polishAdopted,   // v10.16 当前采用的方案名
     polishHistory: state.polishHistory,   // v10.16 优化构想批量版本（≤5）透传
@@ -291,6 +293,7 @@ function applyProject(p){
   state.stCollapsed = !!p.stCollapsed;
   state.cpCollapsed = (typeof p.cpCollapsed === 'boolean') ? p.cpCollapsed : true;   // v10.14 梗概卡默认折叠
   state.cpAllFolded = (typeof p.cpAllFolded === 'boolean') ? p.cpAllFolded : false;   // v10.23 梗概列表默认先展开（配合内滚）
+  state.expOpenGroups = Array.isArray(p.expOpenGroups) ? p.expOpenGroups : [];   // P5 长篇导出分组折叠所展开的分组
   state.polishOptions = Array.isArray(p.polishOptions) ? p.polishOptions : undefined;   // v10.16 保留方案
   state.polishAdopted = (typeof p.polishAdopted === 'string') ? p.polishAdopted : undefined;
   state.polishHistory = Array.isArray(p.polishHistory) ? p.polishHistory : undefined;   // v10.16 优化构想批量版本
@@ -1889,7 +1892,9 @@ const CHAPTER_PLAN_SYS = `你是一名全书级叙事架构师与逐章梗概生
 
 5. 不要 markdown 代码块。
 
-6. 全局规则：全书所有埋点必须回收，不得悬空，完成后自查闭环。节奏变速自检（内部执行，不写入正文）：输出前检查本章快慢、紧张度与前后章是否形成张弛交替。全书每五章内至少安排一章舒缓或沉淀作为弛段。若违反，调整本章节奏后重新生成。`;
+6. 每个章节梗概长度控制在100—200字之间。
+
+7. 全局规则：全书所有埋点必须回收，不得悬空，完成后自查闭环。节奏变速自检（内部执行，不写入正文）：输出前检查本章快慢、紧张度与前后章是否形成张弛交替。全书每五章内至少安排一章舒缓或沉淀作为弛段。若违反，调整本章节奏后重新生成。`;
 
 
 // v10.12 原创性要求（防雷同）· 大纲侧：防套路结构 + 高频人名 + 流水线标题。
@@ -4935,6 +4940,33 @@ function longExportView(){
   state.expSel = state.expSel.filter(i=> state.chapters[i] && state.chapters[i].content && String(state.chapters[i].content).trim());
   const title = state.outline?.title || '未命名长篇小说';
   const md = buildLongMarkdown();
+  // P5 分组折叠：仅当章节数超过阈值(20)才启用；默认只展开「含已勾选章节」的分组，其余收成一行分组头（借鉴 shutters-accordion 的折叠策略 + 写作卡片的 grid 折叠动画）
+  const CH_PER_GROUP = 10, EXP_GROUP_THRESHOLD = 20;
+  const useGroup = state.chapters.length > EXP_GROUP_THRESHOLD;
+  if(useGroup && state.expOpenGroups.length === 0){
+    const selSet = new Set(state.expSel);
+    const ng = Math.ceil(state.chapters.length / CH_PER_GROUP);
+    state.expOpenGroups = [];
+    for(let g=0; g<ng; g++){
+      let has=false;
+      for(let i=g*CH_PER_GROUP; i<Math.min(state.chapters.length,(g+1)*CH_PER_GROUP); i++){ if(selSet.has(i)){ has=true; break; } }
+      if(has) state.expOpenGroups.push(g);
+    }
+  }
+  const expGroupHTML = ()=>{
+    const label = (c,i,ok)=> `<label class="exp-ch ${ok?'':'disabled'}"><input type="checkbox" data-expch="${i}" ${state.expSel.includes(i)?'checked':''} ${ok?'':'disabled'}><span class="exp-ch-no">第${i+1}章</span><span class="exp-ch-title">${esc(c.title||'')}</span><span class="wc">${ok? wcInner(countWords(c.content)) : '未写'}</span></label>`;
+    if(!useGroup) return state.chapters.map((c,i)=> label(c,i,!!(c.content&&String(c.content).trim()))).join('');
+    const n = state.chapters.length, ng = Math.ceil(n/CH_PER_GROUP);
+    let out='';
+    for(let g=0; g<ng; g++){
+      const s=g*CH_PER_GROUP, e=Math.min(n,(g+1)*CH_PER_GROUP), open=state.expOpenGroups.includes(g);
+      let items='';
+      for(let i=s;i<e;i++){ const c=state.chapters[i]; items += label(c,i,!!(c.content&&String(c.content).trim())); }
+      const selCnt = state.expSel.filter(i=> i>=s && i<e).length;
+      out += `<div class="exp-group ${open?'open':''}" data-expgroup="${g}"><div class="exp-group-t" role="button" data-expgroup-t="${g}"><span class="exp-group-ttl">第${s+1}—${e}章</span>${selCnt?`<span class="muted exp-group-sum">已选${selCnt}</span>`:''}<span class="sc-fold-ico">${open?'▾':'▸'}</span></div><div class="exp-group-body">${items}</div></div>`;
+    }
+    return out;
+  };
   // 资产包（story 大纲 + 章节梗概 + 章节全文）前置，与普通模式 viewExport 同款；原长篇选择/格式导出后置
   return `
     <div class="card">
@@ -4954,16 +4986,8 @@ function longExportView(){
         <button id="expSelNone" class="btn ghost">⬜ 清空</button>
         <span class="muted" id="expCount">已选 ${state.expSel.length} / 已写 ${written} 章（共 ${state.chapters.length} 章）</span>
       </div>
-      <div class="exp-ch-list">
-        ${state.chapters.map((c,i)=>{
-          const ok = c.content && String(c.content).trim();
-          return `<label class="exp-ch ${ok?'':'disabled'}">
-            <input type="checkbox" data-expch="${i}" ${state.expSel.includes(i)?'checked':''} ${ok?'':'disabled'}>
-            <span class="exp-ch-no">第${i+1}章</span>
-            <span class="exp-ch-title">${esc(c.title||'')}</span>
-            <span class="wc">${ok? wcInner(countWords(c.content)) : '未写'}</span>
-          </label>`;
-        }).join('')}
+      <div class="exp-ch-list" data-exp-ch-list>
+        ${expGroupHTML()}
       </div>
       <div class="btn-row" style="margin-top:12px">
         <button id="expTxt" class="btn">📄 导出 TXT</button>
@@ -5342,6 +5366,17 @@ const lnER = $('#lnExportReader'); if(lnER) lnER.onclick = openExportReader;
     });
     const selAll = $('#expSelAll'); if(selAll) selAll.onclick = ()=>{ state.expSel = state.chapters.map((c,i)=> (c.content && String(c.content).trim())?i:null).filter(x=>x!==null); persist(); syncExpChecks(); };
     const selNone = $('#expSelNone'); if(selNone) selNone.onclick = ()=>{ state.expSel=[]; persist(); syncExpChecks(); };
+    // P5 分组头点击：展开/收起该分组，状态持久化（不重渲染，仅切类）
+    $$('#view [data-expgroup-t]').forEach(t=> t.onclick = ()=>{
+      const g = +t.dataset.expgroupT;
+      const grp = t.closest('[data-expgroup]');
+      const adding = !grp.classList.contains('open');
+      grp.classList.toggle('open', adding);
+      const ico = t.querySelector('.sc-fold-ico'); if(ico) ico.textContent = adding ? '▾' : '▸';
+      if(adding){ if(!state.expOpenGroups.includes(g)) state.expOpenGroups.push(g); }
+      else state.expOpenGroups = state.expOpenGroups.filter(x=>x!==g);
+      persist();
+    });
     const bt = $('#expTxt'); if(bt) bt.onclick = expText;
     const be = $('#expEpub'); if(be) be.onclick = expEpub;
     const bd = $('#expDocx'); if(bd) bd.onclick = expDocx;
