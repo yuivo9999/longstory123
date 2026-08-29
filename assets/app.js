@@ -1554,6 +1554,203 @@ function availableCombos(){
 }
 const WRITE_GROUP_LABEL = { tone:'① 标题风格', texture:'② 梗概风格', element:'③ 章节风格' };
 
+// —— AI 配方助手（v10.30 · 仅长篇小说模式；服务写作风格卡）——
+// 用户用一段话描述想要的风格/题材/氛围，AI 基于现有词库给出 2~5 个候选配方；
+// 每候选含「为何这样选 / 适用场景 / 词条缺口」。缺口词条按词库完整规格返回，用户逐条确认入库，确认即纳入当前配方。
+// seal 默认 0（不锁），与"词条加入词库后立即纳入当前配方"两处决策一致。
+const AI_CAT_LABEL = { '语言质感':'① 语言质感', '情绪与张力':'② 情绪与张力', '节奏与网感':'③ 节奏与网感', '叙事技法':'④ 叙事技法', '台词设计':'⑤ 台词设计', custom:'⭐ 我的自定义' };
+let aiRp = null; // {list:[...], err:'' } 运行期临时候选（不持久化；render 重建主卡时会保留，重启清空）
+function aiRecipePrompt(userDesc){
+  const lib = writeStyleLib();
+  const spec = lib.map(s=> `- ${s.id}：${s.name}（${s.cat||'custom'}）`).join('\n');
+  return { system:[
+    '你是网文长篇小说「写作风格配方设计」专家。用户会描述一段想要的风格/题材/氛围。',
+    '请为该描述设计 2~5 个【组合配方】候选，供用户挑选。每个候选必须基于【现有词库】选词。',
+    '输出：仅一个 JSON 数组，无任何讲解、无 markdown 代码块前后缀。每项结构：',
+    '{ "name":"配方名(简短,≤12字)", "desc":"一句话点明适用题材/氛围", "tags":["词条id",...2~5个],',
+    '  "why":"为何这样选(这些词条如何配合达成质感,1-2句)", "scenario":"适用场景(题材/章节阶段/文风匹配度,1-2句)",',
+    '  "gap": null } 或 "gap":[ {"name":"…","cat":"语言质感|情绪与张力|节奏与网感|叙事技法|台词设计","id":"…",',
+    '  "note":"写法：…\\n避免：…\\n自查：…","demo":"…","seal":0,"warning":"…(可选)","reasons":"为何补这个词条、解决什么缺口"} ]',
+    '规则(严格)：',
+    '1.tags 只能使用【现有词库】中的 id，2~5 个，禁止自造；如现有词库不足以覆盖描述，缺口部分放到 gap 里，禁止把未入词库的词条塞进 tags。',
+    '2.gap 为 null 表示现有词库足够；gap 非空时每个新词条必须按上述完整规格书写（cat 七选一），缺一则该条作废。',
+    '3.不同候选用词尽量不同、风格拉开差异便于挑选。',
+    '4.仅 JSON 输出。',
+    '【现有词库 id/name/cat】：', spec
+  ].join('\n'), user: userDesc };
+}
+// v1.0.62 上传逐章梗概 TXT → 判断该小说文风 → 给可模仿的写作配方（全文直发，不分段）
+function aiPromptFromOutline(text){
+  const lib = writeStyleLib();
+  const spec = lib.map(s=> `- ${s.id}：${s.name}（${s.cat||'custom'}）`).join('\n');
+  return { system:[
+    '你是网文长篇小说「写作风格配方设计」专家。用户上传是一部小说的【逐章梗概】TXT（非正文）。',
+    '请你【完整通读】这份梗概，判断该小说的文风、叙事节奏、对白与情绪质感，再为"想模仿这部小说写作"的用户设计 2~5 个【组合配方】候选。',
+    '候选必须基于【现有词库】选词；词库不足以覆盖某些特征时，把缺口写到 gap。',
+    '输出：仅一个 JSON 数组，无讲解、无 markdown 代码块前后缀。每项结构：',
+    '{ "name":"配方名(简短,≤12字)", "desc":"一句话点明这套风格适用的题材/氛围", "tags":["词条id",...2~5个],',
+    '  "why":"为何这样选(这些词条如何配合还原该小说质感,1-2句)", "scenario":"适用场景与模仿要点",',
+    '  "gap": null } 或 "gap":[ {"name","cat","id","note","demo","seal":0,"warning","reasons"} ]',
+    '规则：1.tags 只能用现有词库 id，2~5 个，禁止自造；缺口放 gap、禁止塞进 tags。',
+    '2.gap 词条须按完整规格书写（cat 七选一），缺一作废。',
+    '3.不同候选用词尽量不同、风格拉开差异便于挑选。',
+    '4.仅 JSON 输出。',
+    '【现有词库 id/name/cat】：', spec
+  ].join('\n'), user: text };
+}
+// v1.0.62 上传来源标记：'desc'＝描述入口 ／ 'outline'＝逐章梗概入口（仅用于结果区提示，不持久化）
+let aiSource = 'desc';
+// AI 配方助手卡片（仅长篇小说模式在渲染层调用）
+function aiRecipeCard(){
+  const lib = writeStyleLib();
+  return `<div class="card ai-recipe-card">
+    <div class="card-head-row" style="display:flex;align-items:center;gap:8px">
+      <h3 style="margin:0">🧪 AI 配方助手</h3>
+      <span class="muted" style="font-size:11px;font-weight:400">为「写作风格」而生 · 描述一段风格，或上传一部小说的逐章梗概 AI 提炼可模仿配方</span>
+    </div>
+    <div class="ai-upload-row">
+      <button type="button" class="ai-upload-btn" data-ai-recipe-file title="上传逐章梗概TXT">＋</button>
+      <span class="ai-up-label">上传一部小说的逐章梗概 TXT</span>
+      <span class="ai-upload-name muted" data-ai-upload-name></span>
+    </div>
+    <input type="file" id="aiReFile" accept=".txt,text/plain" hidden />
+    <textarea id="aiReDesc" rows="3" maxlength="300" placeholder="用一段话描述你想要的风格/题材/氛围。例如：轻松治愈的都市言情，带点温馨笑料，配角俏皮，节奏明快。" style="width:100%;box-sizing:border-box"></textarea>
+    <div class="ai-recipe-tool">
+      <button type="button" class="btn primary" data-ai-recipe-gen>✨ 生成候选配方 (2-5)</button>
+      <button type="button" class="btn small ghost" data-ai-recipe-clear>✕ 清空</button>
+      <span class="muted" style="font-size:11px">仅长篇小说模式支持 · 缺口词条确认后立即纳入当前配方</span>
+    </div>
+    <div data-ai-recipe-out>${ aiRecipeResultHtml(lib) }</div>
+  </div>`;
+}
+function aiRecipeResultHtml(lib){
+  if(aiRp && aiRp.err) return `<p class="muted" style="color:var(--danger);margin:8px 0 0">⚠️ ${esc(aiRp.err)}</p>`;
+  if(!aiRp || !Array.isArray(aiRp.list) || !aiRp.list.length){
+    return `<p class="muted" style="margin:8px 0 0">${ aiSource==='outline' ? '📤 已读取逐章梗概，可点「✨」从描述入口，或重新上传后 AI 再次通读。' : '👆 输入描述后点「✨ 生成候选配方」，AI 将给出 2~5 个组合配方；含词条缺口时会附建议新词条，可自行决定是否加入词库。' }</p>`;
+  }
+  // libIds 更新（可能已入库缺口词条）
+  const libIds = (lib||writeStyleLib()).map(s=>s.id);
+  return aiRp.list.map((c,ci)=>`
+    <div class="ai-recipe-cand${ ci===aiRp.hi ? ' hi' : '' }">
+      <div class="ai-recipe-cand-head">
+        <b>${esc(c.name||('候选'+ (ci+1)))}</b>
+        <span class="muted" style="font-size:11px">${esc(c.desc||'')}</span>
+      </div>
+      <div class="ai-recipe-tags">${ (c.tags||[]).map(id=>{ const s=writeStyleById(id); return `<span class="ai-recipe-tg">${esc(s?s.name:id)}</span>`; }).join('') }</div>
+      <div class="ai-recipe-sec"><span class="ar-lab">为何这样选</span>${esc(c.why||'')}</div>
+      <div class="ai-recipe-sec"><span class="ar-lab">适用场景</span>${esc(c.scenario||'')}</div>
+      <div class="ai-recipe-gap">
+        ${ gapHtml(c, ci) }
+      </div>
+      <button type="button" class="btn small primary" data-ai-recipe-pick="${ci}">✔ 选用此配方</button>
+    </div>`).join('');
+}
+function gapHtml(c, ci){
+  if(!Array.isArray(c.gap) || !c.gap.length) return `<span class="ar-ok">✓ 现有词库即可覆盖，无需新词条</span>`;
+  return `<div class="ar-gaptitle">⚠️ 存在词条缺口（共 ${c.gap.length} 项，确认后立即纳入当前配方）</div>
+  ${ c.gap.map((g,gi)=>`
+    <div class="ai-recipe-gapitem">
+      <div class="ar-gaphead"><b>${esc(g.name||'')}</b><span class="muted" style="font-size:11px">${ (AI_CAT_LABEL[g.cat]||g.cat||'custom') }</span></div>
+      <div class="ar-gapwhy">${esc(g.reasons||'')}</div>
+      <div class="ar-gapnote">${esc(g.note||'')}</div>
+      <div class="ar-gapdemo">${esc(g.demo||'')}</div>
+      ${ g.warning ? `<div class="ar-gapwarn">⚠️ ${esc(g.warning)}</div>` : '' }
+      <button type="button" class="btn small ghost" data-ai-recipe-addgap="${ci}__${gi}" ${ (c.tags||[]).includes(g.id)|| libHas(g.id) ? 'disabled' : '' }>＋ 加入词库</button>
+    </div>`).join('') }`;
+}
+function libHas(id){ return !!writeStyleById(id); }
+// 生成候选配方
+async function aiRecipeGen(){
+  const ta = $('#aiReDesc'); if(!ta) return;
+  const desc = (ta.value||'').trim();
+  if(!desc){ toast('请先描述你想要的风格'); return; }
+  const out = $('[data-ai-recipe-out]'); if(out) out.innerHTML = `<p class="muted" style="margin:8px 0 0">⏳ AI 正在根据你的描述设计候选配方与词条缺口……</p>`;
+  const gen = $('[data-ai-recipe-gen]'); if(gen){ gen.disabled = true; gen.textContent = '生成中…'; }
+  try{
+    const {system, user} = aiRecipePrompt(desc);
+    const raw = await callDeepSeek(system, user, {temperature:0.9, maxTokens:2500});
+    const list = parseAiJsonList(raw);
+    if(!list || !list.length) throw new Error('AI 未返回有效配方，请重试');
+    aiRp = { list, hi: 0 };
+  }catch(e){
+    aiRp = { list:null, err: (e&&e.message)||'生成失败' };
+  }
+  if(out) out.innerHTML = aiRecipeResultHtml();
+  if(gen){ gen.disabled = false; gen.textContent = '✨ 生成候选配方 (2-5)'; }
+}
+// v1.0.62 上传逐章梗概 → 全文直发 AI 通读 → 提炼可模仿的写作配方（复用 aiRp 渲染链，不分段）
+async function aiRecipeFromOutline(text){
+  aiSource = 'outline';
+  const out = $('[data-ai-recipe-out]');
+  if(out) out.innerHTML = `<p class="muted" style="margin:8px 0 0">⏳ AI 正通读逐章梗概并提炼可模仿的写作配方…</p>`;
+  const gen = $('[data-ai-recipe-gen]'); if(gen){ gen.disabled = true; gen.textContent = '通读中…'; }
+  try{
+    const {system, user} = aiPromptFromOutline(text);
+    const raw = await callDeepSeek(system, user, {temperature:0.9, maxTokens:2500});
+    const list = parseAiJsonList(raw);
+    if(!list || !list.length) throw new Error('AI 未返回有效配方，请重试');
+    aiRp = { list, hi: 0 };
+  }catch(e){
+    aiRp = { list:null, err: (e&&e.message)||'通读失败' };
+  }
+  if(out) out.innerHTML = aiRecipeResultHtml();
+  if(gen){ gen.disabled = false; gen.textContent = '✨ 生成候选配方 (2-5)'; }
+}
+// AI 返回JSON解析（防 markdown 代码块包裹）
+function parseAiJsonList(raw){
+  let t = String(raw||'').trim();
+  const m = t.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if(m) t = m[1].trim();
+  try{ const a = JSON.parse(t); return Array.isArray(a)? a : null; }catch(e){
+    try{ const i = t.indexOf('['), j = t.lastIndexOf(']'); if(i>=0&&j>i){ const a = JSON.parse(t.slice(i,j+1)); return Array.isArray(a)? a:null; } }catch(e2){}
+    return null;
+  }
+}
+// 选用候选配方 → 进入「我的配方」（customCombos），并跳过已入库的缺口词条
+function aiRecipePick(ci){
+  if(!aiRp || !Array.isArray(aiRp.list)) return;
+  const c = aiRp.list[ci]; if(!c) return;
+  const cfg = getCfg(); cfg.styleCustom = cfg.styleCustom || {};
+  cfg.styleCustom.customCombos = cfg.styleCustom.customCombos || [];
+  const libIds = writeStyleLib().map(s=>s.id);
+  // name 冲突时追加序号
+  let name = (c.name||'').trim(); if(!name) name = 'AI配方'+(cfg.styleCustom.customCombos.length+1);
+  const names = cfg.styleCustom.customCombos.map(x=>x.name);
+  let k = 2; while(names.includes(name)) name = (c.name||('AI配方'+(cfg.styleCustom.customCombos.length+1)))+'·'+ (k++);
+  let tags = (c.tags||[]).filter(id=> libIds.includes(id));
+  // 缺口词条若已入库，一并自动纳入 tags（决策2）
+  (c.gap||[]).forEach(g=>{ if(g && g.id && libIds.includes(g.id) && !tags.includes(g.id)) tags.push(g.id); });
+  cfg.styleCustom.customCombos.push({ id:'cu'+Date.now().toString(36)+Math.random().toString(36).slice(2,5), name, desc:(c.desc||''), tags });
+  saveCfg(cfg);
+  // 同时把标签并入当前写作草稿（尚未应用则草稿态；已生效则进入生效配置下一稿）
+  const d = wsDraftInit(); (c.tags||[]).forEach(id=>{ if(libIds.includes(id) && !d.tags.includes(id)) d.tags.push(id); });
+  aiRp = null;
+  render();
+  toast('已加入「我的配方」：'+name);
+}
+// 确认加入缺口词条 → styleCustom.added，并立即纳入当前配方草稿（决策2）
+function aiRecipeAddGap(key){
+  if(!aiRp || !Array.isArray(aiRp.list)) return;
+  const [ci, gi] = String(key||'').split('__').map(Number);
+  const c = aiRp.list[ci]; if(!c) return;
+  const g = (c.gap||[])[gi]; if(!g) return;
+  if(writeStyleById(g.id)){ toast('该词条已在词库中'); return; }
+  const group = ['语言质感','情绪与张力','节奏与网感','叙事技法','台词设计'].includes(g.cat) ? g.cat : 'custom';
+  const cfg = getCfg(); cfg.styleCustom = cfg.styleCustom || {};
+  cfg.styleCustom.added = cfg.styleCustom.added || [];
+  const id = (g.id && /^[a-z][a-z0-9_]*$/i.test(g.id)) ? g.id : ('c'+Math.random().toString(36).slice(2,8));
+  // id 冲突则加后缀
+  let finalId = id, mx = 1; const existing = writeStyleLib().map(s=>s.id);
+  while(existing.includes(finalId)) finalId = id + (mx++);
+  cfg.styleCustom.added.push({ id:finalId, group, name:(g.name||'').trim(), note:(g.note||'').trim(), demo:(g.demo||''), seal:(g.seal===undefined?0:g.seal), warning:(g.warning||'') });
+  saveCfg(cfg);
+  // 立即纳入当前配方草稿 + 把该 id 补进当前候选 tag
+  const d = wsDraftInit(); if(!d.tags.includes(finalId)) d.tags.push(finalId);
+  if(c.tags && !c.tags.includes(finalId)) c.tags.push(finalId);
+  toast('已加入词库并纳入当前配方：'+(g.name||finalId));
+  const out = $('[data-ai-recipe-out]'); if(out) out.innerHTML = aiRecipeResultHtml();
+}
+
 // 运行时词库 = 内置 45 项（note 可被 cfg.styleCustom.notes 覆盖、可被 removed 删除）⊕ 用户新增
 // v2.4 自定义风格 note 支持三行配方：写法:/避免:/自查:（按行解析成 tips/avoid/check）
 function parseCustomStyleNote(note){
@@ -1586,7 +1783,7 @@ function writeStyleLib(){
     const parsed = parseCustomStyleNote(a.note||'');
     // v10.20 自定义项归入用户选择的五大类分类；老数据（tone/texture/element）映射到自定义兜底
     const cat = ['语言质感','情绪与张力','节奏与网感','叙事技法','台词设计'].includes(a.group) ? a.group : 'custom';
-    return { id:a.id, group:'element', name:a.name||'未命名', note:a.note||'', custom:true, cat, tips:parsed.tips, avoid:parsed.avoid, check:parsed.check };
+    return { id:a.id, group:'element', name:a.name||'未命名', note:a.note||'', custom:true, cat, tips:parsed.tips, avoid:parsed.avoid, check:parsed.check, demo:a.demo||'', seal:(a.seal===undefined?0:a.seal), warning:a.warning||'' };
   });
   // v10.18 标题风格（tone 组）内置项迁入顶部「写作风格 → ① 标题风格」；梗概风格（texture 组）内置五段骨架归入「② 梗概风格」；均受 removed/notes 管理
   const toneTitles = TONE_TITLE_STYLES.filter(s=> !removed.includes(s.id)).map(s=>({ ...s, note: notes[s.id] || s.note }));
@@ -1900,9 +2097,7 @@ const CHAPTER_PLAN_SYS = `你是一名全书级叙事架构师与逐章梗概生
 
 5. 不要 markdown 代码块。
 
-6. 每个章节梗概长度控制在100—200字之间。
-
-7. 全局规则：全书所有埋点必须回收，不得悬空，完成后自查闭环。节奏变速自检（内部执行，不写入正文）：输出前检查本章快慢、紧张度与前后章是否形成张弛交替。全书每五章内至少安排一章舒缓或沉淀作为弛段。若违反，调整本章节奏后重新生成。`;
+6. 全局规则：全书所有埋点必须回收，不得悬空，完成后自查闭环。节奏变速自检（内部执行，不写入正文）：输出前检查本章快慢、紧张度与前后章是否形成张弛交替。全书每五章内至少安排一章舒缓或沉淀作为弛段。若违反，调整本章节奏后重新生成。`;
 
 
 // v10.12 原创性要求（防雷同）· 大纲侧：防套路结构 + 高频人名 + 流水线标题。
@@ -3206,6 +3401,7 @@ function viewStory(){
   const o = state.outline;
   let html = `
     ${ origIdeaCard() }
+    ${ isLong() ? aiRecipeCard() : '' }   // v10.30 AI配方助手（仅长篇小说模式，位于原始构想与写作风格之间）
     ${ writeStyleCard() }
     ${ recipeSummaryBar() }
     <div class="card">
@@ -3287,6 +3483,47 @@ function bindOrigIdea(){
     const ta = $('.orig-text'); if(!ta) return;
     copyText(ta.value);
   };
+}
+// v10.30 AI 配方助手绑定（事件委托到容器，容动态渲染的候选/缺口；仅长篇小说模式有该容器）
+function bindAiRecipe(){
+  const card = $('.ai-recipe-card'); if(!card) return;
+  const gen = card.querySelector('[data-ai-recipe-gen]');
+  if(gen) gen.onclick = ()=>{ aiRecipeGen(); };
+  const clr = card.querySelector('[data-ai-recipe-clear]');
+  if(clr) clr.onclick = ()=>{
+    const ta = $('#aiReDesc'); if(ta) ta.value = '';
+    const nm = card.querySelector('[data-ai-upload-name]'); if(nm) nm.textContent = '';
+    aiRp = null; aiSource = 'desc';
+    const out = card.querySelector('[data-ai-recipe-out]'); if(out) out.innerHTML = aiRecipeResultHtml();
+  };
+  // v1.0.62 上传逐章梗概 TXT：圆形加号 + 拖拽区 → FileReader.readAsText → AI 通读提炼配方
+  const fIn = $('#aiReFile');
+  const readOutline = (f)=>{
+    if(!f) return;
+    if(!/\.txt$/i.test(f.name)){ toast('请上传 .txt 文本'); return; }
+    const r = new FileReader();
+    r.onload = ()=>{
+      const txt = String((r.result)||'').trim();
+      if(!txt){ toast('文件内容为空'); return; }
+      const nm = card.querySelector('[data-ai-upload-name]'); if(nm) nm.textContent = f.name;
+      aiRecipeFromOutline(txt);
+    };
+    r.onerror = ()=> toast('读取文件失败');
+    r.readAsText(f);
+  };
+  if(fIn) fIn.onchange = ()=>{ const f = fIn.files && fIn.files[0]; readOutline(f); fIn.value=''; };
+  const openPick = ()=>{ if(fIn) fIn.click(); };
+  const fileBtn = card.querySelector('[data-ai-recipe-file]');
+  if(fileBtn) fileBtn.onclick = openPick;
+  const upLabel = card.querySelector('.ai-up-label');
+  if(upLabel) upLabel.onclick = openPick;
+  // 事件委托：选用候选 / 加入缺口词条（点选候选后内部 render()，事件需在容器上重查）
+  card.addEventListener('click', (e)=>{
+    const pick = e.target.closest('[data-ai-recipe-pick]');
+    if(pick){ aiRecipePick(+pick.dataset.aiRecipePick); return; }
+    const ag = e.target.closest('[data-ai-recipe-addgap]');
+    if(ag){ aiRecipeAddGap(ag.dataset.aiRecipeAddgap); return; }
+  });
 }
 // v10.3 长篇结构设计栏折叠绑定：点击标题收起/展开，状态持久化
 function bindStructureFold(){
@@ -5285,6 +5522,7 @@ function bindView(){
   }
   bindGlossary();
   bindOrigIdea();     // v10.2 原始构想只读卡绑定
+  bindAiRecipe();     // v10.30 AI配方助手绑定
   bindStructureFold();// v10.3 长篇结构设计栏折叠绑定
   bindStructureEdit();// P0-2 结构设计行内编辑（失焦即存 + 追加副线）
   bindChapterPlan();  // v10.11 逐章梗概区块绑定
@@ -6683,6 +6921,11 @@ function openChapterRegenPanel(i){
       <div class="gs-body">
         <p class="gs-q"><b>想如何改动这一章？</b> 可在下方填写你的具体要求（改动方向、补充设定、错误修正等）；留空则按现有风格直接重写。</p>
         <textarea id="rpAdvice" class="rp-advice" placeholder="例如：这一章节奏太慢，请压缩到 1500 字以内；女主的性格再外放一点；增加与上一章结尾的衔接…（可选）"></textarea>
+        <div class="advice-ai-row">
+          <button type="button" class="btn small ghost" data-advice-ai="${i}">✨ AI 优化此建议</button>
+          <span class="muted" style="font-size:11px">AI 基于本章全文与上下文学你的要求，给出 3 个可直接采用的命令；点击即回填，可再手改</span>
+        </div>
+        <div data-advice-ai-out></div>
         ${histHtml}
         <div class="rp-style">
           <div class="rp-style-head" data-rpov-fold role="button" tabindex="0">
@@ -6728,8 +6971,8 @@ function openChapterRegenPanel(i){
       </div>
     </div>`;
   document.body.appendChild(ov);
-  ov.querySelector('[data-rp-close]').onclick = closeChapterRegenPanel;
-  ov.addEventListener('click', e=>{ if(e.target===ov) closeChapterRegenPanel(); });
+  ov.querySelector('[data-rp-close]').onclick = closeChapterRegenPanelAll;
+  ov.addEventListener('click', e=>{ if(e.target===ov) closeChapterRegenPanelAll(); });
   // v2.1 对比区可用性：未开启「仅本章覆盖」→ 整区置灰锁定
   const rpCmpBox = ov.querySelector('[data-rpcmp-box]');
   const refreshRpCmpState = ()=>{
@@ -6836,8 +7079,91 @@ function openChapterRegenPanel(i){
     };
   });
   const ta = $('#rpAdvice'); if(ta) ta.focus();
+  // v1.0.60 AI 提炼优化：触发生成 + 候选点击回填并聚焦
+  const aiBtn = ov.querySelector('[data-advice-ai]');
+  if(aiBtn) aiBtn.onclick = ()=>{ aiRefineAdvice(i); };
+  ov.addEventListener('click', e=>{
+    const t = e.target.closest('[data-advice-ai-pick]'); if(!t) return;
+    const j = +t.dataset.adviceAiPick;
+    const a = Array.isArray(aiAdviceCand) ? aiAdviceCand[j] : null; if(!a) return;
+    const ta2 = $('#rpAdvice'); if(ta2){ ta2.value = a.text || ''; ta2.focus(); }
+    ov.querySelectorAll('[data-advice-ai-pick]').forEach((el,k)=> el.classList.toggle('on', k===j));
+  });
 }
 function closeChapterRegenPanel(){ const p=$('#regenPanel'); if(p) p.remove(); }
+
+/* ---------- v1.0.60 AI 提炼优化建议（仅重生成弹窗内） ---------- */
+let aiAdviceCand = null;   // {title,text}[] 候选，模块级；关闭弹窗不保留（closeChapterRegenPanel 会一并清）
+function closeChapterRegenPanelAll(){ closeChapterRegenPanel(); aiAdviceCand = null; }
+// 提炼 AI 所需的当前章节基础状态（上下文）
+function buildAiRefineCtx(i){
+  const o = state.outline || {};
+  const chap = state.chapters[i] || {};
+  const prev = i>0 ? (state.chapters[i-1]||{}) : null;
+  const plan = (state.useChapterPlans && Array.isArray(o.chapterPlans) && o.chapterPlans[i]) ? String(o.chapterPlans[i]).trim() : '';
+  const st = curWriteStyle();
+  const chapNames = (Array.isArray(st.tags)?st.tags:[]).map(id=>{ const s=writeStyleById(id); return s&&s.group==='element'?s.name:null; }).filter(Boolean).join('、');
+  // 人物关系摘要（词典人物）：name（身份/关系）
+  const g = (o && o.glossary) || {};
+  const persons = (g.characters||[]).map(c=>{
+    const notes = [c.identity?`身份:${c.identity}`:'', c.relation?`关系:${c.relation}`:'', c.trait?`性格:${c.trait}`:''].filter(Boolean).join('；');
+    return `${c.name||''}${notes?`（${notes}）`:''}`;
+  }).join('、');
+  return {
+    书名: (o.title||''), 简介: (o.logline||''),
+    本章标题: (chap.title||('第'+(i+1)+'章')),
+    本章全文: (chap.content||''),   // 续写/扩写需全文，无字数限制，原样提供
+    上一章结尾: prev && prev.content ? String(prev.content).split(/\n/).filter(Boolean).slice(-2).join('\n') : '',
+    本章梗概: plan || '',
+    人物关系摘要: persons || '（无）',
+    当前写作风格: chapNames || '无',
+    下一章标题: (o.chapters[i+1]&&o.chapters[i+1].title)||''
+  };
+}
+function aiRefineAdvicePrompt(ctx, raw){
+  return { system:[
+    '你是资深网文长篇编辑。用户的建议框里写了一段粗略的修改要求（可能是续写、扩写、改段落、修正错别字、修正人物称呼等）。',
+    '请把它改写成 3 条【可直接下发给章节生成 AI 的命令稿】，供用户挑选后回填。',
+    '输出：仅一个 JSON 数组（3 项），无任何讲解、无 markdown 代码块前后缀。每项结构：',
+    '{ "title":"一句话描述这条命令的作用", "text":"完整命令文字（可直接作为重生成建议提交）" }',
+    '规则：',
+    '1.充分依据给出的【上下文】（尤其本章全文、上一章结尾、本章梗概、人物关系、当前文风），让命令具体、可执行、可控幅度，不要空话。',
+    '2.三条从不同角度覆盖修改需求（如：一条偏续写、一条偏扩写/细化、一条偏校改称呼与错别字），或按用户原话拆三个侧重点。',
+    '3.text 用对章节 AI 说的祈使句，明确范围与幅度（增删多少、改哪一段、称呼怎么统一），不得自造与上下文冲突的设定。',
+    '4.凡涉及续写/扩写，必须承接本章全文结尾、承接上一章结尾（若存在），且不越界到下一章（下一章标题为：'+ (ctx.下一章标题||'') +'）的内容。'
+    ].join('\n'),
+    user: JSON.stringify({ 上下文: ctx, 用户原始要求: raw }, null, 1) };
+}
+async function aiRefineAdvice(i){
+  const ta = $('#rpAdvice'); if(!ta) return;
+  const raw = ta.value.trim();
+  if(!raw){ toast('请先填一点要求，再让 AI 优化'); return; }
+  const out = $('[data-advice-ai-out]');
+  if(out) out.innerHTML = `<p class="muted" style="margin:6px 0 0">⏳ AI 正结合本章全文优化你的建议…</p>`;
+  const btn = $('[data-advice-ai]'); if(btn){ btn.disabled = true; btn.textContent = '优化中…'; }
+  try{
+    const ctx = buildAiRefineCtx(i);
+    const {system, user} = aiRefineAdvicePrompt(ctx, raw);
+    const res = await callDeepSeek(system, user, {temperature:0.6, maxTokens:1200});
+    const list = parseAiJsonList(res);
+    if(!Array.isArray(list) || !list.length) throw new Error('AI 未返回有效建议，请重试');
+    aiAdviceCand = list.slice(0,3);
+  }catch(e){
+    aiAdviceCand = null;
+    if(out) out.innerHTML = `<p class="muted" style="color:var(--danger);margin:6px 0 0">⚠️ ${esc((e&&e.message)||'优化失败')}</p>`;
+  }
+  if(out) out.innerHTML = aiAdviceResultHtml();
+  if(btn){ btn.disabled = false; btn.textContent = '✨ AI 优化此建议'; }
+}
+function aiAdviceResultHtml(){
+  if(!Array.isArray(aiAdviceCand) || !aiAdviceCand.length) return '';
+  return aiAdviceCand.map((a,ai)=>`
+    <div class="advice-ai-cand" data-advice-ai-pick="${ai}">
+      <b>${esc(a.title||('方案'+(ai+1)))}</b>
+      <p>${esc(a.text||'')}</p>
+      <span class="advice-ai-use">→ 采用</span>
+    </div>`).join('');
+}
 
 /* ---------- v2.0 双风格对比生成：A=当前生效风格 / B=所选对比风格，两次调用后左右对照选稿 ---------- */
 async function genChapterCompare(i, styleA, styleB){

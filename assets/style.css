@@ -1001,6 +1001,42 @@ textarea[readonly]::selection{ background:color-mix(in srgb, var(--accent2) 45%,
 .ws-combo-mine .ws-subcat-t{color:var(--accent);font-size:12px;display:flex;align-items:center;justify-content:space-between;margin-bottom:5px}
 .ws-combo-add{margin-left:auto;padding:0 6px;background:none;border:none;color:var(--accent);font-size:16px;font-weight:700;line-height:1;cursor:pointer;border-radius:6px}
 .ws-combo-add:hover{background:color-mix(in srgb, var(--accent) 14%, transparent)}
+/* v10.30 AI 配方助手卡片（服务写作风格 · 仅长篇） */
+.ai-recipe-card .ai-recipe-tool{display:flex;align-items:center;gap:8px;margin:8px 0}
+.ai-upload-row{display:flex;align-items:center;gap:8px;margin:0 0 6px;flex-wrap:wrap}
+.ai-upload-btn{width:26px;height:26px;border-radius:50%;border:1px solid color-mix(in srgb,var(--accent) 45%,transparent);background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--accent);font-size:16px;font-weight:700;line-height:1;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s;padding:0}
+.ai-upload-btn:hover{background:color-mix(in srgb,var(--accent) 22%,transparent)}
+.ai-up-label{font-size:11px;color:var(--sub);cursor:pointer;padding:4px 2px}
+.ai-upload-name{color:var(--accent);font-size:11px}
+.ai-recipe-card textarea{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);border-radius:10px;color:var(--txt);padding:8px 10px;font-family:inherit;font-size:12.5px;resize:vertical}
+.ai-recipe-card textarea:focus{outline:none;border-color:var(--accent)}
+.ai-recipe-cand{border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px;background:rgba(255,255,255,.03)}
+.ai-recipe-cand.hi{border-color:var(--accent2)}
+.ai-recipe-cand-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.ai-recipe-cand-head b{color:var(--accent2);font-size:14px}
+.ai-recipe-tags{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.ai-recipe-tg{padding:2px 8px;border-radius:14px;font-size:11px;background:color-mix(in srgb, var(--accent) 14%, transparent);border:1px solid color-mix(in srgb, var(--accent) 30%, transparent);color:var(--accent)}
+.ai-recipe-sec{margin:4px 0;font-size:12px;color:var(--txt)}
+.ai-recipe-sec .ar-lab{display:inline-block;min-width:64px;font-weight:700;color:var(--sub)}
+.ai-recipe-gap{margin:8px 0 6px;border-left:2px solid color-mix(in srgb, var(--accent) 40%, transparent);padding-left:8px}
+.ar-ok{font-size:12px;color:var(--ok,#5bd07e)}
+.ar-gaptitle{font-size:12px;font-weight:700;color:#f0a24a;margin-bottom:6px}
+.ai-recipe-gapitem{border:1px dashed rgba(255,255,255,.15);border-radius:8px;padding:8px 10px;margin:6px 0;background:rgba(255,255,255,.02)}
+.ai-recipe-gapitem .ar-gaphead{display:flex;align-items:center;gap:6px}
+.ai-recipe-gapitem .ar-gapwhy{font-size:11.5px;color:var(--sub);margin:3px 0}
+.ai-recipe-gapitem .ar-gapwhy::before{content:'为何补：';color:var(--accent2);font-weight:700}
+.ai-recipe-gapitem .ar-gapnote{font-size:11.5px;white-space:pre-wrap;color:var(--txt);margin:3px 0}
+.ai-recipe-gapitem .ar-gapdemo{font-size:11.5px;color:var(--sub);margin:3px 0;font-style:italic}
+.ai-recipe-gapitem .ar-gapwarn{font-size:11px;color:#f0a24a;margin:3px 0}
+.ai-recipe-gapitem .btn{margin-top:6px}
+/* v1.0.60 AI 提炼优化建议（重生成弹窗内） */
+.advice-ai-row{display:flex;align-items:center;gap:8px;margin:8px 0 4px;flex-wrap:wrap}
+.advice-ai-cand{border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin:6px 0;background:rgba(255,255,255,.03);cursor:pointer;transition:border-color .15s}
+.advice-ai-cand:hover{border-color:var(--accent2)}
+.advice-ai-cand.on{border-color:var(--accent);background:color-mix(in srgb, var(--accent) 10%, transparent)}
+.advice-ai-cand b{color:var(--accent2);font-size:12.5px;display:block}
+.advice-ai-cand p{margin:4px 0;font-size:11.5px;color:var(--txt);white-space:pre-wrap}
+.advice-ai-use{display:inline-block;font-size:11px;color:var(--accent);margin-top:2px}
 .ws-chip{display:inline-flex;align-items:center;padding:5px 11px;border-radius:20px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:rgba(255,255,255,.68);font-size:12.5px;cursor:pointer;transition:all .15s;font-family:inherit}
 .ws-chip:active{transform:scale(.96)}
 .ws-chip:hover{border-color:rgba(255,255,255,.2)}
