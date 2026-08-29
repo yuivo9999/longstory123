@@ -36,6 +36,8 @@ const state = {
   gsCollapsed: true,    // v8b：万物词典卡片是否整卡收缩（默认收缩，点圆形展开全部）
   stCollapsed: false,   // v10.3：长篇结构设计栏是否收缩（默认展开，点击标题收起）
   cpCollapsed: true,    // v10.14：逐章方向梗概卡是否收缩（默认折叠，点击标题展开）
+  ctCollapsed: true,    // v10.53：章节标题管理块是否收缩（默认折叠，点击标题展开）
+  gsCatFold: { char:true, place:true, proper:true },   // v10.53：词典小类别（人物/地点/专名）默认折叠，点击标题展开
   useChapterPlans: true,  // v10.29：逐章梗概本稿是否参与正文生成（默认开）；关则保留内容与历史、仅不注入 AI
   autoQC: false,        // 自动质检开关（默认关闭，v10.18）：生成后自动两段式查错修正；关则直接落库
   chapters: [],         // [{title, content, confirmed, editHistory:[], qcRecord:{}}]
@@ -1587,10 +1589,11 @@ function aiRecipePrompt(userDesc){
     '{ "name":"配方名(简短,≤12字)", "desc":"一句话点明适用题材/氛围", "tags":["词条id",...2~5个],',
     '  "why":"为何这样选(这些词条如何配合达成质感,1-2句)", "scenario":"适用场景(题材/章节阶段/文风匹配度,1-2句)",',
     '  "gap": null } 或 "gap":[ {"name":"…","cat":"语言质感|情绪与张力|节奏与网感|叙事技法|台词设计","id":"…",',
-    '  "note":"写法：…\\n避免：…\\n自查：…","demo":"…","seal":0,"warning":"…(可选)","reasons":"为何补这个词条、解决什么缺口"} ]',
+    '  "note":"一句话指令/总纲：这个词条的核心风格定位（1句）","tips":["写法要求1","写法要求2"],',
+    '  "avoid":["要避免的写法1"],"check":["自查点1"],"demo":"示范写法示例句（必填）","seal":0,"warning":"…(可选)","reasons":"为何补这个词条"} ]',
     '规则(严格)：',
     '1.tags 只能使用【现有词库】中的 id，2~5 个，禁止自造；如现有词库不足以覆盖描述，缺口部分放到 gap 里，禁止把未入词库的词条塞进 tags。',
-    '2.gap 为 null 表示现有词库足够；gap 非空时每个新词条必须按上述完整规格书写（cat 七选一），缺一则该条作废。',
+    '2.gap 为 null 表示现有词库足够；gap 非空时每个新词条必须五维齐全（note/tips/avoid/check/demo），缺一则该条作废。',
     '3.不同候选用词尽量不同、风格拉开差异便于挑选。',
     '4.仅 JSON 输出。',
     '【现有词库 id/name/cat】：', spec
@@ -1607,9 +1610,9 @@ function aiPromptFromOutline(text){
     '输出：仅一个 JSON 数组，无讲解、无 markdown 代码块前后缀。每项结构：',
     '{ "name":"配方名(简短,≤12字)", "desc":"一句话点明这套风格适用的题材/氛围", "tags":["词条id",...2~5个],',
     '  "why":"为何这样选(这些词条如何配合还原该小说质感,1-2句)", "scenario":"适用场景与模仿要点",',
-    '  "gap": null } 或 "gap":[ {"name","cat","id","note","demo","seal":0,"warning","reasons"} ]',
+    '  "gap": null } 或 "gap":[ {"name","cat","id","note(指令总纲)","tips","avoid","check","demo(必填示例)","seal":0,"warning","reasons"} ]',
     '规则：1.tags 只能用现有词库 id，2~5 个，禁止自造；缺口放 gap、禁止塞进 tags。',
-    '2.gap 词条须按完整规格书写（cat 七选一），缺一作废。',
+    '2.gap 词条须五维齐全（note/tips/avoid/check/demo），缺一作废。',
     '3.不同候选用词尽量不同、风格拉开差异便于挑选。',
     '4.仅 JSON 输出。',
     '【现有词库 id/name/cat】：', spec
@@ -1666,6 +1669,20 @@ function aiRecipeResultHtml(lib){
       </div>
     </div>`).join('');
 }
+// v10.52 gap 词条五维分列展示：优先用 AI 独立字段；老格式（note 内含写法/避免/自查）回退 parse 拆解
+function gapFiveHtml(g){
+  const hasStruc = Array.isArray(g.tips)||Array.isArray(g.avoid)||Array.isArray(g.check);
+  const p = hasStruc
+    ? { intro:g.note||'', tips:Array.isArray(g.tips)?g.tips:[], avoid:Array.isArray(g.avoid)?g.avoid:[], check:Array.isArray(g.check)?g.check:[], demo:g.demo||'' }
+    : parseCustomStyleNote(g.note||'');
+  const parts = [];
+  if(String(p.intro||'').trim()) parts.push('<div><b>指令</b>：'+esc(p.intro)+'</div>');
+  if(p.tips&&p.tips.length) parts.push('<div><b>写法</b>：'+esc(p.tips.join('；'))+'</div>');
+  if(p.avoid&&p.avoid.length) parts.push('<div><b>避免</b>：'+esc(p.avoid.join('；'))+'</div>');
+  if(p.check&&p.check.length) parts.push('<div><b>自查</b>：'+esc(p.check.join('；'))+'</div>');
+  if(String(p.demo||'').trim()) parts.push('<div class="ar-gap-demo"><b>示例</b>：'+esc(p.demo)+'</div>');
+  return parts.join('');
+}
 function gapHtml(c, ci){
   if(!Array.isArray(c.gap) || !c.gap.length) return `<span class="ar-ok">✓ 现有词库即可覆盖，无需新词条</span>`;
   return `<div class="ar-gaptitle">⚠️ 存在词条缺口（共 ${c.gap.length} 项，确认后立即纳入当前配方）</div>
@@ -1673,8 +1690,7 @@ function gapHtml(c, ci){
     <div class="ai-recipe-gapitem">
       <div class="ar-gaphead"><b>${esc(g.name||'')}</b><span class="muted" style="font-size:11px">${ (AI_CAT_LABEL[g.cat]||g.cat||'custom') }</span></div>
       <div class="ar-gapwhy">${esc(g.reasons||'')}</div>
-      <div class="ar-gapnote">${esc(g.note||'')}</div>
-      <div class="ar-gapdemo">${esc(g.demo||'')}</div>
+      <div class="ar-gapnote">${gapFiveHtml(g)}</div>
       ${ g.warning ? `<div class="ar-gapwarn">⚠️ ${esc(g.warning)}</div>` : '' }
       <button type="button" class="btn small ghost" data-ai-recipe-addgap="${ci}__${gi}" ${ (c.tags||[]).includes(g.id)|| libHas(g.id) ? 'disabled' : '' }>＋ 加入词库</button>
     </div>`).join('') }`;
@@ -1740,7 +1756,7 @@ function aiRecipeStore(ci){
   let tags = (c.tags||[]).filter(id=> libIds.includes(id));
   // 缺口词条若已入库，一并自动纳入 tags（决策2）
   (c.gap||[]).forEach(g=>{ if(g && g.id && libIds.includes(g.id) && !tags.includes(g.id)) tags.push(g.id); });
-  cfg.styleCustom.customCombos.push({ id:'cu'+Date.now().toString(36)+Math.random().toString(36).slice(2,5), name, desc:(c.desc||''), tags });
+  cfg.styleCustom.customCombos.push({ id:'cu'+Date.now().toString(36)+Math.random().toString(36).slice(2,5), name, desc:(c.desc||''), why:(c.why||''), tags });
   saveCfg(cfg);
   return { combo:cfg.styleCustom.customCombos[cfg.styleCustom.customCombos.length-1], name };
 }
@@ -1783,7 +1799,11 @@ function aiRecipeAddGap(key){
   // id 冲突则加后缀
   let finalId = id, mx = 1; const existing = writeStyleLib().map(s=>s.id);
   while(existing.includes(finalId)) finalId = id + (mx++);
-  cfg.styleCustom.added.push({ id:finalId, group, name:(g.name||'').trim(), note:(g.note||'').trim(), demo:(g.demo||''), seal:(g.seal===undefined?0:g.seal), warning:(g.warning||'') });
+  cfg.styleCustom.added.push({ id:finalId, group, name:(g.name||'').trim(), note:(g.note||'').trim(),
+    tips:Array.isArray(g.tips)?g.tips.map(x=>String(x||'').trim()).filter(Boolean):[],
+    avoid:Array.isArray(g.avoid)?g.avoid.map(x=>String(x||'').trim()).filter(Boolean):[],
+    check:Array.isArray(g.check)?g.check.map(x=>String(x||'').trim()).filter(Boolean):[],
+    demo:(g.demo||'').trim(), seal:(g.seal===undefined?0:g.seal), warning:(g.warning||'') });
   saveCfg(cfg);
   // 立即纳入当前配方草稿 + 把该 id 补进当前候选 tag
   const d = wsDraftInit(); if(!d.tags.includes(finalId)) d.tags.push(finalId);
@@ -1794,21 +1814,29 @@ function aiRecipeAddGap(key){
 
 // 运行时词库 = 内置 45 项（note 可被 cfg.styleCustom.notes 覆盖、可被 removed 删除）⊕ 用户新增
 // v2.4 自定义风格 note 支持三行配方：写法:/避免:/自查:（按行解析成 tips/avoid/check）
+// v10.52 扩展识别「指令/示例」前缀 + 支持「前缀：内容」同行；指令→intro(总纲)、示例→demo
 function parseCustomStyleNote(note){
   const tips=[], avoid=[], check=[];
+  let intro='', demo='';
   const lines = String(note||'').split(/\n/);
   let mode = null;
   lines.forEach(l=>{
     const t = String(l||'').trim();
     if(!t) return;
-    if(/^写法[:：]/.test(t)) mode = 'tips';
-    else if(/^避免[:：]/.test(t)) mode = 'avoid';
-    else if(/^自查[:：]/.test(t)) mode = 'check';
-    else if(mode === 'tips') tips.push(t.replace(/^[①②③④⑤]?[.、）)]?\s*/,''));
-    else if(mode === 'avoid') avoid.push(t.replace(/^[✗×\-\s]+/,''));
-    else if(mode === 'check') check.push(t.replace(/^[□✅◇\-\s]+/,''));
+    let m;
+    if((m=/^指令[:：]\s*(.*)$/.exec(t))){ mode='intro'; if(m[1]) intro=m[1]; return; }
+    if((m=/^写法[:：]\s*(.*)$/.exec(t))){ mode='tips'; if(m[1]) tips.push(m[1].replace(/^[①②③④⑤]?[.、）)]?\s*/,'')); return; }
+    if((m=/^避免[:：]\s*(.*)$/.exec(t))){ mode='avoid'; if(m[1]) avoid.push(m[1].replace(/^[✗×\-\s]+/,'')); return; }
+    if((m=/^自查[:：]\s*(.*)$/.exec(t))){ mode='check'; if(m[1]) check.push(m[1].replace(/^[□✅◇\-\s]+/,'')); return; }
+    if((m=/^示例[:：]\s*(.*)$/.exec(t))){ mode='demo'; if(m[1]) demo=m[1]; return; }
+    // 无前缀：按当前 mode 收集（兼容前缀独立成行的旧格式）
+    if(mode==='intro'){ if(!intro) intro=t; }
+    else if(mode==='tips') tips.push(t.replace(/^[①②③④⑤]?[.、）)]?\s*/,''));
+    else if(mode==='avoid') avoid.push(t.replace(/^[✗×\-\s]+/,''));
+    else if(mode==='check') check.push(t.replace(/^[□✅◇\-\s]+/,''));
+    else if(mode==='demo'){ if(!demo) demo=t; }
   });
-  return { tips, avoid, check };
+  return { intro, tips, avoid, check, demo };
 }
 function writeStyleLib(){
   const c = getCfg().styleCustom || {};
@@ -1821,10 +1849,12 @@ function writeStyleLib(){
     return { ...s, group:'element', cat, note: notes[s.id] || s.note };
   });
   const customs = added.map(a=>{
-    const parsed = parseCustomStyleNote(a.note||'');
+    // v10.52 优先用入库时持久化的五维；老数据（无独立 tips/avoid/check）回退 parseCustomStyleNote 从 note 拆
+    const hasStruc = (Array.isArray(a.tips)&&a.tips.length) || (Array.isArray(a.avoid)&&a.avoid.length) || (Array.isArray(a.check)&&a.check.length);
+    const parsed = hasStruc ? { tips:a.tips||[], avoid:a.avoid||[], check:a.check||[], demo:a.demo||'' } : parseCustomStyleNote(a.note||'');
     // v10.20 自定义项归入用户选择的五大类分类；老数据（tone/texture/element）映射到自定义兜底
     const cat = ['语言质感','情绪与张力','节奏与网感','叙事技法','台词设计'].includes(a.group) ? a.group : 'custom';
-    return { id:a.id, group:'element', name:a.name||'未命名', note:a.note||'', custom:true, cat, tips:parsed.tips, avoid:parsed.avoid, check:parsed.check, demo:a.demo||'', seal:(a.seal===undefined?0:a.seal), warning:a.warning||'' };
+    return { id:a.id, group:'element', name:a.name||'未命名', note:a.note||'', custom:true, cat, tips:parsed.tips||[], avoid:parsed.avoid||[], check:parsed.check||[], demo:parsed.demo||a.demo||'', seal:(a.seal===undefined?0:a.seal), warning:a.warning||'' };
   });
   // v10.18 标题风格（tone 组）内置项迁入顶部「写作风格 → ① 标题风格」；梗概风格（texture 组）内置五段骨架归入「② 梗概风格」；均受 removed/notes 管理
   const toneTitles = TONE_TITLE_STYLES.filter(s=> !removed.includes(s.id)).map(s=>({ ...s, note: notes[s.id] || s.note }));
@@ -2804,26 +2834,6 @@ const CYBER_HOME_GRID = `
     <button class="cyber-card-btn orange" data-step="4"><span class="ico">🎞️</span><span class="lab">分镜</span><span class="sub">生成视频分镜文字</span></button>
   </div>`;
 
-// 故事页面上部「创作范式」摘要：展示本次长篇所选的结构/节奏/质量/体量，供用户生成大纲后随时回看。
-// 未选的项目如实显示"未选/未指定"；结构未选时按既定规则保持留空（让 AI 按构想发挥）。
-function recipeSummaryBar(){
-  if(!isLong()) return '';
-  const st = selStructure();
-  const ccNum = chapterCountVal();
-  const szLabel = ccNum ? `全书 ${ccNum} 章` : '未填章节数';
-  const qLabel = state.autoQC ? '自动质检' : '已关闭';
-  const labelSt = st ? st.name : (state.recipeSet && (state.recipeSet.structure===null||state.recipeSet.structure===undefined) ? '由 AI 按构想发挥' : '未选');
-  const pill = (label, val) => `<span class="rs-item">${label}<b>${esc(val)}</b></span>`;
-  return `<div class="card recipe-summary">
-    <div class="rs-title">🏗️ 创作范式</div>
-    <div class="rs-row">
-      ${pill('结构', labelSt)}
-      ${pill('质量', qLabel)}
-      ${pill('章节数', szLabel)}
-    </div>
-  </div>`;
-}
-
 /* =========================================================
  * v2.0 写作风格选择器：主卡片 + 预设 + 收藏 + 词库管理
  * ========================================================= */
@@ -2976,7 +2986,10 @@ function writeStyleChipsHtml(sel, dataPrefix, opts){
        <div class="ws-subcat-fold"><div class="ws-opt-list">${customCombos.map(mkCombo).join('')}</div></div>
      </div>`
     : '';
-  return `${comboBar}${blocks}<div class="ws-chips"><span class="ws-group-tip">可多选</span>${plus}</div>`;
+  // v10.54 加号已移入主卡片 .ws-tools 行最左；此处仅在有 plus 或需要提示时渲染底部行，避免主卡片出现孤立「可多选」
+  const chipsTail = (opts.plus || opts.showTip !== false)
+    ? `<div class="ws-chips">${opts.showTip !== false ? '<span class="ws-group-tip">可多选</span>' : ''}${plus}</div>` : '';
+  return `${comboBar}${blocks}${chipsTail}`;
 }
 function writeStyleIntHtml(){} // v2.6 浓度已整体移除，保留空占位避免外部引用误伤
 // 风格 chip 切换公共逻辑：五大类词条可多选、可清空
@@ -2988,12 +3001,7 @@ function toggleWriteTag(sel, id){
     if(!sel.tags.includes(id)) sel.tags.push(id);
   }
 }
-function writePresetOptions(){
-  const sys = WRITE_PRESETS.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
-  const cfg = getCfg();
-  const mine = (Array.isArray(cfg.stylePresets)?cfg.stylePresets:[]).map(p=>`<option value="u:${p.id}">⭐ ${esc(p.name||'未命名')}</option>`).join('');
-  return sys + (mine ? `<optgroup label="⭐ 我的收藏">${mine}</optgroup>` : '');
-}
+// v10.53 已去除「选择预设」功能，writePresetOptions 随之删除；WRITE_PRESETS 仍被「收藏当前」解析引用
 // 主卡片
 function writeStyleCard(){
   const st = writeStyleState();
@@ -3013,11 +3021,9 @@ function writeStyleCard(){
         <button type="button" class="btn small ghost" data-ws-fold-all title="展开全部词条类别">⤵ 全部展开</button>
         <button type="button" class="btn small ghost" data-ws-fold-none title="收起全部词条类别">⤴ 全部收起</button>
       </div>
-      ${writeStyleChipsHtml(draft, 'ws', { plus:true, cardFold:true })}
+      ${writeStyleChipsHtml(draft, 'ws', { plus:false, cardFold:true, showTip:false })}   // v10.54 加号移至下方工具行最左
       <div class="ws-tools">
-        <label class="ws-preset"><span>预设</span>
-          <select id="wsPreset"><option value="">— 选择预设 —</option>${writePresetOptions()}</select>
-        </label>
+        <button type="button" class="ws-chip ws-chip-plus" data-ws-add="element" title="点击新建文风词条">＋</button>
         <button type="button" class="btn small primary ws-apply${dirty?'':' disabled'}" data-ws-apply ${dirty?'':'disabled'} title="把当前草稿设为生效配置（从此生成用这套风格）">✔ 应用并保存</button>
         <button type="button" class="btn small ghost" data-ws-save title="把当前草稿收藏为预设（跨作品可用）">💾 收藏当前</button>
         <button type="button" class="btn small ghost" data-ws-clear>✕ 清空</button>
@@ -3094,8 +3100,7 @@ function bindWriteStyle(){
     saveCfg(cfg); render(); toast('已恢复全部默认组合');
   };
   const sel = $('#wsPreset');
-  if(sel) sel.onchange = ()=>{ const v = sel.value; if(!v) return; applyWritePresetDraft(v); sel.value=''; };
-  // 应用并保存：草稿 → 生效配置 → persist → toast
+  // v10.53 已去除「选择预设」功能，绑定代码保留空守卫避免历史调用误伤
   const ap = $('[data-ws-apply]');
   if(ap) ap.onclick = ()=>{
     if(!wsDraft) return;
@@ -3284,6 +3289,7 @@ function openStyleLibPanel(){
     <div class="ws-lib-item">
       <div class="ws-lib-name">${c.custom?'🏷':'🎬'} ${esc(c.name||'未命名')}</div>
       <div class="ws-lib-note" style="white-space:pre-wrap;margin:2px 0 4px">${esc(c.desc||'')}</div>
+      ${c.why?`<div class="ws-lib-why">💡 为何这样选：${esc(c.why)}</div>`:''}
       <span class="muted" style="font-size:11px">词条：${(c.tags||[]).map(id=>{const s=writeStyleById(id); return s?s.name:id;}).join(' + ')||'无'}</span>
     </div>`).join('') : '<p class="muted">暂无配方。</p>';
   const ov = document.createElement('div'); ov.id='wsLibPanel'; ov.className='gs-overlay';
@@ -3442,7 +3448,8 @@ function closeStyleLibPanel(){ const p=$('#wsLibPanel'); if(p) p.remove(); }
 /* ---------- 写作风格配方 · 阅读视图（独立函数，复用 gs 浮层 + reader 排版） ---------- */
 function openStyleLibReader(){
   closeStyleLibReader();
-  const lib = writeStyleLib();
+  // v10.55 方案B：阅读器仅展示五大类章节风格 + 我的自定义；过滤内置「标题风格(tone)/梗概风格(texture)」组（用户自定义旧数据已归入 element 组，不受影响）
+  const lib = writeStyleLib().filter(s=> s.group !== 'tone' && s.group !== 'texture');
   const CAT_LABEL = { '语言质感':'① 语言质感', '情绪与张力':'② 情绪与张力', '节奏与网感':'③ 节奏与网感', '叙事技法':'④ 叙事技法', '台词设计':'⑤ 台词设计', custom:'⭐ 我的自定义' };
   const groups = {};
   lib.forEach(s=>{
@@ -3541,7 +3548,6 @@ function viewStory(){
     ${ origIdeaCard() }
     ${ isLong() ? aiRecipeCard() : '' }
     ${ writeStyleCard() }
-    ${ recipeSummaryBar() }
     <div class="card">
       <div class="card-head-row">
         <h3 style="margin:0">📋 故事大纲</h3>
@@ -3553,7 +3559,6 @@ function viewStory(){
         <textarea id="globalReqInp" rows="3" placeholder="写全书风格基准/对标本（如对标《寅次郎的故事》等），指挥标题、逐章梗概、章节正文统一基调">${esc(o.globalReq||'')}</textarea>
         <p class="global-req-hint">全书级要求：注入「重生成标题 / 逐章梗概 / 章节内容」，优先级：单章干预 &gt; 全书要求 &gt; 写作风格。</p>
       </div>
-      <div class="outline-strip">${ (o.chapters||[]).map((c,i)=>`<span class="outline-pill">${i+1}. ${esc(c.title)}</span>`).join('') }</div>
       ${ chapterTitleBlock() }
       ${ structureCard(o) }
       ${ state.outlineConfirmed ? `
@@ -3731,9 +3736,9 @@ function chapterTitleBlock(){
       <span class="ct-title" title="${esc((c&&c.title)||'')}">${esc((c&&c.title)||('第'+(i+1)+'章'))}</span>
       <button type="button" class="ct-edit" data-ct-edit="${i}" title="编辑标题">✎</button>
     </div>`).join('');
-  return `<div class="ct-block">
-    <div class="ct-head">
-      <b>📚 章节标题</b>
+  return `<div class="ct-block${state.ctCollapsed?' ct-collapsed':''}">
+    <div class="ct-head" data-ct-fold role="button" tabindex="0" title="展开/收起">
+      <b>📚 章节标题 <span class="ct-fold-ico">${state.ctCollapsed?'▸':'▾'}</span></b>
       <span class="ct-tools">
         <button type="button" class="btn small ghost" data-ct-hist>单历(${chTitleHistory().length})</button>
         <button type="button" class="btn small ghost" data-ct-copy>📋 复制全部章节标题</button>
@@ -3756,6 +3761,12 @@ function chapterTitleBlock(){
 
 // v10.14 章节标题绑定：复制全部 / ✎ 进入编辑态（失焦或回车存、Esc 还原、同刻单行互斥）
 function bindChapterTitles(){
+  const ctFold = $('[data-ct-fold]');
+  if(ctFold) ctFold.onclick = ()=>{
+    state.ctCollapsed = !state.ctCollapsed; persist();
+    const blk = ctFold.closest('.ct-block'); if(blk) blk.classList.toggle('ct-collapsed', state.ctCollapsed);
+    const ico = ctFold.querySelector('.ct-fold-ico'); if(ico) ico.textContent = state.ctCollapsed?'▸':'▾';
+  };
   const cp = $('[data-ct-copy]');
   if(cp) cp.onclick = ()=>{ copyText(chapterTitleListText()); };
   const ch = $('[data-ct-hist]');
@@ -3851,7 +3862,7 @@ async function ctAiRefineAdvice(){
   if(!raw){ toast('请先填一点粗略要求，再让 AI 优化'); _aiOptBusy = false; return; }
   const out = $('[data-cth-ai-out]');
   if(out) out.innerHTML = `<p class="muted" style="margin:6px 0 0">⏳ AI 正结合现有标题与世界观优化你的建议…</p>`;
-  const btn = $('[data-cth-ai]'); if(btn){ btn.disabled = true; btn.textContent = '优化中…'; }
+  const btn = $('[data-cth-ai]'); if(btn){ btn.disabled = true; btn.classList.add('is-busy'); btn.textContent = '优化中…'; }
   try{
     const ctx = buildCtAdviceCtx();
     const {system, user} = ctAiRefinePrompt(ctx, raw);
@@ -4351,12 +4362,16 @@ function glossaryCardHtml(){
     <div class="gs-card-body"${collapsed?' style="display:none"':''}>
     <p class="sub">全文一致性基准：生成正文时一律使用以下人名/地名/专名，不得自造新名。生成章节时，人物身份/岁数/性别/外貌/爱好/关系/性格会<b>完整注入</b>章节 AI（字段留空则不注入）；自动提取的新人物会带全 7 项设定（推断不出填「未知」）。建议用「🔍 字段检查」确认人物字段齐全，避免 AI 信息不足写错。</p>
     <div class="gs-panel" id="gsHistory" hidden><div class="gs-panel-title">🕘 历史更改</div><div id="gsHistoryList"></div></div>
-    <div class="gs-group" data-gs-type="char"><div class="gs-title">👤 人物（${g.characters.length}）</div>
-      ${chars||'<span class="muted">（无）</span>'}</div>
-    <div class="gs-group" data-gs-type="place"><div class="gs-title">🗺️ 地点（${g.places.length}）</div>
-      ${places||'<span class="muted">（无）</span>'}</div>
-    <div class="gs-group" data-gs-type="proper"><div class="gs-title">📌 专名（${g.propernouns.length}）</div>
-      ${props||'<span class="muted">（无）</span>'}</div>
+    ${(['char','place','proper']).map(t=>{
+      const fold = !!(state.gsCatFold && state.gsCatFold[t]);
+      const arr = t==='char'?g.characters:t==='place'?g.places:g.propernouns;
+      const body = t==='char'?chars:t==='place'?places:props;
+      const lab = t==='char'?'👤 人物':t==='place'?'🗺️ 地点':'📌 专名';
+      return `<div class="gs-group${fold?' gs-folded':''}" data-gs-type="${t}" data-gs-catfold>
+        <div class="gs-title" role="button" tabindex="0" title="展开/收起">${lab}（${(arr||[]).length}）<span class="gs-cat-ico">${fold?'▸':'▾'}</span></div>
+        ${body||'<span class="muted">（无）</span>'}
+      </div>`;
+    }).join('')}
     ${glossaryDupNoteHtml()}
     <p class="muted" style="margin:6px 0 0">修改后自动保存生效。</p>
     </div>
@@ -4394,6 +4409,22 @@ function bindGlossary(){
       toggle();
     };
     h.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); toggle(); } };
+  });
+  // v10.53 词典小类别折叠：点击「人物/地点/专名」标题展开/收起整组（默认折叠）
+  $$('[data-gs-catfold]').forEach(grp=>{
+    const t = grp.dataset.gsType;
+    const toggleCat = ()=>{
+      state.gsCatFold = state.gsCatFold || {};
+      state.gsCatFold[t] = !state.gsCatFold[t];
+      persist();
+      grp.classList.toggle('gs-folded', state.gsCatFold[t]);
+      const ico = grp.querySelector('.gs-cat-ico'); if(ico) ico.textContent = state.gsCatFold[t]?'▸':'▾';
+    };
+    const tt = grp.querySelector('.gs-title');
+    if(tt){
+      tt.onclick = (e)=>{ e.stopPropagation(); toggleCat(); };
+      tt.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); toggleCat(); } };
+    }
   });
   // 所有可编辑字段（名字 + 各详情）失焦即存；改动时评估影响范围
   $$('[data-gs-name],[data-gs-set]').forEach(inp=>{

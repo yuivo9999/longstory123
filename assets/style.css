@@ -274,12 +274,6 @@ label.field>span{display:block;font-size:12px;color:var(--sub);margin-bottom:6px
 .poly-combo{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:10px 0 14px;padding:10px 12px;border:1px dashed color-mix(in srgb,var(--accent) 55%, var(--line));border-radius:10px;background:var(--panel2)}
 .pc-lbl{font-size:11px;letter-spacing:1px;color:var(--accent);font-weight:700;flex:0 0 auto}
 .pc-item{font-size:12px;background:var(--panel2);border:1px solid var(--line);border-radius:20px;padding:3px 10px;color:var(--txt)}
-/* 故事页面上部「创作范式」摘要条 */
-.recipe-summary{border:1px solid color-mix(in srgb,var(--accent) 35%, var(--line));background:var(--panel2)}
-.recipe-summary .rs-title{font-size:12px;font-weight:700;letter-spacing:1px;color:var(--accent);margin-bottom:8px}
-.recipe-summary .rs-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.recipe-summary .rs-item{font-size:12px;background:var(--panel2);border:1px solid var(--line);border-radius:20px;padding:4px 12px;color:var(--muted)}
-.recipe-summary .rs-item b{color:var(--txt);margin-left:6px;font-weight:700}
 .poly-dim{margin-bottom:16px}
 .poly-head{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
 /* v10.18 生成大纲前「结构骨架 / 可复用词典」可折叠维度 */
@@ -618,15 +612,13 @@ body.reader-lock{overflow:hidden}
 .hist-date{flex:0 0 auto; color:var(--muted); font-size:11px; font-variant-numeric:tabular-nums}
 .hist-empty{font-size:12px; color:var(--muted); padding:6px}
 
-/* 建议2：大纲章名横向划拉窗口（CSS scroll-snap，原生零依赖） */
-.outline-strip{display:flex;gap:8px;overflow-x:auto;margin:10px 0;padding:4px 2px 6px;scroll-snap-type:x mandatory;scrollbar-width:thin;scrollbar-color:var(--line) transparent;-webkit-overflow-scrolling:touch}
-.outline-strip::-webkit-scrollbar{height:4px}
-.outline-strip::-webkit-scrollbar-thumb{background:var(--line);border-radius:999px}
-.outline-pill{flex:0 0 auto;scroll-snap-align:start;font-size:12px;padding:5px 10px;border-radius:14px;background:var(--panel2);border:1px solid var(--line);color:var(--sub);white-space:nowrap;width:auto;max-width:220px;overflow:hidden;text-overflow:ellipsis}
-
 /* 建议9：万物词典「设定表」卡片 */
 .gs-group{margin:8px 0 4px}
-.gs-title{font-size:12px;font-weight:700;color:var(--sub);margin-bottom:6px}
+/* v10.53 词典小类别折叠：默认折叠仅显示标题，点击标题展开 */
+.gs-group > .gs-title{font-size:12px;font-weight:700;color:var(--sub);margin-bottom:6px;cursor:pointer;user-select:none;display:flex;align-items:center;gap:5px}
+.gs-group > .gs-title:hover{color:var(--accent)}
+.gs-cat-ico{font-size:11px;color:var(--muted);margin-left:2px}
+.gs-group.gs-folded > :not(.gs-title){display:none}
 /* 可折叠条目（建议1·此轮）：折叠仅显示名字+简述行，展开显示全部可编辑字段 */
 .gs-entry{border:1px solid var(--line);border-radius:10px;margin-bottom:8px;overflow:hidden;background:var(--panel2)}
 .gs-head{display:flex;align-items:center;gap:8px;padding:6px 10px;cursor:pointer;user-select:none}
@@ -759,6 +751,13 @@ body.reader-lock{overflow:hidden}
 
 /* v10.14 章节标题管理块 */
 .ct-block{margin:10px 0 14px;border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:color-mix(in srgb, var(--accent2) 6%, var(--panel2))}
+/* v10.53 章节标题块折叠：默认折叠，仅保留标题行 */
+.ct-block.ct-collapsed > .ct-row2,
+.ct-block.ct-collapsed > .rt-input,
+.ct-block.ct-collapsed > .advice-ai-row,
+.ct-block.ct-collapsed > [data-cth-ai-out],
+.ct-block.ct-collapsed > .ct-list{display:none}
+.ct-fold-ico{font-size:11px;margin-left:2px}
 .ct-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px}
 .ct-head b{font-size:13px}
 .ct-tools{display:flex;gap:6px;flex-wrap:wrap}
@@ -1099,16 +1098,20 @@ textarea[readonly]::selection{ background:color-mix(in srgb, var(--accent2) 45%,
 .ai-recipe-gapitem .ar-gapwhy{font-size:11.5px;color:var(--sub);margin:3px 0}
 .ai-recipe-gapitem .ar-gapwhy::before{content:'为何补：';color:var(--accent2);font-weight:700}
 .ai-recipe-gapitem .ar-gapnote{font-size:11.5px;white-space:pre-wrap;color:var(--txt);margin:3px 0}
-.ai-recipe-gapitem .ar-gapdemo{font-size:11.5px;color:var(--sub);margin:3px 0;font-style:italic}
+/* v10.53 缺口词条示例文字蓝色 */
+.ai-recipe-gapitem .ar-gap-demo{font-size:11.5px;color:#4db8ff;margin:3px 0;font-style:italic}
 .ai-recipe-gapitem .ar-gapwarn{font-size:11px;color:#f0a24a;margin:3px 0}
 .ai-recipe-gapitem .btn{margin-top:6px}
 /* v1.0.60 AI 提炼优化建议（重生成弹窗内） */
 .advice-ai-row{display:flex;align-items:center;gap:8px;margin:8px 0 4px;flex-wrap:wrap}
-/* v10.34/v10.35 AI优化建议按钮：默认红色，运行态(:disabled/.is-busy)转蓝色（置后抬权，抗 ghost.is-busy 橙色） */
-.advice-ai-row .btn{height:22px;line-height:20px;padding:0 10px;font-size:12px;font-weight:600;color:var(--danger,#e74c3c);border:1px solid color-mix(in srgb,var(--danger,#e74c3c) 55%,transparent);background:transparent;box-sizing:border-box}
-.advice-ai-row .btn:hover:not(:disabled):not(.is-busy){background:color-mix(in srgb,var(--danger,#e74c3c) 12%,transparent)}
-.advice-ai-row .btn:disabled,
-.advice-ai-row .btn.is-busy{background:color-mix(in srgb,var(--accent) 10%,transparent);border:1px dashed color-mix(in srgb,var(--accent) 45%,transparent);color:var(--accent);opacity:.6}
+/* v10.53 AI 优化建议按钮：常态橙纯色 / 生成中金黄渐变（全主题一致） */
+.advice-ai-row .btn{height:22px;line-height:20px;padding:0 10px;font-size:12px;font-weight:600;box-sizing:border-box;background:transparent;border:1px solid transparent;color:var(--danger,#e74c3c)}
+.advice-ai-row [data-cth-ai]{background:#ff6a3d;border:1px solid transparent;color:#fff;opacity:1}
+.advice-ai-row [data-cth-ai]:hover:not(:disabled):not(.is-busy){background:#ff7d52;color:#fff}
+.advice-ai-row [data-cth-ai]:disabled,
+.advice-ai-row [data-cth-ai].is-busy{background:linear-gradient(135deg,#f59e0b 0%,#d97706 100%);border:1px solid transparent;color:#fff;opacity:1;box-shadow:0 1px 6px rgba(245,158,11,.4)}
+.advice-ai-row [data-cth-ai]:disabled .spinner,
+.advice-ai-row [data-cth-ai].is-busy .spinner{border-color:rgba(255,255,255,.4);border-top-color:#fff}
 .advice-ai-row .muted{color:var(--sub);font-size:11.5px}
 /* v10.34 折叠按钮移到 advice-ai-row 最右侧 */
 .cth-fold-btn{margin-left:auto;display:inline-flex;align-items:center;gap:4px;height:20px;line-height:20px;padding:0 8px;font-size:11px;color:var(--accent);border:1px solid color-mix(in srgb,var(--accent) 40%,transparent);border-radius:999px;background:color-mix(in srgb,var(--accent) 10%,transparent);cursor:pointer;user-select:none;flex:none}
@@ -1145,6 +1148,8 @@ textarea[readonly]::selection{ background:color-mix(in srgb, var(--accent2) 45%,
 .ws-custom{font-size:10px;color:var(--accent2);background:color-mix(in srgb,var(--accent2) 14%, transparent);border:1px solid color-mix(in srgb,var(--accent2) 45%, transparent);padding:0 6px;border-radius:20px}
 .ws-lib-note{width:100%;min-height:48px;padding:6px 8px;font-size:12.5px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--text);font-family:inherit}
 .ws-lib-note:focus{border-color:var(--accent2);outline:none}
+/* v10.53 配方「为何这样选」：管理面板内配方卡片展示 */
+.ws-lib-why{font-size:12px;color:var(--accent2);margin:2px 0 4px;line-height:1.5}
 .ws-lib-tools{display:flex;gap:6px;flex-wrap:wrap;margin-top:2px}
 .ws-lib-add{border:1px dashed var(--line);border-radius:10px;padding:10px;margin-bottom:14px}
 .ws-add-row{display:flex;gap:8px;margin-bottom:6px}
@@ -1158,6 +1163,8 @@ textarea[readonly]::selection{ background:color-mix(in srgb, var(--accent2) 45%,
 .ws-group-tip{font-weight:400;color:rgba(255,255,255,.32);font-size:11px;margin-left:6px}
 .ws-chip-plus{background:transparent;border-style:dashed;color:rgba(255,255,255,.38);font-weight:700;font-size:15px;line-height:1}
 .ws-chip-plus:hover{border-color:rgba(255,255,255,.25);background:rgba(255,255,255,.06)}
+/* v10.54 加号移入 ws-tools 工具行最左：与「应用并保存」等 small 按钮对齐 */
+#app .ws-tools .ws-chip-plus{font-size:13px;padding:5px 10px;line-height:1.2}
 /* v10.17 管理面板折叠区：分组与我的收藏（默认折叠，点击展开） */
 .ws-lib-fold{border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-bottom:10px;background:var(--panel2)}
 .ws-lib-fold-t{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;font-size:12.5px;font-weight:700;color:var(--sub);cursor:pointer;user-select:none}

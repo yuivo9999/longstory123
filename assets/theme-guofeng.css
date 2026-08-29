@@ -354,21 +354,22 @@
  * ========================================================= */
 [data-theme="guofeng"] body.has-guofeng-bg .stepper { display: none; }
 
-/* 顶部图片牌匾：固定置顶，尺寸约为原来的一半（用 calc 居中，避免 transform 影响内部 fixed 按钮的定位） */
+/* 顶部牌匾已去除（v10.54）：不再铺 guofeng-title.png、不再显示标题文字；盒子归零避免遮挡点击 */
 [data-theme="guofeng"] body.has-guofeng-bg header {
   position: fixed;
   top: 58px;
   left: calc(50% - 70px);
-  width: 140px;
-  height: 46px;
+  width: 0;
+  height: 0;
   margin: 0; padding: 0;
-  background: transparent url('img/skins/guofeng-title.png') center / 140px 46px no-repeat;
+  background: none;
   border: none;
   border-radius: 0;
   box-shadow: none;
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
   z-index: 30;
 }
 /* 第一行功能入口：在背景图屋檐区悬浮（左历史 / 右主题+选项） */
@@ -397,7 +398,7 @@
 }
 [data-theme="guofeng"] body.has-guofeng-bg header .logo { display: none; }
 [data-theme="guofeng"] body.has-guofeng-bg header .title {
-  display: block;
+  display: none;   /* v10.54 已去除标题文字「影视前期提示词生成器」 */
   width: 100%;
   text-align: center;
   font-size: 12px;
@@ -408,9 +409,9 @@
   text-shadow: 0 1px 2px rgba(0,0,0,0.65);
 }
 
-/* 主内容区：默认主题样式，仅在顶部留出牌匾空间 */
+/* 主内容区：默认主题样式，顶部留出功能按钮空间（牌匾已去除，128px 收窄为 60px） */
 [data-theme="guofeng"] body.has-guofeng-bg #view {
-  padding: 128px 18px 290px;
+  padding: 60px 18px 290px;
   background: transparent;
 }
 [data-theme="guofeng"] body.has-guofeng-bg #view::before,
