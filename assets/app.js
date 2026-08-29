@@ -3690,7 +3690,6 @@ function chapterTitleBlock(){
       </span>
     </div>
     <div class="ct-row2">
-      <button type="button" class="btn small ghost" data-rt-gen>🔄 重生成全部标题</button>
       <button type="button" class="btn small ghost" data-ct-batch title="查看并可整批回退「重生成全部标题」的历史版本">版本(${chTitleBatches().length}/50)</button>
       <button type="button" class="btn small ghost" data-ct-raw title="手动提取 AI 原始响应数据，当自动更新失败时使用">🔧</button>
     </div>
@@ -3698,6 +3697,7 @@ function chapterTitleBlock(){
     <div class="advice-ai-row">
       <button type="button" class="btn small ghost" data-cth-ai>✨ AI 优化此建议</button>
       <span class="cth-fold-btn" data-cth-ai-unfold role="button" style="display:none">↗ 展开建议</span>
+      <button type="button" class="ct-rtgen" data-rt-gen>重生成</button>
     </div>
     <div data-cth-ai-out></div>
     <div class="ct-list">${rows}</div>
@@ -3720,35 +3720,16 @@ function bindChapterTitles(){
   if(cthA) cthA.onclick = ()=> ctAiRefineAdvice();   // v10.32 章节标题 AI 优化建议
   const ctBlock = $('.ct-block');
   if(ctBlock) ctBlock.onclick = e=>{
-    // v10.34 采用按钮点击：切换选中态
-    const useBtn = e.target.closest('.advice-ai-use');
-    if(useBtn){
-      const cand = useBtn.closest('[data-cth-ai-pick]');
-      if(!cand) return;
-      const j = +cand.dataset.cthAiPick;
-      if(!ctAdviceCand || !ctAdviceCand[j]) return;
-      if(ctAdoptedIdx === j){
-        ctAdoptedIdx = -1;   // 取消采用
-      }else{
-        ctAdoptedIdx = j;
-        const inp = $('#rtInput'); if(inp) inp.value = ctAdviceCand[j].text || '';
-        ctAdviceFold = true;
-        toast('已回填重生成要求，可直接重生成');
-      }
-      const out = $('[data-cth-ai-out]'); if(out) out.innerHTML = ctAdviceResultHtml();
-      updateFoldBtn();
-      return;
-    }
-    // 整卡点击（非按钮区域）：回填输入框，不改变已采用状态
+    // v10.38 整卡点击：选中该项（高亮），回填输入框，保持展开不回填后收起
     const pick = e.target.closest('[data-cth-ai-pick]');
     if(pick){
       const j = +pick.dataset.cthAiPick;
       if(ctAdviceCand && ctAdviceCand[j]){
+        ctAdoptedIdx = j;                           // 选中该项（高亮）
         const inp = $('#rtInput'); if(inp) inp.value = ctAdviceCand[j].text || '';
-        ctAdviceFold = true;
         const out = $('[data-cth-ai-out]'); if(out) out.innerHTML = ctAdviceResultHtml();
         updateFoldBtn();
-        toast('已回填重生成要求，可直接重生成');
+        toast('已选择该建议，可直接重生成');
       }
       return;
     }
@@ -3851,7 +3832,6 @@ function ctAdviceResultHtml(){
         <b>${esc(a.title||('方案'+(ai+1)))}</b>
       </div>
       <p>${esc(a.text||'')}</p>
-      <button type="button" class="advice-ai-use${ctAdoptedIdx===ai?' adopted':''}">${ctAdoptedIdx===ai?'已采用':'✔ 采用'}</button>
     </div>`).join('');
 }
 // v10.34 同步折叠按钮显示与文字
@@ -3950,7 +3930,9 @@ function snapshotTitleBatch(label){
   const titles = (o.chapters||[]).map(c=> (c&&c.title)||'');
   const bt = chTitleBatches();
   if(bt.length && JSON.stringify(bt[0].titles) === JSON.stringify(titles)) return;
-  bt.unshift({ ts: Date.now(), label: label||'快照', titles });
+  const d = new Date();
+  const t = (d.getMonth()+1)+'-'+d.getDate()+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+  bt.unshift({ ts: Date.now(), label: `${t} · ${label||'生成批次'}`, titles });
   if(bt.length > 50) bt.length = 50;
   persist();
 }
@@ -3984,7 +3966,7 @@ function openChTitleBatchPanel(){
   const rows = bt.map((b,idx)=>`
     <div class="cv-row">
       <div class="cv-meta" style="flex:1;min-width:0">
-        <div class="cv-time">${idx+1}. ${esc(b.label||'标题版本')} · ${fmtTs(b.ts)} · ${(b.titles||[]).length} 章</div>
+        <div class="cv-time">${idx+1}. <b style="color:var(--accent2)">${esc((b.label||'').split(' · ')[0]||fmtTs(b.ts))}</b>${esc((b.label||'').split(' · ')[1]?' · '+b.label.split(' · ')[1]:'')} · ${(b.titles||[]).length} 章</div>
         <div class="cv-t" style="font-size:12px;color:var(--sub);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc((b.titles||[]).slice(0,2).join(' / '))||'（空）'}…</div>
       </div>
       <div class="cv-actions" style="display:flex;gap:6px;flex-shrink:0">
@@ -4956,10 +4938,11 @@ function openReader(i){
   // 再尝试恢复「本章」上次关闭前的位置（按 项目id + 章节 分别记忆，弃用旧单章 key fyp_rp_${curId}）。
   const body0 = $('#readerBody');
   if(body0) body0.scrollTop = 0;
+  updateReaderProgress();   // v10.42 打开章节即复位进度条（无续读时为 0）
   try{
     const rp = JSON.parse(localStorage.getItem('fyp_rp_' + (lib.curId||'x') + '_' + i) || 'null');
     if(rp && rp.top){
-      requestAnimationFrame(()=>{ const b=$('#readerBody'); if(b) b.scrollTop = rp.top; });
+      requestAnimationFrame(()=>{ const b=$('#readerBody'); if(b) b.scrollTop = rp.top; updateReaderProgress(); });
     }
   }catch(e){}
 }
@@ -4976,8 +4959,21 @@ function bindReaderScrollSave(){
         // fixed8：按 项目id + 章节 分别记忆，每章各自续读上次关闭前位置
         localStorage.setItem('fyp_rp_' + (lib.curId||'x') + '_' + readerCur, JSON.stringify({ top: b.scrollTop }));
       }catch(e){}
+      updateReaderProgress();   // v10.42 滚动过程同步阅读进度条 + 悬停气泡
     }, 400);
   }, {passive:true});
+}
+// v10.42 阅读进度条：按 #readerBody 滚动实时计算本章进度，更新细条宽度与悬停气泡（段数/百分比）
+function updateReaderProgress(){
+  const b = $('#readerBody'), fill = $('#readerProgressFill'), tip = $('#readerPctTip');
+  if(!b || !fill) return;
+  const max = b.scrollHeight - b.clientHeight;
+  const p = max>0 ? Math.min(100, Math.max(0, Math.round(b.scrollTop/max*100))) : 0;
+  fill.style.width = p+'%';
+  if(tip){
+    const paras = b.querySelectorAll('p').length;
+    tip.innerHTML = `第 <b>${p}%</b> · 全文 <b>${paras}</b> 段`;
+  }
 }
 function closeReader(){
   const ov = $('#readerOverlay'); if(!ov) return;
@@ -5520,6 +5516,7 @@ function openExportReader(){
   // 重置滚动位置
   const body0 = $('#readerBody');
   if(body0) body0.scrollTop = 0;
+  updateReaderProgress();   // v10.42 导出全文阅读打开时复位进度条
   ov.dataset.exportReader = '1';   // 标记为导出阅读模式
   ov.classList.remove('hidden');
   document.body.classList.add('reader-lock');
@@ -7991,7 +7988,6 @@ function renderHistList(){
           <span class="hist-meta">${histProgress(p)} · ${fmtHistTime(p.updatedAt)}</span>
         </button>
         <button class="hist-del" data-fypexp="${p.id}" title="导出 .fyp 项目">📤</button>
-        <button class="hist-del" data-histdict="${p.id}" title="导出该作词典">📇</button>
         <button class="hist-del" data-del="${p.id}" title="删除作品">🗑</button>
       </div>
       <div class="hist-body">${preview}</div>
@@ -7999,8 +7995,6 @@ function renderHistList(){
   }).join('') || `<div class="hist-empty">还没有作品，点击「＋ 新建小说」开始。</div>`;
   $$('#histList [data-switch]').forEach(b=> b.onclick = ()=> switchProject(b.dataset.switch));
   $$('#histList [data-del]').forEach(b=> b.onclick = (e)=>{ e.stopPropagation(); deleteProject(b.dataset.del); });
-  // 历史作品一键导出该作词典（阶段5）
-  $$('#histList [data-histdict]').forEach(b=> b.onclick = (e)=>{ e.stopPropagation(); exportWorkGlossaryJSON(b.dataset.histdict); });
   // 历史作品一键导出整本 .fyp 项目
   $$('#histList [data-fypexp]').forEach(b=> b.onclick = (e)=>{ e.stopPropagation(); exportProjectFile(b.dataset.fypexp); });
   // 折叠/展开单条项目详情：只影响当前项，不影响其它项的选择
@@ -8008,7 +8002,6 @@ function renderHistList(){
     if(e.target.closest('[data-switch]')) return;   // 点标题=切换项目，不折叠
     if(e.target.closest('[data-del]')) return;      // 删除按钮不触发折叠
     if(e.target.closest('[data-fypexp]')) return;   // .fyp 导出按钮不触发折叠
-    if(e.target.closest('[data-histdict]')) return; // 导出按钮不触发折叠
     const id = h.dataset.histToggle;
     histOpenId = (histOpenId===id) ? null : id;
     renderHistList();                               // 重新渲染以切折叠态

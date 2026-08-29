@@ -500,6 +500,20 @@ body.reader-lock{overflow:hidden}
 }
 .reader-body p{margin:0 0 1.1em; text-align:justify}
 .reader-body p:first-child::first-letter{font-size:1.5em; font-weight:700; color:var(--accent)}
+/* v10.42 阅读进度条：细线贯穿浮层顶部 + 悬停气泡（段数/进度） */
+.reader-progress{position:relative;flex:0 0 auto;height:12px;background:transparent;cursor:pointer}
+.reader-progress .rp-track{position:absolute;left:0;right:0;top:4px;height:4px;border-radius:2px;background:color-mix(in srgb,var(--line) 60%,transparent)}
+.reader-progress i{position:absolute;left:0;top:4px;height:4px;width:0;border-radius:2px;background:linear-gradient(90deg,var(--accent),var(--accent2));transition:width .12s linear}
+.reader-progress:hover .rp-track{height:6px;top:3px}
+.reader-progress:hover i{height:6px;top:3px}
+.reader-progress .rp-tip{
+  position:absolute; bottom:16px; left:50%; transform:translateX(-50%) translateY(4px);
+  background:var(--panel2); border:1px solid var(--line); border-radius:8px; padding:6px 10px;
+  font-size:12px; color:var(--txt); box-shadow:0 6px 18px rgba(0,0,0,.35);
+  white-space:nowrap; opacity:0; pointer-events:none; transition:opacity .15s, transform .15s; z-index:6;
+}
+.reader-progress:hover .rp-tip{opacity:1; transform:translateX(-50%) translateY(0)}
+.reader-progress .rp-tip b{color:var(--accent2); font-variant-numeric:tabular-nums}
 /* 章节目录抽屉（100+ 章快速跳转） */
 .reader-toc{
   position:absolute; top:0; right:0; bottom:0; width:min(300px, 78%);
@@ -748,7 +762,6 @@ body.reader-lock{overflow:hidden}
 /* 重生成全部标题行：按钮左 + 标题版本右 */
 .ct-row2{display:flex;align-items:center;gap:8px;margin-bottom:6px}
 .ct-row2 .btn{flex:0 0 auto}
-.ct-row2 .btn[data-rt-gen]{margin-right:auto}
 .ct-row2 .btn[data-ct-batch]{margin-left:auto}
 .ct-issue .ct-title{color:#e5534b}
 .ct-issue .ct-no{color:#e5534b;font-weight:700}
@@ -1090,10 +1103,13 @@ textarea[readonly]::selection{ background:color-mix(in srgb, var(--accent2) 45%,
 .advice-ai-idx{flex:none;width:18px;height:18px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--on-accent);background:var(--accent)}
 .advice-ai-cand b{color:var(--accent2);font-size:13px;flex:1;min-width:0}
 .advice-ai-cand p{margin:8px 0 0;font-size:12px;color:var(--txt);white-space:pre-wrap;line-height:1.55}
-/* v10.34 采用按钮：底部居中；已采用态蓝色透明 */
-.advice-ai-use{display:block;margin:10px auto 0;height:11px;padding:0 6px;font-size:10px;font-weight:600;border-radius:5px;background:var(--accent);border:1px solid var(--accent);color:var(--on-accent);cursor:pointer;box-sizing:border-box;line-height:9px;transition:all .15s}
+/* v10.38 重生成按钮：同 AI 优化建议一行，最右侧，默认蓝色实底 */
+.ct-rtgen{flex:none;height:22px;line-height:20px;padding:0 12px;font-size:12px;font-weight:700;color:#fff;border:1px solid transparent;background:linear-gradient(135deg,#3b82f6 0%,#2563eb 100%);border-radius:20px;cursor:pointer;box-sizing:border-box;transition:all .2s;white-space:nowrap}
+.ct-rtgen:hover{filter:brightness(1.08);transform:translateY(-1px)}
+.ct-rtgen:disabled,.ct-rtgen.is-busy{opacity:.7;filter:saturate(.7)}
+/* 章节-工具栏「学生采纳」按钮（标题已移除，此处供章节-工具栏建议面板复用） */
+.advice-ai-use{display:inline-block;flex:none;margin-left:8px;height:22px;padding:0 8px;font-size:11px;font-weight:600;border-radius:6px;background:var(--accent);border:1px solid var(--accent);color:var(--on-accent);cursor:pointer;box-sizing:border-box;line-height:20px;transition:all .15s}
 .advice-ai-use:hover{filter:brightness(1.08)}
-.advice-ai-use.adopted{background:transparent;color:var(--accent);font-weight:700}
 .ws-chip{display:inline-flex;align-items:center;padding:5px 11px;border-radius:20px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:rgba(255,255,255,.68);font-size:12.5px;cursor:pointer;transition:all .15s;font-family:inherit}
 .ws-chip:active{transform:scale(.96)}
 .ws-chip:hover{border-color:rgba(255,255,255,.2)}
