@@ -948,7 +948,7 @@ function polishKeepBar(){
   return `<div class="pol-keep">
     <span class="pol-keep-t">已保留 ${opts.length} 个优化方案（当前采用：${esc(cur)}）</span>
     <span class="pol-keep-btns">
-      ${(state.polishHistory&&state.polishHistory.length)?`<button type="button" class="btn small ghost" data-pol-keep-hist>📚 优化版本(${state.polishHistory.length}/5)</button>`:''}
+      ${(state.polishHistory&&state.polishHistory.length)?`<button type="button" class="btn small ghost" data-pol-keep-hist>📚 优化版本(${state.polishHistory.length}/50)</button>`:''}
       <button type="button" class="btn small ghost" data-pol-keep-view>🔍 查看全部</button>
       <button type="button" class="btn small ghost" data-pol-keep-again>✨ 重新优化</button>
       <button type="button" class="btn small ghost" data-pol-keep-clear>✕ 清除</button>
@@ -1008,7 +1008,7 @@ function openPolishBatchPanel(){
   const ov = document.createElement('div'); ov.id='polbPanel'; ov.className='gs-overlay';
   ov.innerHTML = `
     <div class="gs-modal">
-      <div class="gs-modal-head"><b>💾 优化构想 · 批量版本（${hist.length}/5）</b>
+      <div class="gs-modal-head"><b>💾 优化构想 · 批量版本（${hist.length}/50）</b>
         <button class="gs-x" data-polb-close>✕</button></div>
       <div class="cv-body">
         <div class="cv-div">每次「✨ 优化构想」改动前后会把整批方案各归档一份（≤5 份可回退）；「👁 切换」只预览不生效，点「应用」后才覆盖当前保留方案。</div>
@@ -3253,10 +3253,19 @@ function openStyleLibPanel(){
           <div class="ws-lib-fold-b" hidden>${mine}</div>
         </div>
       </div>
+      <div class="ws-lib-foot">
+        <button type="button" class="btn small ghost" data-lib-export>⬇ 导出</button>
+        <button type="button" class="btn small ghost" data-lib-import>⬆ 导入</button>
+        <input type="file" id="wsLibImportFile" accept=".json,application/json" hidden />
+      </div>
     </div>`;
   document.body.appendChild(ov);
   ov.querySelector('[data-lib-close]').onclick = closeStyleLibPanel;
   ov.querySelector('[data-lib-read]').onclick = () => openStyleLibReader();
+  // v10.32 底部工具条：导出整套；导入触发隐藏文件选择
+  ov.querySelector('[data-lib-export]').onclick = exportWsStyleBundle;
+  ov.querySelector('[data-lib-import]').onclick = ()=>{ const f=$('#wsLibImportFile'); if(f) f.click(); };
+  const wlImp = ov.querySelector('#wsLibImportFile'); if(wlImp) wlImp.onchange = e=>{ const file=e.target.files && e.target.files[0]; if(file) importWsStyleBundle(file); e.target.value=''; };
   ov.addEventListener('click', e=>{ if(e.target===ov) closeStyleLibPanel(); });
   // v10.17 分组/我的收藏折叠开关（默认折叠，点击展开）
   ov.querySelectorAll('[data-lib-fold]').forEach(h=> h.onclick = ()=>{
@@ -3326,6 +3335,61 @@ function openStyleLibPanel(){
     toast('已新增风格：'+name);
     closeStyleLibPanel(); openStyleLibPanel();   // 刷新弹窗让新项立即可见
   };
+}
+// v10.32 写作风格「词条+组合」整套导出：写 writing-styles-YYYYMMDD-HHmmss.json（覆盖式导入用）
+function exportWsStyleBundle(){
+  const c = getCfg().styleCustom || { notes:{}, added:[], removed:[], comboRemoved:[] };
+  const styleCustom = {
+    notes: c.notes && typeof c.notes==='object' ? c.notes : {},
+    added: Array.isArray(c.added) ? c.added : [],
+    removed: Array.isArray(c.removed) ? c.removed : [],
+    comboRemoved: Array.isArray(c.comboRemoved) ? c.comboRemoved : [],
+    customCombos: Array.isArray(c.customCombos) ? c.customCombos : []
+  };
+  const data = { ver:1, exportedAt:Date.now(), kind:'wsStyleBundle', styleCustom };
+  const ts = new Date();
+  const pad = n => String(n).padStart(2,'0');
+  const stamp = `${ts.getFullYear()}${pad(ts.getMonth()+1)}${pad(ts.getDate())}-${pad(ts.getHours())}${pad(ts.getMinutes())}${pad(ts.getSeconds())}`;
+  const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json;charset=utf-8'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = `writing-styles-${stamp}.json`; a.click();
+  URL.revokeObjectURL(a.href);
+  toast('已导出词条与组合配方');
+}
+// v10.32 整套导入（覆盖式）：整体替换 styleCustom 的词条/组合定制字段，附结构校验与词条悬挂引用过滤
+function importWsStyleBundle(file){
+  const reader = new FileReader();
+  reader.onload = ()=>{
+    let data;
+    try{ data = JSON.parse(reader.result); }
+    catch(e){ toast('导入失败：文件不是合法 JSON'); return; }
+    if(!data || typeof data !== 'object' || !data.styleCustom || typeof data.styleCustom !== 'object'){
+      toast('导入失败：不是合法的写作风格配方 JSON'); return;
+    }
+    const sc = data.styleCustom;
+    const strArr = v => Array.isArray(v) ? v.map(String).filter(x=> !!x) : [];
+    const builtinIds = [].concat(WRITE_STYLES || [], TONE_TITLE_STYLES || [], TEXTURE_PLAN_STYLES || []).map(s=> s && s.id).filter(Boolean);
+    const libNowIds = writeStyleLib().map(s=> s.id);
+    const cfg = getCfg(); cfg.styleCustom = cfg.styleCustom || { notes:{}, added:[], removed:[], comboRemoved:[] };
+    // 词条 notes：覆盖式整体替换
+    cfg.styleCustom.notes = (sc.notes && typeof sc.notes==='object') ? sc.notes : {};
+    // added：逐项校验 id/name；group 归入五大类否则 custom 兜底
+    cfg.styleCustom.added = (Array.isArray(sc.added) ? sc.added : [])
+      .filter(x=> x && x.id && x.name)
+      .map(x=>({ id:String(x.id), group:['语言质感','情绪与张力','节奏与网感','叙事技法','台词设计'].includes(x.group)?x.group:'custom', name:String(x.name), note:String(x.note||''), demo:x.demo?String(x.demo):'', seal:(x.seal===undefined?0:x.seal), warning:x.warning?String(x.warning):'' }));
+    // removed：仅保留存在于内置词条中的 id
+    cfg.styleCustom.removed = strArr(sc.removed).filter(id=> builtinIds.includes(id));
+    // comboRemoved：仅保留存在于内置组合中的 id
+    cfg.styleCustom.comboRemoved = strArr(sc.comboRemoved).filter(id=> (WRITE_COMBOS||[]).some(c=> c.id === id));
+    // customCombos：保留合法条目，tags 过滤为当前库内仍存在的词条 id
+    cfg.styleCustom.customCombos = (Array.isArray(sc.customCombos) ? sc.customCombos : [])
+      .filter(x=> x && x.id && x.name)
+      .map(x=>({ id:String(x.id), name:String(x.name), desc:String(x.desc||''), tags:strArr(x.tags).filter(id=> libNowIds.includes(id)) }));
+    saveCfg(cfg); render();
+    toast('已导入词条与组合配方');
+    closeStyleLibPanel(); openStyleLibPanel();   // 重建面板，导入内容立即可见
+  };
+  reader.readAsText(file);
 }
 function closeStyleLibPanel(){ const p=$('#wsLibPanel'); if(p) p.remove(); }
 
@@ -3584,7 +3648,7 @@ function setChapterTitle(i, title){
     if(oldT && oldT !== t && o.chapters[i].title !== undefined){
       if(!Array.isArray(o.chTitleHistory)) o.chTitleHistory = [];
       o.chTitleHistory.unshift({ i, title: oldT, ts: Date.now() });
-      if(o.chTitleHistory.length > 10) o.chTitleHistory.splice(10);
+      if(o.chTitleHistory.length > 50) o.chTitleHistory.splice(50);
     }
     o.chapters[i].title = t;
   }
@@ -3620,16 +3684,21 @@ function chapterTitleBlock(){
     <div class="ct-head">
       <b>📚 章节标题</b>
       <span class="ct-tools">
-        ${hasChTitleHistory()?`<button type="button" class="btn small ghost" data-ct-hist>🕘 曾用标题(${chTitleHistory().length})</button>`:''}
+        <button type="button" class="btn small ghost" data-ct-hist>单历(${chTitleHistory().length})</button>
         <button type="button" class="btn small ghost" data-ct-copy>📋 复制全部章节标题</button>
       </span>
     </div>
     <div class="ct-row2">
       <button type="button" class="btn small ghost" data-rt-gen>🔄 重生成全部标题</button>
+      <button type="button" class="btn small ghost" data-ct-batch title="查看并可整批回退「重生成全部标题」的历史版本">版本(${chTitleBatches().length}/50)</button>
       <button type="button" class="btn small ghost" data-ct-raw title="手动提取 AI 原始响应数据，当自动更新失败时使用">🔧</button>
-      ${chTitleBatches().length?`<button type="button" class="btn small ghost" data-ct-batch title="查看并可整批回退「重生成全部标题」的历史版本">🔁 标题版本(${chTitleBatches().length}/5)</button>`:''}
     </div>
     <input type="text" class="rt-input" id="rtInput" placeholder="重生成要求（选填）：如『标题更有悬念感』『避免剧透式标题』『每章标题用双字词』" />
+    <div class="advice-ai-row">
+      <button type="button" class="btn small ghost" data-cth-ai>✨ AI 优化此建议</button>
+      <span class="muted" style="font-size:11px">基于书名/简介/结构/词典/现有标题，把你的粗略要求提炼成 3 条可直接重生成标题的建议；点击即回填输入框</span>
+    </div>
+    <div data-cth-ai-out></div>
     <div class="ct-list">${rows}</div>
   </div>`;
 }
@@ -3646,6 +3715,19 @@ function bindChapterTitles(){
   if(rg) rg.onclick = ()=> regenAllTitles(rg);   // v10.15 重生成全部标题
   const rawT = $('[data-ct-raw]');
   if(rawT) rawT.onclick = ()=> openTitlesRawPanel();
+  const cthA = $('[data-cth-ai]');
+  if(cthA) cthA.onclick = ()=> ctAiRefineAdvice();   // v10.32 章节标题 AI 优化建议
+  const ctBlock = $('.ct-block');
+  if(ctBlock) ctBlock.onclick = e=>{
+    const pick = e.target.closest('[data-cth-ai-pick]');
+    if(!pick) return;
+    const j = +pick.dataset.cthAiPick;
+    if(ctAdviceCand && ctAdviceCand[j]){
+      const inp = $('#rtInput'); if(inp) inp.value = ctAdviceCand[j].text || '';
+      $$('[data-cth-ai-pick]').forEach(c=> c.classList.toggle('on', c===pick));
+      toast('已回填重生成要求，可直接重生成');
+    }
+  };
   $$('[data-ct-edit]').forEach(btn=>{
     btn.onclick = ()=>{
       const i = +btn.dataset.ctEdit;
@@ -3665,6 +3747,68 @@ function bindChapterTitles(){
       inp.onblur = ()=> commitChapterTitle(inp);
     };
   });
+}
+
+// v10.32 章节标题 AI 优化建议：把 rtInput 里的粗略要求提炼成 3 条可直接作「重生成要求」的建议稿
+let ctAdviceCand = null;   // {title,text}[] 候选，模块级；重渲会随标签重置
+function buildCtAdviceCtx(){
+  const o = state.outline || {};
+  const st = o.structure || {};
+  return {
+    小说标题: o.title || '',
+    小说简介: o.logline || '',
+    长篇结构设计: JSON.stringify(st).slice(0,800),
+    设定词典: chapterGlossaryBlock(),
+    现有章节标题: (o.chapters||[]).map((c,i)=>`第${i+1}章 ${(c&&c.title)||''}`).join(' / ')
+  };
+}
+function ctAiRefinePrompt(ctx, raw){
+  return { system:[
+    '你是资深长篇小说的章标题策划师。用户在"重生成全部标题"的要求框里写了一段粗略的重生成要求（可能是风格方向、悬念感、字数对仗、避免套路等）。',
+    '请把它提炼成 3 条【可直接作为重生成要求下发给标题生成 AI 的建议稿】，供用户挑选回填。',
+    '输出：仅一个 JSON 数组（3 项），无任何讲解、无 markdown 代码块前后缀。每项结构：',
+    '{ "title":"一句话说明这条要求侧重什么", "text":"完整重生成要求（用命令式、可执行，可直接提交给标题生成 AI）" }',
+    '规则：',
+    '1.充分依据给出的【现有章节标题】风格与【长篇结构】【设定词典】，让要求具体可执行，不空话。',
+    '2.三条从不同角度覆盖（如：一条偏立意/悬念、一条偏字数对仗/画面感、一条偏避免套路/统一专名与人名），或按用户原话拆三个侧重点。',
+    '3.text 用对标题 AI 说的命令式祈使句，明确范围与幅度，不得自造与大纲、词典冲突的设定或专名。',
+    '4.若用户原话已足够明确，则逐条拆细表达而非改写其语义。'
+    ].join('\n'),
+    user: JSON.stringify({ 上下文: ctx, 用户原始要求: raw }, null, 1) };
+}
+async function ctAiRefineAdvice(){
+  const inp = $('#rtInput'); if(!inp) return;
+  const raw = inp.value.trim();
+  if(!raw){ toast('请先填一点粗略要求，再让 AI 优化'); return; }
+  const out = $('[data-cth-ai-out]');
+  if(out) out.innerHTML = `<p class="muted" style="margin:6px 0 0">⏳ AI 正结合现有标题与世界观优化你的建议…</p>`;
+  const btn = $('[data-cth-ai]'); if(btn){ btn.disabled = true; btn.textContent = '优化中…'; }
+  try{
+    const ctx = buildCtAdviceCtx();
+    const {system, user} = ctAiRefinePrompt(ctx, raw);
+    const spec = resolveActiveSpec();
+    const res = await callDeepSeek(system, user, {temperature: spec.titleTemp, maxTokens:1200});
+    const list = parseAiJsonList(res);
+    if(!Array.isArray(list) || !list.length) throw new Error('AI 未返回有效建议，请重试');
+    ctAdviceCand = list.slice(0,3);
+  }catch(e){
+    ctAdviceCand = null;
+    if(out) out.innerHTML = `<p class="muted" style="color:var(--danger);margin:6px 0 0">⚠️ ${esc((e&&e.message)||'优化失败')}</p>`;
+  }
+  if(out) out.innerHTML = ctAdviceResultHtml();
+  if(btn){ btn.disabled = false; btn.textContent = '✨ AI 优化此建议'; }
+}
+function ctAdviceResultHtml(){
+  if(!Array.isArray(ctAdviceCand) || !ctAdviceCand.length) return '';
+  return ctAdviceCand.map((a,ai)=>`
+    <div class="advice-ai-cand" data-cth-ai-pick="${ai}">
+      <div class="advice-ai-head">
+        <span class="advice-ai-idx">${'①②③'[ai]||(ai+1)}</span>
+        <b>${esc(a.title||('方案'+(ai+1)))}</b>
+        <button type="button" class="advice-ai-use">✔ 采用</button>
+      </div>
+      <p>${esc(a.text||'')}</p>
+    </div>`).join('');
 }
 function commitChapterTitle(inp, revert){
   if(!inp || inp.dataset.done) return;
@@ -3718,10 +3862,10 @@ function openChTitleHistoryPanel(){
   const ov = document.createElement('div'); ov.id='cthPanel'; ov.className='gs-overlay';
   ov.innerHTML = `
     <div class="gs-modal">
-      <div class="gs-modal-head"><b>🕘 章节标题 · 曾用记录（${hist.length}/10）</b>
+      <div class="gs-modal-head"><b>🕘 章节标题 · 单历（${hist.length}/50）</b>
         <button class="gs-x" data-cth-close>✕</button></div>
       <div class="cv-body">
-        <div class="cv-div">手动改名或批量重生成前的标题都会记录在这里；可一键恢复或删除某条记录。恢复会把当前标题也记入曾用。</div>
+        <div class="cv-div">仅记录您手动修改单个标题前的旧标题；整批重生成/整批恢复走「版本」，不会混入本列表。可一键恢复或删除某条记录；恢复会把当前标题也记入本列表。</div>
         ${rows}
       </div>
     </div>`;
@@ -3756,7 +3900,7 @@ function snapshotTitleBatch(label){
   const bt = chTitleBatches();
   if(bt.length && JSON.stringify(bt[0].titles) === JSON.stringify(titles)) return;
   bt.unshift({ ts: Date.now(), label: label||'快照', titles });
-  if(bt.length > 5) bt.length = 5;
+  if(bt.length > 50) bt.length = 50;
   persist();
 }
 // 整批应用某版本：先把当前态也归档（保留再回退机会），再覆盖全部标题
@@ -3800,10 +3944,10 @@ function openChTitleBatchPanel(){
   const ov = document.createElement('div'); ov.id='ctbPanel'; ov.className='gs-overlay';
   ov.innerHTML = `
     <div class="gs-modal">
-      <div class="gs-modal-head"><b>🔁 章节标题 · 批量版本（${bt.length}/5）</b>
+      <div class="gs-modal-head"><b>🔁 章节标题 · 批量版本（${bt.length}/50）</b>
         <button class="gs-x" data-ctb-close>✕</button></div>
       <div class="cv-body">
-        <div class="cv-div">「重生成全部标题」会把改动前/后的整批标题各归档一份（≤5 份可回退）；每行可👁预览整批，或点「应用」整批恢复。单条手改标题的记录仍在「🕘 曾用标题」查看。</div>
+        <div class="cv-div">「重生成全部标题」会把改动前/后的整批标题各归档一份（≤50 份可回退）；每行可👁预览整批，或点「应用」整批恢复。单条手改标题的记录仍在「单历」查看。</div>
         ${rows}
       </div>
     </div>`;
@@ -3891,18 +4035,8 @@ async function regenAllTitles(btn){
     const ctBlock2 = document.querySelector('.ct-block');
     const ctRow2 = ctBlock2 && ctBlock2.querySelector('.ct-row2');
     if(ctRow2){
-      const existingBtn = ctRow2.querySelector('[data-ct-batch]');
-      const btCount = chTitleBatches().length;
-      if(btCount && !existingBtn){
-        const b = document.createElement('button');
-        b.type='button'; b.className='btn small ghost'; b.dataset.ctBatch='';
-        b.title='查看并可整批回退「重生成全部标题」的历史版本';
-        b.innerHTML = '🔁 标题版本('+btCount+'/5)';
-        b.onclick = ()=> openChTitleBatchPanel();
-        ctRow2.appendChild(b);
-      }else if(btCount && existingBtn){
-        existingBtn.innerHTML = '🔁 标题版本('+btCount+'/5)';
-      }
+      const batchBtn = ctRow2.querySelector('[data-ct-batch]');
+      if(batchBtn) batchBtn.innerHTML = '版本('+chTitleBatches().length+'/50)';
     }
     // 清除旧标题质检数据（禁用标题质检）
     if(o) o.titleQC = undefined;
@@ -4579,7 +4713,7 @@ function snapshotChapterVersion(i){
   const c = ensureChapterHistory(i); if(!c) return;
   const cur = c.content;
   if(cur && String(cur).trim()) c.history.push({ content: cur, ts: Date.now() });
-  if(c.history.length > 30) c.history.splice(0, c.history.length - 30); // 上限30防膨胀
+  if(c.history.length > 50) c.history.splice(0, c.history.length - 50); // 上限50防膨胀
 }
 function chVersions(i){ const c=ensureChapterHistory(i); return c? c.history : []; }
 function hasChVersions(i){ return chVersions(i).length > 0; }
@@ -5760,7 +5894,7 @@ function snapshotOutline(){
   if(!o || typeof o !== 'object') return;
   const copy = JSON.parse(JSON.stringify(o));
   state.outlineHistory.unshift({ outline: copy, ts: Date.now() });
-  if(state.outlineHistory.length > 10) state.outlineHistory.splice(10);
+  if(state.outlineHistory.length > 50) state.outlineHistory.splice(50);
 }
 function hasOutlineHistory(){ return Array.isArray(state.outlineHistory) && state.outlineHistory.length > 0; }
 function outlineHistoryCount(){ return hasOutlineHistory() ? state.outlineHistory.length : 0; }
@@ -5783,7 +5917,7 @@ function openOutlineHistoryPanel(){
   const ov = document.createElement('div'); ov.id='ovPanel'; ov.className='gs-overlay';
   ov.innerHTML = `
     <div class="gs-modal">
-      <div class="gs-modal-head"><b>📚 大纲版本历史（${state.outlineHistory.length}/10）</b>
+      <div class="gs-modal-head"><b>📚 大纲版本历史（${state.outlineHistory.length}/50）</b>
         <button class="gs-x" data-ov-close>✕</button></div>
       <div class="cv-body">
         <div class="cv-row cur"><div class="cv-meta"><span class="cv-time">当前版本</span><span class="cv-wc">${esc((state.outline&&state.outline.title)||'未命名')} · ${(state.outline&&state.outline.chapters||[]).length} 章</span></div></div>
@@ -6082,7 +6216,7 @@ function openChapterPlansHistoryPanel(){
   const ov = document.createElement('div'); ov.id='cphPanel'; ov.className='gs-overlay';
   ov.innerHTML = `
     <div class="gs-modal">
-      <div class="gs-modal-head"><b>🧭 逐章梗概 · 批量版本（${hist.length}/5）</b>
+      <div class="gs-modal-head"><b>🧭 逐章梗概 · 批量版本（${hist.length}/50）</b>
         <button class="gs-x" data-cph-close>✕</button></div>
       <div class="cv-body">
         <div class="cv-row cur"><div class="cv-meta"><span class="cv-time">当前版本</span><span class="cv-wc">${(Array.isArray(o.chapterPlans)?o.chapterPlans:[]).filter(Boolean).length} 条</span></div></div>
@@ -6338,13 +6472,8 @@ function applyTitlesRawResponse(raw){
     // 刷新标题版本按钮
     const ctRow2 = document.querySelector('.ct-block .ct-row2');
     if(ctRow2){
-      const existingBtn = ctRow2.querySelector('[data-ct-batch]');
-      const btCount = chTitleBatches().length;
-      if(btCount && !existingBtn){
-        const b = document.createElement('button'); b.type='button'; b.className='btn small ghost'; b.dataset.ctBatch='';
-        b.title='查看并可整批回退「重生成全部标题」的历史版本'; b.innerHTML = '🔁 标题版本('+btCount+'/5)';
-        b.onclick = ()=> openChTitleBatchPanel(); ctRow2.appendChild(b);
-      }else if(btCount && existingBtn){ existingBtn.innerHTML = '🔁 标题版本('+btCount+'/5)'; }
+      const batchBtn = ctRow2.querySelector('[data-ct-batch]');
+      if(batchBtn) batchBtn.innerHTML = '版本('+chTitleBatches().length+'/50)';
     }
     toast('✅ 已手动解析并应用 '+cnt+' 个章节标题');
   }catch(e){ toast('解析失败：'+e.message+'。请检查原始数据格式'); }
@@ -7268,7 +7397,7 @@ function openComparePanel(i, a, b, qcA, qcB){
     const ch = ensureChapterHistory(i);
     ch.content = pick;
     if(other && String(other).trim()) ch.history.push({ content: other, ts: Date.now() });   // 未采用稿也入历史备查
-    if(ch.history.length > 30) ch.history.splice(0, ch.history.length - 30);
+    if(ch.history.length > 50) ch.history.splice(0, ch.history.length - 50);
     ch.qcRecord = isA ? (qcA||null) : (qcB||null);   // 质检记录与采用稿对齐，避免误导
     persist(); closeComparePanel(); renderChapters(); updateWcTotal();
     toast('已采用 '+(isA?'A':'B')+' 稿');

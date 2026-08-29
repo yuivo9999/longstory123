@@ -1095,6 +1095,9 @@ textarea[readonly]::selection{ background:color-mix(in srgb, var(--accent2) 45%,
 .ws-lib-fold-t{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;font-size:12.5px;font-weight:700;color:var(--sub);cursor:pointer;user-select:none}
 .ws-lib-fold-t:hover{color:var(--accent)}
 .ws-lib-fold-b{padding:6px 10px 10px;border-top:1px solid var(--line)}
+/* v10.32 写作风格管理·底部工具条：导出/导入整套词条+组合 */
+.ws-lib-foot{display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:10px 14px;border-top:1px solid var(--line);margin-top:6px}
+.ws-lib-foot .btn{height:22px;line-height:20px;box-sizing:border-box}
 /* 写作风格配方 · 阅读视图（复用 gs 浮层 + reader 排版；跨主题适配） */
 .reader-modal{width:min(760px, 94vw)!important; max-width:760px; height:86vh; max-height:86vh}
 .reader-modal .cv-body{padding:0; display:flex; flex-direction:column; min-height:0; flex:1}
