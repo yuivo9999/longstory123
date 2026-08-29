@@ -3509,7 +3509,6 @@ function viewStory(){
       ${ chapterTitleBlock() }
       ${ structureCard(o) }
       ${ state.outlineConfirmed ? `
-        <div class="btn-row"><span class="pill tag-ok">✓ 大纲已确认</span></div>
         ${ isLong() ? chapterPlanBlock() : '' }
         ${ isLong() ? glossaryCardHtml() : '' }
         ${ isLong() ? `<div class="btn-row" style="margin-top:8px">
@@ -4148,7 +4147,7 @@ function chapterPlanBlock(){
           <h3>🧭 逐章梗概 <span class="cp-arrow">${collapsed?'▸':'▾'}</span></h3>
         </div>
         <div class="cp-head-use">
-          <button type="button" class="btn small ${state.useChapterPlans?'on':''}" data-cp-use title="关闭后逐章梗概内容保留、历史仍在，但写正文时不发送给 AI">📝 参与生成：${state.useChapterPlans?'开':'关'}</button>
+          <button type="button" class="btn small ${state.useChapterPlans?'on':''}" data-cp-use title="关闭后逐章梗概内容保留、历史仍在，但写正文时不发送给 AI">参与章节内容生成：${state.useChapterPlans?'开':'关'}</button>
         </div>
       </div>
       <div class="cp-head-row action-row">
@@ -4159,7 +4158,7 @@ function chapterPlanBlock(){
     </div>
     <div class="cp-body"${collapsed?' hidden':''}>
       ${hasPlans ? `<div class="cp-list">${items}</div>
-        ${state.useChapterPlans ? '<p class="muted" style="margin:6px 0 0">每条可编辑，失焦即存；写正文时注入为【本章梗概】。</p>' : '<p class="muted" style="margin:6px 0 0">已暂停参与生成：内容与历史版本保留，写正文时不发送给 AI；可点上方「参与生成：关」恢复。</p>'}`
+        ${state.useChapterPlans ? '<p class="muted" style="margin:6px 0 0">每条可编辑，失焦即存；写正文时注入为【本章梗概】。</p>' : '<p class="muted" style="margin:6px 0 0">已暂停参与生成：内容与历史版本保留，写正文时不发送给 AI；可点上方「参与章节内容生成：关」恢复。</p>'}`
         : `<p class="sub">可选步骤：为每章写一段本章梗概（核心事件/起因经过结果/走向），写正文时据此执笔，统一各章走向。不做也不影响默认流程。</p>`}
     </div>
   </div>`;
@@ -4197,7 +4196,7 @@ function bindChapterPlan(){
     state.useChapterPlans = !(typeof state.useChapterPlans === 'boolean' ? state.useChapterPlans : true);
     persist();
     useCp.classList.toggle('on', !!state.useChapterPlans);
-    useCp.textContent = '📝 参与生成：' + (state.useChapterPlans ? '开' : '关');
+    useCp.textContent = '参与章节内容生成：' + (state.useChapterPlans ? '开' : '关');
     toast('逐章梗概将' + (state.useChapterPlans ? '参与本章生成' : '不参与生成（内容与历史保留）'));
   };
   $$('[data-cp-set]').forEach(inp=>{
@@ -6848,8 +6847,6 @@ function structureCard(o){
         </div>
       </div>`);
     });
-  } else if((o.chapters||[]).length){
-    blocks.push(`<div class="sc-row"><b>全章节计划</b><span>${esc((o.chapters||[]).map(c=>c&&c.title).filter(Boolean).join('、'))}</span></div>`);
   }
   return `<div class="card structure-card">
     <div class="sc-head" data-st-fold role="button" tabindex="0" title="展开/收起">
