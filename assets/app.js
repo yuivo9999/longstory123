@@ -2092,13 +2092,15 @@ const CHAPTER_PLAN_SYS = `你是一名全书级叙事架构师与逐章梗概生
 
 【节奏】：（描述本章节奏：从急促/紧凑/舒缓/沉淀/渐进等词中选择；并在章节梗概中一句话非常简单写出本章节奏表现及原因。)
 
-【埋点】：（填写具体伏笔情境+线索，无则填"无"）
+【埋点】：（填写简单概括的叙述伏笔情境+线索，无则填"无"）
 
-【回收】：（填写回收哪一章的埋点；若有回收，按顺序在同一段内写出【回收哪章】【原埋点】【回收方式】。【回收哪章】写明第几章；【原埋点】逐字粘贴被回收章节的原文，禁止缩写与转述；【回收方式】写明本章如何呼应或收束该伏笔。无则填"无"。回收时需体现喜剧效果的延续与笑点兑现。）
+【回收】：（填写回收的埋点；若有回收，按顺序在同一段内写出【原埋点】【回收方式】；【原埋点】逐字粘贴被回收章节的原文，禁止缩写与转述；【回收方式】写明本章如何呼应或收束该伏笔。无则填"无"。）
 
 5. 不要 markdown 代码块。
 
-6. 全局规则：全书所有埋点必须回收，不得悬空，完成后自查闭环。节奏变速自检（内部执行，不写入正文）：输出前检查本章快慢、紧张度与前后章是否形成张弛交替。全书每五章内至少安排一章舒缓或沉淀作为弛段。若违反，调整本章节奏后重新生成。`;
+6. 每一章的梗概字数控制在80—160字之间。
+
+7. 全局规则：全书所有埋点必须回收，不得悬空，完成后自查闭环。节奏变速自检（内部执行，不写入正文）：输出前检查本章快慢、紧张度与前后章是否形成张弛交替。全书每五章内至少安排一章舒缓或沉淀作为弛段。若违反，调整本章节奏后重新生成。`;
 
 
 // v10.12 原创性要求（防雷同）· 大纲侧：防套路结构 + 高频人名 + 流水线标题。
@@ -3693,7 +3695,7 @@ function chapterTitleBlock(){
       <button type="button" class="btn small ghost" data-ct-batch title="查看并可整批回退「重生成全部标题」的历史版本">版本(${chTitleBatches().length}/50)</button>
       <button type="button" class="btn small ghost" data-ct-raw title="手动提取 AI 原始响应数据，当自动更新失败时使用">🔧</button>
     </div>
-    <input type="text" class="rt-input" id="rtInput" placeholder="重生成要求（选填）：如『标题更有悬念感』『避免剧透式标题』『每章标题用双字词』" />
+    <textarea rows="3" class="rt-input" id="rtInput" placeholder="重生成要求（选填）：如『标题更有悬念感』『避免剧透式标题』『每章标题用双字词』"></textarea>
     <div class="advice-ai-row">
       <button type="button" class="btn small ghost" data-cth-ai>✨ AI 优化此建议</button>
       <span class="muted" style="font-size:11px">基于书名/简介/结构/词典/现有标题，把你的粗略要求提炼成 3 条可直接重生成标题的建议；点击即回填输入框</span>
@@ -3720,12 +3722,21 @@ function bindChapterTitles(){
   const ctBlock = $('.ct-block');
   if(ctBlock) ctBlock.onclick = e=>{
     const pick = e.target.closest('[data-cth-ai-pick]');
-    if(!pick) return;
-    const j = +pick.dataset.cthAiPick;
-    if(ctAdviceCand && ctAdviceCand[j]){
-      const inp = $('#rtInput'); if(inp) inp.value = ctAdviceCand[j].text || '';
-      $$('[data-cth-ai-pick]').forEach(c=> c.classList.toggle('on', c===pick));
-      toast('已回填重生成要求，可直接重生成');
+    if(pick){
+      const j = +pick.dataset.cthAiPick;
+      if(ctAdviceCand && ctAdviceCand[j]){
+        const inp = $('#rtInput'); if(inp) inp.value = ctAdviceCand[j].text || '';
+        ctAdviceFold = true;   // v10.33 采纳后收起候选，保留可展开
+        const out = $('[data-cth-ai-out]'); if(out) out.innerHTML = ctAdviceResultHtml();
+        toast('已回填重生成要求，可直接重生成');
+      }
+      return;
+    }
+    const unfold = e.target.closest('[data-cth-ai-unfold]');
+    if(unfold){
+      ctAdviceFold = false;   // 不重新调 AI，只重绘回缓存的 3 条
+      const out = $('[data-cth-ai-out]'); if(out) out.innerHTML = ctAdviceResultHtml();
+      return;
     }
   };
   $$('[data-ct-edit]').forEach(btn=>{
@@ -3751,6 +3762,7 @@ function bindChapterTitles(){
 
 // v10.32 章节标题 AI 优化建议：把 rtInput 里的粗略要求提炼成 3 条可直接作「重生成要求」的建议稿
 let ctAdviceCand = null;   // {title,text}[] 候选，模块级；重渲会随标签重置
+let ctAdviceFold = false;  // v10.33 候选是否已收起（采纳后收起，可再展开）；重渲复位
 function buildCtAdviceCtx(){
   const o = state.outline || {};
   const st = o.structure || {};
@@ -3791,6 +3803,7 @@ async function ctAiRefineAdvice(){
     const list = parseAiJsonList(res);
     if(!Array.isArray(list) || !list.length) throw new Error('AI 未返回有效建议，请重试');
     ctAdviceCand = list.slice(0,3);
+    ctAdviceFold = false;   // v10.33 新一批默认展开显示
   }catch(e){
     ctAdviceCand = null;
     if(out) out.innerHTML = `<p class="muted" style="color:var(--danger);margin:6px 0 0">⚠️ ${esc((e&&e.message)||'优化失败')}</p>`;
@@ -3800,6 +3813,7 @@ async function ctAiRefineAdvice(){
 }
 function ctAdviceResultHtml(){
   if(!Array.isArray(ctAdviceCand) || !ctAdviceCand.length) return '';
+  if(ctAdviceFold) return `<span class="cth-fold-bar" data-cth-ai-unfold role="button" title="重新展示这 3 条建议">↗ 展开建议</span>`;
   return ctAdviceCand.map((a,ai)=>`
     <div class="advice-ai-cand" data-cth-ai-pick="${ai}">
       <div class="advice-ai-head">

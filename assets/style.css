@@ -708,13 +708,15 @@ body.reader-lock{overflow:hidden}
 .cp-stream-preview{background:#0d0d0d;color:#e0e0e0;font-size:12px;line-height:1.6;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,.1);margin:0 0 8px;max-height:400px;overflow:auto;white-space:pre-wrap;word-break:break-word}
 
 /* v10.14 章节标题管理块 */
-.ct-block{margin:10px 0 2px;border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:color-mix(in srgb, var(--accent2) 6%, var(--panel2))}
+.ct-block{margin:10px 0 14px;border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:color-mix(in srgb, var(--accent2) 6%, var(--panel2))}
 .ct-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px}
 .ct-head b{font-size:13px}
 .ct-tools{display:flex;gap:6px;flex-wrap:wrap}
 .rt-style-row{display:flex;align-items:center;gap:4px;font-size:12px;font-weight:600;color:var(--txt);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:5px 8px;margin-bottom:6px;width:fit-content;user-select:none;cursor:pointer}
 .rt-style-row input{accent-color:var(--accent);margin:0}
-.rt-input{width:100%;min-height:64px;padding:8px 10px;font-size:13px;line-height:1.6;box-sizing:border-box;margin-bottom:6px;border-radius:8px;border:1px solid var(--line);background:var(--panel2)}
+.rt-input{width:100%;height:40px;min-height:40px;resize:none;padding:8px 10px;font-size:13px;line-height:1.5;box-sizing:border-box;margin-bottom:6px;border-radius:8px;border:1px solid var(--line);background:var(--panel2);color:var(--txt);font-family:inherit}
+.rt-input:focus{outline:none;border-color:var(--accent)}
+.rt-input::placeholder{color:var(--sub)}
 /* 重生成全部标题行：按钮左 + 标题版本右 */
 .ct-row2{display:flex;align-items:center;gap:8px;margin-bottom:6px}
 .ct-row2 .btn{flex:0 0 auto}
@@ -1049,6 +1051,8 @@ textarea[readonly]::selection{ background:color-mix(in srgb, var(--accent2) 45%,
 .advice-ai-row .btn:hover:not(:disabled){background:color-mix(in srgb,var(--accent) 12%,transparent)}
 .advice-ai-row .btn:disabled{background:color-mix(in srgb,var(--accent) 10%,transparent);border:1px dashed color-mix(in srgb,var(--accent) 45%,transparent);color:var(--sub);opacity:.6}
 .advice-ai-row .muted{color:var(--sub);font-size:11.5px}
+.cth-fold-bar{display:inline-flex;align-items:center;gap:4px;height:20px;line-height:20px;padding:0 8px;margin:4px 0 2px;font-size:11px;color:var(--accent);border:1px solid color-mix(in srgb,var(--accent) 40%,transparent);border-radius:999px;background:color-mix(in srgb,var(--accent) 10%,transparent);cursor:pointer;user-select:none}
+.cth-fold-bar:hover{background:color-mix(in srgb,var(--accent) 18%,transparent)}
 .advice-ai-cand{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:6px 0;background:rgba(255,255,255,.03);cursor:pointer;transition:border-color .15s}
 .advice-ai-cand:hover{border-color:var(--accent2)}
 .advice-ai-cand.on{border-color:var(--accent);background:color-mix(in srgb, var(--accent) 10%, transparent)}
