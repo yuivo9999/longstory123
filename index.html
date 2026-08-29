@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="theme-color" content="#0f1115">
 <title>影视前期提示词生成器</title>
-<meta name="app-version" content="1.0.77">
-<link rel="stylesheet" href="assets/style.css?v=107">
+<meta name="app-version" content="1.0.81">
+<link rel="stylesheet" href="assets/style.css?v=110">
 <link rel="stylesheet" href="assets/vendor/nouislider/nouislider.min.css">
   <link rel="stylesheet" href="assets/vendor/tom-select/tom-select.css">
 <link rel="stylesheet" href="assets/theme-light.css?v=2">
@@ -23,7 +23,6 @@
     <div class="tb-row tb-row-1">
       <div class="tb-left">
         <button id="btnHist" class="icon-btn" title="历史作品">📚<span class="tb-lab">历史</span></button>
-        <button id="btnWsColor" class="icon-btn" title="写作风格三组配色">🎨<span class="tb-lab">颜色</span></button>
       </div>
       <div class="tb-right">
         <button id="btnAiLog" class="icon-btn" title="AI 请求日志">🗒️<span class="tb-lab">日志</span></button>
@@ -194,6 +193,7 @@
         <button class="icon-btn reader-close" data-reader-close title="退出阅读">✕</button>
       </div>
     </div>
+    <div class="reader-progress" id="readerProgress"><div class="rp-track"></div><i id="readerProgressFill"></i><span class="rp-tip" id="readerPctTip">第 <b>0%</b> · 全文 <b>0</b> 段</span></div>
     <div class="reader-body" id="readerBody"></div>
     <!-- 底部中央「概」按钮：点击显示本章梗概（fixed8） -->
     <button class="reader-syn-btn" id="readerSynBtn" type="button" title="本章梗概" aria-label="本章梗概">概</button>
@@ -216,6 +216,6 @@
   <script src="assets/vendor/tom-select/tom-select.complete.min.js"></script>
 <script src="assets/vendor/jszip.min.js"></script>
 <script src="assets/idb.js?v=3"></script>
-<script src="assets/app.js?v=161"></script>
+<script src="assets/app.js?v=164"></script>
 </body>
 </html>
