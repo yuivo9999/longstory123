@@ -652,6 +652,23 @@ function hideStopBtn(){
   if(_abortBtn){ _abortBtn.style.display = 'none'; }
   _abortCtl = null;
 }
+let _aiOptBusy = false;  // v10.43 AI 优化建议进行中标记（无 signal，需单独占位，供 genBusy 判定互斥）
+// v10.43 全局"是否有生成任务进行中"判定：任一走 _abortCtl 的流式请求，AI 建议占位，或任意 .is-busy 按钮，均视为 busy。
+// 供视图切换/重复触发入口做统一互斥拦截（避免"重生成标题 + AI建议"等多任务并发劫持 _abortCtl）。
+function genBusy(){
+  if(_aiOptBusy) return true;
+  if(_abortCtl) return true;
+  const busyAny = document.querySelector('.is-busy, [disabled].cp-gen-btn-loading');
+  if(busyAny) return true;
+  return false;
+}
+// v10.43 视图切换守卫：进行中时提示拦截。返回 true 表示允许切换；false 表示被拦截（不切换）。
+function guardSwitchStep(){
+  if(genBusy()){
+    return confirm('当前有生成任务进行中，切换视图会中断其运行，确定继续？');
+  }
+  return true;
+}
 
 /* =========================================================
  * 提示词模板（中文，面向国内 + 即梦）
@@ -734,7 +751,7 @@ ${JSON_HEADER}
 4. 必须考虑【下一章标题】，在本章结尾处埋下指向下一章的线索或悬念，但不得提前揭示下一章的具体情节。
 5. 万物词典中的设定（如地名、能力、历史、物品、规则等）必须准确使用，不得出现与词典相悖的表述。
 6. 人物言行需符合其性格设定（可从整体结构、小说简介或万物词典中获取），对话需具有辨识度，避免千人一面。
-7. 正文长度控制在3000—4000字之间，可根据本章内容密度适当浮动，但须保证情节充实而不拖沓。
+7. 正文长度控制在3000—7000字之间，可根据本章内容密度适当浮动，但须保证情节充实而不拖沓。
 8. 章节内部应有节奏变化，例如紧张场景与舒缓场景交替，避免通篇平铺直叙。每段描写应服务于情节推进或人物塑造。
 9. 内部自查（不写入输出）：输出前确认本章梗概中的所有关键事件均已覆盖，且与上一章结尾和下一章标题形成合理连接。若梗概与小说简介有细微冲突，以小说简介为准，并在正文中自然调和，不显突兀。`,
 
@@ -1627,7 +1644,7 @@ function aiRecipeCard(){
 function aiRecipeResultHtml(lib){
   if(aiRp && aiRp.err) return `<p class="muted" style="color:var(--danger);margin:8px 0 0">⚠️ ${esc(aiRp.err)}</p>`;
   if(!aiRp || !Array.isArray(aiRp.list) || !aiRp.list.length){
-    return `<p class="muted" style="margin:8px 0 0">${ aiSource==='outline' ? '📤 已读取逐章梗概，可点「✨」从描述入口，或重新上传后 AI 再次通读。' : '👆 输入描述后点「✨ 生成候选配方」，AI 将给出 2~5 个组合配方；含词条缺口时会附建议新词条，可自行决定是否加入词库。' }</p>`;
+    return `<p class="muted" style="margin:8px 0 0">${ aiSource==='outline' ? '📤 已读取逐章梗概，可点「✨」从描述入口，或重新上传后 AI 再次通读。' : '👆 输入描述后点「✨ 生成配方」，AI 将给出 2~5 个组合配方；含词条缺口时会附建议新词条，可自行决定是否加入词库。' }</p>`;
   }
   // libIds 更新（可能已入库缺口词条）
   const libIds = (lib||writeStyleLib()).map(s=>s.id);
@@ -1677,7 +1694,7 @@ async function aiRecipeGen(){
     aiRp = { list:null, err: (e&&e.message)||'生成失败' };
   }
   if(out) out.innerHTML = aiRecipeResultHtml();
-  if(gen){ gen.disabled = false; gen.textContent = '✨ 生成候选配方 (2-5)'; }
+  if(gen){ gen.disabled = false; gen.textContent = '✨ 生成配方'; }
 }
 // v1.0.62 上传逐章梗概 → 全文直发 AI 通读 → 提炼可模仿的写作配方（复用 aiRp 渲染链，不分段）
 async function aiRecipeFromOutline(text){
@@ -1695,7 +1712,7 @@ async function aiRecipeFromOutline(text){
     aiRp = { list:null, err: (e&&e.message)||'通读失败' };
   }
   if(out) out.innerHTML = aiRecipeResultHtml();
-  if(gen){ gen.disabled = false; gen.textContent = '✨ 生成候选配方 (2-5)'; }
+  if(gen){ gen.disabled = false; gen.textContent = '✨ 生成配方'; }
 }
 // AI 返回JSON解析（防 markdown 代码块包裹）
 function parseAiJsonList(raw){
@@ -1829,7 +1846,7 @@ function wsStyleNoteBlock(items, st, headTitle, intro, demoLabel){
 function chapterStyleNote(override){
   const items = wsGroupStyleTags(override, 'element');
   const st = curWriteStyle(override);
-  return wsStyleNoteBlock(items, st, '写作风格', '本指令为本章写作的最高优先要求：当它与节奏、篇幅、原创性等任何其他要求冲突时，以本指令为准；唯一不可逾越的红线：不得破坏人名/地名/专名一致性、不得违反基础剧情逻辑与人物设定。');
+  return wsStyleNoteBlock(items, st, '写作风格', '本指令为本章写作的第三优先要求（低于全书要求与人工干预）：当它与节奏、篇幅、原创性等任何其他要求冲突时，以本指令为准；唯一不可逾越的红线：不得破坏人名/地名/专名一致性、不得违反基础剧情逻辑与人物设定。');
 }
 // 标题风格（tone 组）注入：用于「重生成全部标题」
 function writeStyleTitleBlock(){
@@ -1839,7 +1856,7 @@ function writeStyleTitleBlock(){
 // 梗概风格（texture 组）注入：用于「逐章梗概（创作方向）」
 function writeStylePlanBlock(){
   const st = curWriteStyle(null);
-  return wsStyleNoteBlock(wsGroupStyleTags(null, 'texture'), st, '梗概风格', '本指令为本章梗概/创作方向生成时的最高优先要求：当它与节奏、篇幅等其它要求冲突时以本指令为准。', '示例');
+  return wsStyleNoteBlock(wsGroupStyleTags(null, 'texture'), st, '梗概风格', '本指令为本章梗概/创作方向生成时的第三优先要求（低于全书要求；全书要求未设时不冲突）：当它与节奏、篇幅等其它要求冲突时以本指令为准。', '示例');
 }
 
 // 当前所选
@@ -2125,8 +2142,9 @@ const REGEN_TITLES_SYS = `你是一位深谙标题艺术的章节标题策划师
 3. 标题有表现力、立意新颖但不剧透：体现本章走向/情绪，不泄露后续反转与结局，不重复前文已用梗；
 4. **防套路第一优先**：避免"xx之怒/惊变/震惊"式流水线命名与网文高频句式，也不刻意追求"钩子感"（钩子感要求已废除，防套路优先）；立意从本作独特设定推导；
 5. 若用户提示中出现【写作风格约束（首位要求，须优先遵循）】块，必须作为首位硬约束执行——每条标题的措辞基调都须贴合该风格（如"严肃"则标题庄重不轻佻、"温情细腻"则带温度、"冷峻克制"则惜字如金），不得忽略或降级；
-6. 若用户提供了【重生成要求】，须以要求为最高优先；
-7. 只输出 JSON 数组（不要解释、不要 markdown 代码块）：{"titles":["第1章标题","第2章标题",...]}
+6. 若用户提供了【重生成要求】，须以要求为最高优先（高于全书要求与写作风格）；
+7. 优先级契约：若【全书要求】与【写作风格约束】同时出现，以全书要求为准、写作风格其次；但二者均不得违反设定词典一致性（人名/地名/专名）；
+8. 只输出 JSON 数组（不要解释、不要 markdown 代码块）：{"titles":["第1章标题","第2章标题",...]}
 【自由发挥区】标题的立意、措辞、角度由你把握，让每章标题读起来各有记忆点、整批标题风格错落。`;
 
 // v10.15 标题质检：重生成标题后自动跑一次（qcTemp 0.2），只提示不自动改。
@@ -3505,6 +3523,10 @@ function viewStory(){
         ${titleManagerHtml()}
       </div>
       <p class="sub">${esc(o.logline||'')}</p>
+      <div class="global-req">
+        <textarea id="globalReqInp" rows="3" placeholder="写全书风格基准/对标本（如对标《寅次郎的故事》等），指挥标题、逐章梗概、章节正文统一基调">${esc(o.globalReq||'')}</textarea>
+        <p class="global-req-hint">全书级要求：注入「重生成标题 / 逐章梗概 / 章节内容」，优先级：单章干预 &gt; 全书要求 &gt; 写作风格。</p>
+      </div>
       <div class="outline-strip">${ (o.chapters||[]).map((c,i)=>`<span class="outline-pill">${i+1}. ${esc(c.title)}</span>`).join('') }</div>
       ${ chapterTitleBlock() }
       ${ structureCard(o) }
@@ -3793,9 +3815,12 @@ function ctAiRefinePrompt(ctx, raw){
     user: JSON.stringify({ 上下文: ctx, 用户原始要求: raw }, null, 1) };
 }
 async function ctAiRefineAdvice(){
-  const inp = $('#rtInput'); if(!inp) return;
+  if(_aiOptBusy){ toast('AI 建议优化中，请稍候'); return; }
+  if(genBusy()){ toast('已有生成任务进行中，请稍候'); return; }   // v10.43 互斥：重生成标题等任务进行中不并发
+  _aiOptBusy = true;   // v10.43 占位，供 genBusy 判定「AI 建议进行中」
+  const inp = $('#rtInput'); if(!inp){ _aiOptBusy = false; return; }
   const raw = inp.value.trim();
-  if(!raw){ toast('请先填一点粗略要求，再让 AI 优化'); return; }
+  if(!raw){ toast('请先填一点粗略要求，再让 AI 优化'); _aiOptBusy = false; return; }
   const out = $('[data-cth-ai-out]');
   if(out) out.innerHTML = `<p class="muted" style="margin:6px 0 0">⏳ AI 正结合现有标题与世界观优化你的建议…</p>`;
   const btn = $('[data-cth-ai]'); if(btn){ btn.disabled = true; btn.textContent = '优化中…'; }
@@ -3813,6 +3838,7 @@ async function ctAiRefineAdvice(){
     ctAdviceCand = null;
     if(out) out.innerHTML = `<p class="muted" style="color:var(--danger);margin:6px 0 0">⚠️ ${esc((e&&e.message)||'优化失败')}</p>`;
   }
+  _aiOptBusy = false;   // v10.43 结束/异常均复位
   if(out) out.innerHTML = ctAdviceResultHtml();
   if(btn){ btn.disabled = false; btn.textContent = '✨ AI 优化此建议'; }
   // v10.34 控制折叠按钮显示
@@ -3928,7 +3954,8 @@ function chTitleBatches(){ const o=state.outline; return (o && Array.isArray(o.c
 function snapshotTitleBatch(label){
   const o = state.outline; if(!o) return;
   const titles = (o.chapters||[]).map(c=> (c&&c.title)||'');
-  const bt = chTitleBatches();
+  if(!Array.isArray(o.chTitleBatches)) o.chTitleBatches = [];   // fixed: 先挂回 state.outline，persist 才存得住
+  const bt = o.chTitleBatches;
   if(bt.length && JSON.stringify(bt[0].titles) === JSON.stringify(titles)) return;
   const d = new Date();
   const t = (d.getMonth()+1)+'-'+d.getDate()+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
@@ -4023,6 +4050,7 @@ async function regenAllTitles(btn){
   const o = state.outline;
   if(!o || !Array.isArray(o.chapters) || !o.chapters.length){ toast('尚无章节标题'); return; }
   if(!confirm('将覆盖全部章节标题，确认重生成？')) return;
+  if(genBusy()){ toast('已有生成任务进行中，请稍候'); return; }   // v10.43 互斥：AI 建议等任务进行中不并发
     const req = ($('#rtInput') && $('#rtInput').value.trim()) || '';
     if(btn) busy(btn,true,'重生成标题中…');
     // 创建预览区（仅流式可用时显示）
@@ -4044,6 +4072,7 @@ async function regenAllTitles(btn){
       const gloss = chapterGlossaryBlock();
       const parts = [];
       parts.push(`小说标题：${o.title||''}\n小说简介：${o.logline||''}\n\n【长篇结构设计】\n${JSON.stringify(st).slice(0,800)}\n\n【设定词典】\n${gloss}\n\n【现有章节标题】\n${(o.chapters||[]).map((c,i)=>`第${i+1}章 ${(c&&c.title)||''}`).join(' / ')}${req?`\n\n【重生成要求】\n${req}`:''}`);
+      if(o.globalReq) parts.push(`【全书要求（第二优先）】\n${o.globalReq}`);   // v10.44 books 级风格/对标基准，指挥标题拟定
       const user = parts.join('\n\n');
     const onStream = delta => {
       _streamBuf += String(delta||'');
@@ -5695,7 +5724,7 @@ function bindView(){
   bindShotEdit();      // P1-3 分镜卡字段编辑
 
   // 赛博朋克首页入口卡片
-  $$('.cyber-home-grid [data-step]').forEach(b=> b.onclick = ()=>{ currentStep = +b.dataset.step; render(); window.scrollTo(0,0); });
+  $$('.cyber-home-grid [data-step]').forEach(b=> b.onclick = ()=>{ if(!guardSwitchStep()) return; currentStep = +b.dataset.step; render(); window.scrollTo(0,0); });
 
   // P1
   const idea = $('#ideaInput'); if(idea){
@@ -5749,6 +5778,12 @@ function bindView(){
   bindChapterTitles();// v10.14 章节标题编辑 + 复制绑定
   bindWriteStyle();   // v2.0 写作风格卡片绑定（chips/浓度/预设/收藏/管理/清空）
   bindPendingGlossary();
+  bindGlobalReq(); // v10.44 全书要求输入框绑定（失焦即存）
+  // v10.44 全书要求：books 级风格基准，注入标题/梗概/章节内容
+  function bindGlobalReq(){
+    const ta = $('#globalReqInp'); if(!ta) return;
+    ta.onchange = ()=>{ const oo=state.outline; if(!oo) return; oo.globalReq = ta.value.trim(); persist(); };
+  }
   // 故事页内联规范选择器
   $$('.spec-opt').forEach(b=> b.onclick = ()=>{ selectSpec(b.dataset.spec); });
   const btnCO = $('#btnConfirmOutline'); if(btnCO) btnCO.onclick = ()=>{ state.outlineConfirmed=true; persist(); render(); };
@@ -6136,6 +6171,7 @@ async function genChapterPlans(btn){
     parts.push(`小说标题：${o.title||''}\n小说简介：${o.logline||''}\n全部章节标题：${titles}`);
     parts.push(structurePlanBlockNoTitles(o));   // 长篇结构设计（主线/副线/暗线/汇合，不含章节标题清单，避免与上方「全部章节标题」重复夹带，遵 v2.3）
     parts.push(chapterGlossaryBlock());
+    if(o.globalReq) parts.push(`【全书要求（第二优先）】\n${o.globalReq}`);   // v10.44 books 级风格/对标基准，指挥逐章梗概
     const user = parts.join('\n\n') + '\n\n' + ORIGINALITY_OUTLINE_SYS;   // v10.12 防套路：方向防套路 + 人名规避（复用大纲侧）
     const onStream = delta => {
       _streamBuf += String(delta||'');
@@ -6793,7 +6829,7 @@ function structureCard(o){
   if(!mainLine || !String(mainLine).trim()) mainLine = o.logline || '';
   blocks.push(`<div class="sc-row"><b>主线</b>
     <div class="sc-editwrap">
-      <input type="text" class="sc-edit-in" data-sc-key="mainLine" value="${esc(mainLine)}" placeholder="主线"/>
+      <textarea rows="2" class="sc-edit-in sc-edit-ta" data-sc-key="mainLine" placeholder="主线" style="resize:vertical;white-space:pre-wrap">${esc(mainLine)}</textarea>
     </div></div>`);
   // 副线：每条独立「可编辑 + ✕」；无条则显式一条空输入
   const subs = Array.isArray(s.subLines) ? s.subLines.filter(Boolean) : [];
@@ -7102,9 +7138,10 @@ function cumulativeChapters(i){
   }
   return out.join('\n\n');
 }
-// v2.4 章节 User 组装：按用户指定优先级（最高→次高）——
-// ① 写作风格（重申）② 上一章真实正文（必须接着写）③ 本章任务+本章梗概 ④ 本章/下一章边界（禁越界，末章收束）⑤ 大纲/结构/词典 ⑥ 人工干预（重生成）
+// v2.4 章节 User 组装：按用户指定优先级（人工干预 > 全书要求 > 写作风格 > 词典）——
+// ① 写作风格（第三优先）② 上一章真实正文（必须接着写）③ 本章任务+本章梗概 ④ 本章/下一章边界（禁越界，末章收束）⑤ 大纲/结构/词典+全书要求(第二优先) ⑥ 人工干预（重生成，第一优先）
 // 不注入"全部章节标题"（v2.3 零夹带）；词典全字段经 chapterGlossaryBlock 注入。
+const USER_PRIO_BILL = '\n\n【优先级契约】当同时存在多条用户要求时，按此裁决（高→低）：人工干预要求 > 全书要求 > 写作风格 > 设定词典。前者与后者冲突时以前者为准；设定词典（人名/地名/专名一致性）为不可逾越红线，任何要求不得破坏。';
 function buildChapterUser(i, opt={}){
   const o = state.outline;
   const chap = state.chapters[i];
@@ -7114,7 +7151,7 @@ function buildChapterUser(i, opt={}){
   const st = curWriteStyle(opt.styleOverride);
   const chapNames = (Array.isArray(st.tags)?st.tags:[]).map(id=>{ const s=writeStyleById(id); return s&&s.group==='element'?s.name:null; }).filter(Boolean).join('、');
   if(chapNames){
-    parts.push(`【写作风格（最高优先）】写作风格：${chapNames}。完整要求见 System 中的【写作风格】块，务必遵守。`);
+    parts.push(`【写作风格（第三优先）】写作风格：${chapNames}。完整要求见 System 中的【写作风格】块，优先级低于全书要求与人工干预，务必遵守。`);
   }
   // ② 上一章真实正文（必须接着上一章写下去）
   if(i > 0){
@@ -7151,9 +7188,14 @@ function buildChapterUser(i, opt={}){
   if(structCtx) ref += structCtx;
   ref += chapterGlossaryBlock();
   parts.push(ref);
+  // ⑤b 全书要求（第二优先）：books 级风格/对标基准，指挥本章正文（低于人工干预，高于写作风格）
+  if(o.globalReq){
+    parts.push(`【全书要求（第二优先）】\n${o.globalReq}\n当它与写作风格或节奏要求冲突时以本书全要求为准，但仍须遵守设定词典（人名/地名/专名一致）与基础剧情逻辑。`);
+  }
+  parts.push(USER_PRIO_BILL);   // 统一优先级契约说明（人工干预>全书要求>写作风格>词典）
   // ⑥ 人工干预要求（重生成时）
   if(opt.advice){
-    parts.push(`【人工干预要求（用户指定，务必优先遵循）】\n${opt.advice}\n请在重写本章时落实以上要求，其余不受影响的内容仍保持既有文风与世界观一致。`);
+    parts.push(`【人工干预要求（用户指定 · 第一优先）】\n${opt.advice}\n此为所有用户要求中的最高优先，请优先落实它；其余不受影响的内容仍保持既有文风与世界观一致（遵守设定词典红线）。`);
   }
   return parts.join('\n\n');
 }
@@ -8596,7 +8638,7 @@ async function init(){
     });
   }
   // 底部导航
-  $$('.tab').forEach(t=> t.onclick = ()=>{ currentStep = +t.dataset.step; render(); window.scrollTo(0,0); });
+  $$('.tab').forEach(t=> t.onclick = ()=>{ if(!guardSwitchStep()) return; currentStep = +t.dataset.step; render(); window.scrollTo(0,0); });
   // 首次进入直接渲染主界面（不再自动弹设置；用户可随时点右上角 ☰ 配置 API Key）
   showBootLoading(false);
   render();

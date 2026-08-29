@@ -1256,3 +1256,8 @@ textarea[readonly]::selection{ background:color-mix(in srgb, var(--accent2) 45%,
 .reader-syn-card h4{ margin:0 0 10px; font-size:15px; font-weight:800; }
 .reader-syn-card .syn-body{ font-size:14px; line-height:1.8; white-space:pre-wrap; word-break:break-word; }
 .reader-syn-card .syn-body.muted{ color:var(--muted); }
+/* v10.44 全书要求输入框（故事大纲·小说简介下方） */
+.global-req{ margin-top:10px; }
+#globalReqInp{ width:100%; resize:vertical; background:var(--panel2); border:1px solid var(--line); border-radius:8px; color:var(--txt); padding:8px 10px; font-size:13px; line-height:1.6; box-sizing:border-box; }
+#globalReqInp:focus{ outline:none; border-color:var(--accent); }
+.global-req-hint{ margin:4px 0 0; font-size:11px; color:var(--muted); }
