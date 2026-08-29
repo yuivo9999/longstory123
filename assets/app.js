@@ -622,8 +622,8 @@ function parseJson(text){
 
 /* 按钮忙碌态 */
 function busy(btn, on, label){
-  if(on){ btn._txt = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>'+(label||'生成中…'); }
-  else { btn.disabled = false; btn.innerHTML = btn._txt; }
+  if(on){ btn._txt = btn.innerHTML; btn.disabled = true; btn.classList.add('is-busy'); btn.innerHTML = '<span class="spinner"></span>'+(label||'生成中…'); }
+  else { btn.disabled = false; btn.classList.remove('is-busy'); btn.innerHTML = btn._txt; }
 }
 
 /* ---------- 全局中止控制器（流式停止按钮用） ---------- */
@@ -3695,10 +3695,10 @@ function chapterTitleBlock(){
       <button type="button" class="btn small ghost" data-ct-batch title="查看并可整批回退「重生成全部标题」的历史版本">版本(${chTitleBatches().length}/50)</button>
       <button type="button" class="btn small ghost" data-ct-raw title="手动提取 AI 原始响应数据，当自动更新失败时使用">🔧</button>
     </div>
-    <textarea rows="3" class="rt-input" id="rtInput" placeholder="重生成要求（选填）：如『标题更有悬念感』『避免剧透式标题』『每章标题用双字词』"></textarea>
+    <textarea class="rt-input" id="rtInput" placeholder="重生成要求（选填）：如『标题更有悬念感』『避免剧透式标题』『每章标题用双字词』"></textarea>
     <div class="advice-ai-row">
       <button type="button" class="btn small ghost" data-cth-ai>✨ AI 优化此建议</button>
-      <span class="muted" style="font-size:11px">基于书名/简介/结构/词典/现有标题，把你的粗略要求提炼成 3 条可直接重生成标题的建议；点击即回填输入框</span>
+      <span class="cth-fold-btn" data-cth-ai-unfold role="button" style="display:none">↗ 展开建议</span>
     </div>
     <div data-cth-ai-out></div>
     <div class="ct-list">${rows}</div>
@@ -3721,21 +3721,44 @@ function bindChapterTitles(){
   if(cthA) cthA.onclick = ()=> ctAiRefineAdvice();   // v10.32 章节标题 AI 优化建议
   const ctBlock = $('.ct-block');
   if(ctBlock) ctBlock.onclick = e=>{
+    // v10.34 采用按钮点击：切换选中态
+    const useBtn = e.target.closest('.advice-ai-use');
+    if(useBtn){
+      const cand = useBtn.closest('[data-cth-ai-pick]');
+      if(!cand) return;
+      const j = +cand.dataset.cthAiPick;
+      if(!ctAdviceCand || !ctAdviceCand[j]) return;
+      if(ctAdoptedIdx === j){
+        ctAdoptedIdx = -1;   // 取消采用
+      }else{
+        ctAdoptedIdx = j;
+        const inp = $('#rtInput'); if(inp) inp.value = ctAdviceCand[j].text || '';
+        ctAdviceFold = true;
+        toast('已回填重生成要求，可直接重生成');
+      }
+      const out = $('[data-cth-ai-out]'); if(out) out.innerHTML = ctAdviceResultHtml();
+      updateFoldBtn();
+      return;
+    }
+    // 整卡点击（非按钮区域）：回填输入框，不改变已采用状态
     const pick = e.target.closest('[data-cth-ai-pick]');
     if(pick){
       const j = +pick.dataset.cthAiPick;
       if(ctAdviceCand && ctAdviceCand[j]){
         const inp = $('#rtInput'); if(inp) inp.value = ctAdviceCand[j].text || '';
-        ctAdviceFold = true;   // v10.33 采纳后收起候选，保留可展开
+        ctAdviceFold = true;
         const out = $('[data-cth-ai-out]'); if(out) out.innerHTML = ctAdviceResultHtml();
+        updateFoldBtn();
         toast('已回填重生成要求，可直接重生成');
       }
       return;
     }
+    // 折叠/展开按钮
     const unfold = e.target.closest('[data-cth-ai-unfold]');
     if(unfold){
-      ctAdviceFold = false;   // 不重新调 AI，只重绘回缓存的 3 条
+      ctAdviceFold = !ctAdviceFold;   // v10.34 切换折叠/展开
       const out = $('[data-cth-ai-out]'); if(out) out.innerHTML = ctAdviceResultHtml();
+      updateFoldBtn();
       return;
     }
   };
@@ -3763,6 +3786,7 @@ function bindChapterTitles(){
 // v10.32 章节标题 AI 优化建议：把 rtInput 里的粗略要求提炼成 3 条可直接作「重生成要求」的建议稿
 let ctAdviceCand = null;   // {title,text}[] 候选，模块级；重渲会随标签重置
 let ctAdviceFold = false;  // v10.33 候选是否已收起（采纳后收起，可再展开）；重渲复位
+let ctAdoptedIdx = -1;     // v10.34 当前已采用的选项索引（-1 表示未采用）
 function buildCtAdviceCtx(){
   const o = state.outline || {};
   const st = o.structure || {};
@@ -3804,25 +3828,39 @@ async function ctAiRefineAdvice(){
     if(!Array.isArray(list) || !list.length) throw new Error('AI 未返回有效建议，请重试');
     ctAdviceCand = list.slice(0,3);
     ctAdviceFold = false;   // v10.33 新一批默认展开显示
+    ctAdoptedIdx = -1;      // v10.34 新一批重置已采用状态
   }catch(e){
     ctAdviceCand = null;
     if(out) out.innerHTML = `<p class="muted" style="color:var(--danger);margin:6px 0 0">⚠️ ${esc((e&&e.message)||'优化失败')}</p>`;
   }
   if(out) out.innerHTML = ctAdviceResultHtml();
   if(btn){ btn.disabled = false; btn.textContent = '✨ AI 优化此建议'; }
+  // v10.34 控制折叠按钮显示
+  const foldBtn = $('[data-cth-ai-unfold]');
+  if(foldBtn){
+    foldBtn.style.display = (ctAdviceCand && ctAdviceCand.length) ? '' : 'none';
+    foldBtn.textContent = ctAdviceFold ? '↗ 展开建议' : '↘ 收起建议';
+  }
 }
 function ctAdviceResultHtml(){
   if(!Array.isArray(ctAdviceCand) || !ctAdviceCand.length) return '';
-  if(ctAdviceFold) return `<span class="cth-fold-bar" data-cth-ai-unfold role="button" title="重新展示这 3 条建议">↗ 展开建议</span>`;
+  if(ctAdviceFold) return '';   // v10.34 折叠态由外部 cth-fold-btn 控制，此处不渲染
   return ctAdviceCand.map((a,ai)=>`
-    <div class="advice-ai-cand" data-cth-ai-pick="${ai}">
+    <div class="advice-ai-cand${ctAdoptedIdx===ai?' adopted':''}" data-cth-ai-pick="${ai}">
       <div class="advice-ai-head">
         <span class="advice-ai-idx">${'①②③'[ai]||(ai+1)}</span>
         <b>${esc(a.title||('方案'+(ai+1)))}</b>
-        <button type="button" class="advice-ai-use">✔ 采用</button>
       </div>
       <p>${esc(a.text||'')}</p>
+      <button type="button" class="advice-ai-use${ctAdoptedIdx===ai?' adopted':''}">${ctAdoptedIdx===ai?'已采用':'✔ 采用'}</button>
     </div>`).join('');
+}
+// v10.34 同步折叠按钮显示与文字
+function updateFoldBtn(){
+  const foldBtn = $('[data-cth-ai-unfold]');
+  if(!foldBtn) return;
+  foldBtn.style.display = (ctAdviceCand && ctAdviceCand.length) ? '' : 'none';
+  foldBtn.textContent = ctAdviceFold ? '↗ 展开建议' : '↘ 收起建议';
 }
 function commitChapterTitle(inp, revert){
   if(!inp || inp.dataset.done) return;
@@ -3925,6 +3963,7 @@ function applyTitleBatch(idx){
   snapshotTitleBatch('切换前');
   const titles = (Array.isArray(b.titles)?b.titles:[]).map(t=>String(t||'').trim()).filter(Boolean);
   setAllTitles(titles);
+  snapshotTitleBatch('本次恢复结果');   // v10.34 记录整批恢复后的结果版本
   closeTitleBatchPreview(); closeChTitleBatchPanel();
   render();
   toast(`已整批应用该版本标题（${titles.length} 章）`);
@@ -4035,8 +4074,9 @@ async function regenAllTitles(btn){
     const j = parseJson(txt) || {};
     const titles = Array.isArray(j.titles) ? j.titles.map(t=>String(t||'').trim()).filter(Boolean) : [];
     if(!titles.length){ toast('未解析到新标题，请重试'); return; }
-    snapshotTitleBatch('重生成前');   // 把改动前的整批标题归档为可回退版本（≤5）
+    snapshotTitleBatch('重生成前');   // 把改动前的整批标题归档为可回退版本
     const cnt = setAllTitles(titles);
+    snapshotTitleBatch('本次重生成结果');   // v10.34 记录本次重生成的结果版本
     // 就地更新标题行，不刷新全页（保留预览区）
     document.querySelectorAll('.ct-row').forEach((row,i)=>{
       const el = row.querySelector('.ct-title');
@@ -6476,6 +6516,7 @@ function applyTitlesRawResponse(raw){
     if(!titles.length){ toast('解析失败：未找到 titles 数组'); return; }
     snapshotTitleBatch('手动提取前');
     const cnt = setAllTitles(titles);
+    snapshotTitleBatch('本次提取结果');   // v10.34 记录手动提取的结果版本
     persist();
     closeTitlesRawPanel();
     // 就地更新标题行
@@ -6749,38 +6790,66 @@ function bindPendingGlossary(){
 function structureCard(o){
   if(!isLong() || !o || typeof o !== 'object') return '';
   const s = (o.structure && typeof o.structure === 'object') ? o.structure : {};
-  const rows = [`<b>结构模式</b><span>${esc(s.mode || '按用户构想')}</span>`];
-  // P0-2：主线/副线/暗线/汇合 四行改为「行内可编辑」（失焦即存，零 AI 调用），
-  // 与词典字段编辑同交互：常显 input，onchange 写回 state + persist。
-  const editRow = (k,t,v,fmt)=>{
-    const str = fmt ? fmt(v) : String(v==null?'':v);
-    return `<b>${t}</b><input type="text" class="sc-edit-in" data-sc-key="${k}" data-orig="${esc(str)}" value="${esc(str)}" placeholder="${t}" />`;
-  };
-  // 主线兜底：s.mainLine 空时用 o.logline 兜底
+  const blocks = [];
+  blocks.push(`<div class="sc-row sc-mode"><b>结构模式</b><span>${esc(s.mode || '按用户构想')}</span></div>`);
+  // 主线：可编辑、不可删除（空回退 logline）
   let mainLine = s.mainLine;
   if(!mainLine || !String(mainLine).trim()) mainLine = o.logline || '';
-  rows.push(editRow('mainLine','主线', mainLine));
-  // 副线：数组 ↔ 顿号/分号分隔文本（可加可删）
-  const subLines = Array.isArray(s.subLines) ? s.subLines.filter(Boolean) : [];
-  rows.push(editRow('subLines','副线', subLines.join('；')));
-  rows.push(editRow('hiddenLine','暗线', s.hiddenLine || ''));
-  rows.push(editRow('pivotPlan','汇合/大逆转', s.pivotPlan || ''));
-  const addSubBtn = `<button type="button" class="btn small ghost sc-add-sub" data-sc-add-sub title="追加一条副线">＋ 副线</button>`;
-  // 全章节安排：优先结构专属章节映射（英雄之旅 stageChapters / 节拍表 beats / 七点 points），回退统一 chapterPlan；分层卷结构作为另一种合法呈现。
+  blocks.push(`<div class="sc-row"><b>主线</b>
+    <div class="sc-editwrap">
+      <input type="text" class="sc-edit-in" data-sc-key="mainLine" value="${esc(mainLine)}" placeholder="主线"/>
+    </div></div>`);
+  // 副线：每条独立「可编辑 + ✕」；无条则显式一条空输入
+  const subs = Array.isArray(s.subLines) ? s.subLines.filter(Boolean) : [];
+  let subItems;
+  if(!subs.length){
+    subItems = `<div class="sc-editwrap">
+      <input type="text" class="sc-edit-in is-empty" data-sc-edit="subLines.new" value="" placeholder="副线（空，可在此填写第一条）"/>
+    </div>`;
+  } else {
+    subItems = subs.map((t,i)=>`<div class="sc-editwrap">
+      <input type="text" class="sc-edit-in" data-sc-edit="subLines.${i}" value="${esc(String(t))}" placeholder="副线"/>
+      <button type="button" class="sc-x" data-sc-del="subLines.${i}" title="删除此副线">✕</button>
+    </div>`).join('');
+  }
+  blocks.push(`<div class="sc-row sc-sub"><b>副线</b><div class="sc-subitems">${subItems}</div></div>`);
+  // 暗线 / 汇合（单值，可编辑 + ✕）
+  const wrapDel = (label, key, val, ph)=>`<div class="sc-row"><b>${label}</b>
+    <div class="sc-editwrap">
+      <input type="text" class="sc-edit-in" data-sc-edit="${key}" value="${esc(String(val==null?'':val))}" placeholder="${ph}"/>
+      <button type="button" class="sc-x" data-sc-del="${key}" title="删除此项">✕</button>
+    </div></div>`;
+  blocks.push(wrapDel('暗线','hiddenLine', s.hiddenLine||'', '暗线（可留空）'));
+  blocks.push(wrapDel('汇合/大逆转','pivotPlan', s.pivotPlan||'', '汇合/大逆转（可留空）'));
+  blocks.push(`<div class="sc-row sc-addrow"><button type="button" class="btn small ghost sc-add-sub" data-sc-add-sub>＋ 副线</button></div>`);
+  // 章节安排：结构专属映射（stageChapters/beats/points）→ 回退 chapterPlan；卷/全章节为其它呈现
   const plan = structureChapterPlan(s, o);
-  if(plan){
+  const pk = activePlanKey(s);
+  if(plan && pk){
     Object.keys(plan.map).forEach(k=>{
       const arr = Array.isArray(plan.map[k]) ? plan.map[k].filter(Boolean) : [];
-      if(arr.length) rows.push(`<b>${esc(k)}</b><span>${esc(arr.join('、'))}</span>`);
+      blocks.push(`<div class="sc-row sc-plan"><b>${esc(k)}</b>
+        <div class="sc-editwrap">
+          <input type="text" class="sc-edit-in" data-sc-edit="plan:${pk}|${esc(k)}" value="${esc(arr.join('、'))}" placeholder="该维度章节（用、分隔）"/>
+          <button type="button" class="sc-x" data-sc-del="plan:${pk}|${esc(k)}" title="删除该维度章节安排">✕</button>
+        </div></div>`);
     });
   } else if(o.volumes && o.volumes.length){
-    // 分层递归：卷结构（o.volumes）作为"全部章节安排"的一种合法形式
-    o.volumes.forEach(v=>{
-      const chs = (v.chapters||[]).map(c=>c&&c.title).filter(Boolean);
-      if(chs.length) rows.push(`<b>卷·${esc(v.name||'第'+(o.volumes.indexOf(v)+1)+'卷')}</b><span>${esc(chs.join('、'))}</span>`);
+    o.volumes.forEach((v,i)=>{
+      const chs = (v.chapters||[]).map(c=>c&&c.title).filter(Boolean).join('、');
+      blocks.push(`<div class="sc-row sc-vol">
+        <div class="sc-volhead">
+          <b>卷·${esc(v.name||('第'+(i+1)+'卷'))}</b>
+          <button type="button" class="sc-x" data-sc-del="vol.${i}" title="删除整卷">✕</button>
+        </div>
+        <div class="sc-volbody">
+          <input type="text" class="sc-edit-in" data-sc-edit="volname.${i}" value="${esc(v.name||'')}" placeholder="卷名"/>
+          <input type="text" class="sc-edit-in" data-sc-edit="volchapters.${i}" value="${esc(chs)}" placeholder="该卷章节（用、分隔）"/>
+        </div>
+      </div>`);
     });
   } else if((o.chapters||[]).length){
-    rows.push(`<b>全章节计划</b><span>${esc((o.chapters||[]).map(c=>c&&c.title).filter(Boolean).join('、'))}</span>`);
+    blocks.push(`<div class="sc-row"><b>全章节计划</b><span>${esc((o.chapters||[]).map(c=>c&&c.title).filter(Boolean).join('、'))}</span></div>`);
   }
   return `<div class="card structure-card">
     <div class="sc-head" data-st-fold role="button" tabindex="0" title="展开/收起">
@@ -6788,41 +6857,108 @@ function structureCard(o){
       <span class="sc-fold-ico">${state.stCollapsed?'▸':'▾'}</span>
     </div>
     <div class="sc-body"${state.stCollapsed?' hidden':''}>
-      ${rows.map(r=>`<div class="sc-row">${r}</div>`).join('')}
-      ${addSubBtn}
-      <p class="muted" style="margin:6px 0 0;font-size:11px">主线/副线/暗线/汇合可直接编辑，失焦即存（不触发 AI）；副线多条用「；」分隔。</p>
+      ${blocks.join('')}
+      <p class="muted" style="margin:6px 0 0;font-size:11px">主线/副线/暗线/汇合/章节安排均可点 ✕ 删除（主线除外）；编辑失焦即存，不触发 AI。</p>
     </div>
   </div>`;
 }
-// P0-2 结构设计行内编辑绑定：失焦即存 + 「＋副线」追加
+// v10.35 结构设计行内编辑：主线直写不可删；其余行 data-sc-edit 写回 / data-sc-del 删除 / sc-add-sub 追加
+function activePlanKey(s){
+  for(const k of ['stageChapters','beats','points','chapterPlan'])
+    if(s && s[k] && typeof s[k]==='object' && Object.keys(s[k]).length) return k;
+  return null;
+}
 function bindStructureEdit(){
   const o = state.outline; if(!o || !isLong()) return;
   if(!o.structure || typeof o.structure !== 'object') o.structure = {};
   const s = o.structure;
-  $$('[data-sc-key]').forEach(inp=>{
+  // 主线：失焦即存，空回退 logline，不可删除
+  $$('[data-sc-key="mainLine"]').forEach(inp=>{
     inp.onchange = ()=>{
-      const k = inp.dataset.scKey;
       let v = inp.value.trim();
-      if(k === 'subLines'){
-        // 数组字段：按「；」/「;」/「、」/「，」分隔，过滤空
-        const arr = v.split(/[；;、，,]+/).map(x=>x.trim()).filter(Boolean);
-        s.subLines = arr;
-        inp.value = arr.join('；');
-      } else {
-        s[k] = v;
+      if(!v) v = o.logline || '';
+      s.mainLine = v; inp.value = v; inp.dataset.orig = v;
+      persist(); toast('主线已保存');
+    };
+  });
+  // 其余字段行：data-sc-edit 写回
+  $$('[data-sc-edit]').forEach(inp=>{
+    inp.onchange = ()=>{
+      const key = inp.dataset.scEdit;
+      const v = inp.value.trim();
+      if(key === 'hiddenLine' || key === 'pivotPlan'){
+        if(v) s[key] = v; else delete s[key];
       }
-      if(k === 'mainLine' && !v) s[k] = o.logline || '';   // 主线不允许清空，回退 logline
+      else if(/^subLines\./.test(key)){
+        if(!Array.isArray(s.subLines)) s.subLines = [];
+        const idxTxt = key.split('.')[1];
+        if(idxTxt === 'new') s.subLines.push(v);
+        else { const idx = +idxTxt; if(idx>=0 && idx<s.subLines.length) s.subLines[idx] = v; }
+        s.subLines = s.subLines.map(x=>String(x==null?'':x).trim()).filter(Boolean);
+      }
+      else if(/^plan:/.test(key)){
+        const rest = key.slice(5), bar = rest.indexOf('|');
+        if(bar >= 0){
+          const pk = rest.slice(0,bar), dim = rest.slice(bar+1);
+          if(s[pk] && typeof s[pk]==='object'){
+            const arr = v.split(/[、，,]+/).map(x=>x.trim()).filter(Boolean);
+            if(arr.length) s[pk][dim] = arr; else delete s[pk][dim];
+          }
+        }
+      }
+      else if(/^volname\./.test(key)){
+        const i = +key.split('.')[1];
+        if(o.volumes && o.volumes[i]) o.volumes[i].name = v;
+      }
+      else if(/^volchapters\./.test(key)){
+        const i = +key.split('.')[1];
+        const vv = o.volumes && o.volumes[i]; if(!vv) return;
+        const arr = v.split(/[、，,]+/).map(x=>x.trim()).filter(Boolean);
+        if(!Array.isArray(vv.chapters)) vv.chapters = [];
+        arr.forEach((t,ix)=>{ if(vv.chapters[ix]) vv.chapters[ix].title = t; else vv.chapters.push({title:t}); });
+        vv.chapters.length = arr.length;
+      }
       inp.dataset.orig = inp.value;
       persist(); toast('结构设计已保存');
     };
   });
+  // ✕ 删除
+  $$('[data-sc-del]').forEach(x=>{
+    x.onclick = ()=>{
+      const key = x.dataset.scDel;
+      if(key === 'mainLine') return;   // 主线防御：不可删除
+      if(/^subLines\./.test(key)){
+        const idx = +key.split('.')[1];
+        if(Array.isArray(s.subLines)) s.subLines = s.subLines.filter((_,i)=>i!==idx);
+      }
+      else if(key === 'hiddenLine' || key === 'pivotPlan'){
+        delete s[key];
+      }
+      else if(/^plan:/.test(key)){
+        const rest = key.slice(5), bar = rest.indexOf('|');
+        if(bar >= 0){
+          const pk = rest.slice(0,bar), dim = rest.slice(bar+1);
+          if(!confirm(`删除维度「${dim}」的章节安排？此操作不可撤销。`)) return;
+          if(s[pk] && typeof s[pk]==='object') delete s[pk][dim];
+          if(s[pk] && typeof s[pk]==='object' && !Object.keys(s[pk]).length) delete s[pk];
+        }
+      }
+      else if(/^vol\./.test(key)){
+        const i = +key.split('.')[1];
+        const nm = (o.volumes && o.volumes[i] && o.volumes[i].name) || ('第'+(i+1)+'卷');
+        if(!confirm(`删除「${nm}」？将同时移除此卷全部章节标题。`)) return;
+        if(Array.isArray(o.volumes)) o.volumes.splice(i,1);
+      }
+      persist(); render(); toast('已删除');
+    };
+  });
+  // ＋ 副线
   $$('[data-sc-add-sub]').forEach(btn=>{
     btn.onclick = ()=>{
       if(!Array.isArray(s.subLines)) s.subLines = [];
       s.subLines.push('新副线：');
       persist(); render();
-      // 自动滚动到新输入行并聚焦
-      const inp = $('.sc-edit-in[data-sc-key="subLines"]');
+      const inp = $('.sc-edit-in[data-sc-edit="subLines.'+(s.subLines.length-1)+'"]');
       if(inp){ inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
     };
   });

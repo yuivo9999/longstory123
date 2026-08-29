@@ -60,6 +60,16 @@ label.field>span{display:block;font-size:12px;color:var(--sub);margin-bottom:6px
 .btn.ghost{background:transparent}
 .btn.block{width:100%}
 .btn:disabled{opacity:.5;cursor:not-allowed}
+/* v10.35 ghost 生成按钮运行态：橙色实底，语义统一「正在生成」，覆盖原灰淡 */
+.btn.ghost.is-busy{
+  color:#fff;
+  background:linear-gradient(135deg,#f59e0b 0%,#d97706 100%);
+  border-color:transparent;
+  opacity:1;
+  box-shadow:0 2px 8px rgba(245,158,11,.3);
+}
+.btn.ghost.is-busy:hover{background:linear-gradient(135deg,#fbbf24 0%,#f59e0b 100%);opacity:1}
+.btn.ghost.is-busy .spinner{border-color:rgba(255,255,255,.4);border-top-color:#fff}
 .btn-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
 
 .pill{display:inline-block;font-size:12px;padding:2px 9px;border-radius:20px;background:var(--panel2);border:1px solid var(--line);color:var(--sub);margin:2px 4px 2px 0}
@@ -352,6 +362,20 @@ input.tw-in[data-first]::placeholder{color:color-mix(in srgb,var(--accent) 70%, 
 .sc-edit-in{flex:1;min-width:0;padding:4px 8px;font-size:13px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--text)}
 .sc-edit-in:focus{border-color:var(--accent2);outline:none}
 .sc-add-sub{margin-top:6px}
+/* v10.35 长篇结构设计：行内可编辑 + ✕ 删除 */
+.sc-editwrap{display:flex;align-items:center;gap:6px;flex:1;min-width:0}
+.sc-editwrap .sc-edit-in{flex:1;min-width:0}
+.sc-editwrap .sc-edit-in.is-empty{color:var(--sub)}
+.sc-subitems{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.sc-sub{display:flex;align-items:flex-start}
+.sc-addrow{justify-content:flex-start}
+.sc-x{flex:none;width:20px;height:20px;border:none;border-radius:50%;background:transparent;color:var(--sub);font-size:13px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:0;line-height:1;transition:all .15s}
+.sc-x:hover{background:color-mix(in srgb,var(--danger,#e74c3c) 15%,transparent);color:var(--danger,#e74c3c)}
+.sc-vol{display:flex;flex-direction:column;gap:4px}
+.sc-volhead{display:flex;align-items:center;justify-content:space-between;width:100%}
+.sc-volhead b{flex:none}
+.sc-volbody{display:flex;flex-direction:column;gap:4px;width:100%}
+.sc-mode span{flex:1;min-width:0;word-break:break-word;white-space:pre-wrap}
 
 /* 长篇模式：导出页多选章节列表 */
 .exp-ch-list{display:flex;flex-direction:column;gap:8px;max-height:min(52vh,480px);overflow-y:auto;padding-right:6px}
@@ -714,7 +738,7 @@ body.reader-lock{overflow:hidden}
 .ct-tools{display:flex;gap:6px;flex-wrap:wrap}
 .rt-style-row{display:flex;align-items:center;gap:4px;font-size:12px;font-weight:600;color:var(--txt);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:5px 8px;margin-bottom:6px;width:fit-content;user-select:none;cursor:pointer}
 .rt-style-row input{accent-color:var(--accent);margin:0}
-.rt-input{width:100%;height:40px;min-height:40px;resize:none;padding:8px 10px;font-size:13px;line-height:1.5;box-sizing:border-box;margin-bottom:6px;border-radius:8px;border:1px solid var(--line);background:var(--panel2);color:var(--txt);font-family:inherit}
+.rt-input{width:100%;height:120px;min-height:120px;resize:none;padding:8px 10px;font-size:13px;line-height:1.5;box-sizing:border-box;margin-bottom:6px;border-radius:8px;border:1px solid var(--line);background:var(--panel2);color:var(--txt);font-family:inherit}
 .rt-input:focus{outline:none;border-color:var(--accent)}
 .rt-input::placeholder{color:var(--sub)}
 /* 重生成全部标题行：按钮左 + 标题版本右 */
@@ -1046,23 +1070,26 @@ textarea[readonly]::selection{ background:color-mix(in srgb, var(--accent2) 45%,
 .ai-recipe-gapitem .btn{margin-top:6px}
 /* v1.0.60 AI 提炼优化建议（重生成弹窗内） */
 .advice-ai-row{display:flex;align-items:center;gap:8px;margin:8px 0 4px;flex-wrap:wrap}
-/* v10.32 AI优化建议按钮：22px 高，accent 幽灵强调；进行中(:disabled)转虚线弱化 */
-.advice-ai-row .btn{height:22px;line-height:20px;padding:0 10px;font-size:12px;font-weight:600;color:var(--accent);border:1px solid color-mix(in srgb,var(--accent) 55%,transparent);background:transparent;box-sizing:border-box}
-.advice-ai-row .btn:hover:not(:disabled){background:color-mix(in srgb,var(--accent) 12%,transparent)}
-.advice-ai-row .btn:disabled{background:color-mix(in srgb,var(--accent) 10%,transparent);border:1px dashed color-mix(in srgb,var(--accent) 45%,transparent);color:var(--sub);opacity:.6}
+/* v10.34/v10.35 AI优化建议按钮：默认红色，运行态(:disabled/.is-busy)转蓝色（置后抬权，抗 ghost.is-busy 橙色） */
+.advice-ai-row .btn{height:22px;line-height:20px;padding:0 10px;font-size:12px;font-weight:600;color:var(--danger,#e74c3c);border:1px solid color-mix(in srgb,var(--danger,#e74c3c) 55%,transparent);background:transparent;box-sizing:border-box}
+.advice-ai-row .btn:hover:not(:disabled):not(.is-busy){background:color-mix(in srgb,var(--danger,#e74c3c) 12%,transparent)}
+.advice-ai-row .btn:disabled,
+.advice-ai-row .btn.is-busy{background:color-mix(in srgb,var(--accent) 10%,transparent);border:1px dashed color-mix(in srgb,var(--accent) 45%,transparent);color:var(--accent);opacity:.6}
 .advice-ai-row .muted{color:var(--sub);font-size:11.5px}
-.cth-fold-bar{display:inline-flex;align-items:center;gap:4px;height:20px;line-height:20px;padding:0 8px;margin:4px 0 2px;font-size:11px;color:var(--accent);border:1px solid color-mix(in srgb,var(--accent) 40%,transparent);border-radius:999px;background:color-mix(in srgb,var(--accent) 10%,transparent);cursor:pointer;user-select:none}
-.cth-fold-bar:hover{background:color-mix(in srgb,var(--accent) 18%,transparent)}
-.advice-ai-cand{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:6px 0;background:rgba(255,255,255,.03);cursor:pointer;transition:border-color .15s}
+/* v10.34 折叠按钮移到 advice-ai-row 最右侧 */
+.cth-fold-btn{margin-left:auto;display:inline-flex;align-items:center;gap:4px;height:20px;line-height:20px;padding:0 8px;font-size:11px;color:var(--accent);border:1px solid color-mix(in srgb,var(--accent) 40%,transparent);border-radius:999px;background:color-mix(in srgb,var(--accent) 10%,transparent);cursor:pointer;user-select:none;flex:none}
+.cth-fold-btn:hover{background:color-mix(in srgb,var(--accent) 18%,transparent)}
+.advice-ai-cand{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:6px 0;background:rgba(255,255,255,.03);cursor:pointer;transition:border-color .15s,box-shadow .15s}
 .advice-ai-cand:hover{border-color:var(--accent2)}
-.advice-ai-cand.on{border-color:var(--accent);background:color-mix(in srgb, var(--accent) 10%, transparent)}
+.advice-ai-cand.adopted{border-color:var(--accent);box-shadow:0 0 0 1.5px var(--accent);background:color-mix(in srgb,var(--accent) 8%,transparent)}
 .advice-ai-head{display:flex;align-items:center;gap:8px}
 .advice-ai-idx{flex:none;width:18px;height:18px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--on-accent);background:var(--accent)}
 .advice-ai-cand b{color:var(--accent2);font-size:13px;flex:1;min-width:0}
 .advice-ai-cand p{margin:8px 0 0;font-size:12px;color:var(--txt);white-space:pre-wrap;line-height:1.55}
-/* v10.32 采用按钮：高度一键减半（约 11px），accent 实底强强调 */
-.advice-ai-use{display:inline-flex;align-items:center;justify-content:center;gap:2px;height:11px;padding:0 6px;font-size:10px;font-weight:600;border-radius:5px;background:var(--accent);border:1px solid var(--accent);color:var(--on-accent);cursor:pointer;flex:none;box-sizing:border-box;line-height:9px}
+/* v10.34 采用按钮：底部居中；已采用态蓝色透明 */
+.advice-ai-use{display:block;margin:10px auto 0;height:11px;padding:0 6px;font-size:10px;font-weight:600;border-radius:5px;background:var(--accent);border:1px solid var(--accent);color:var(--on-accent);cursor:pointer;box-sizing:border-box;line-height:9px;transition:all .15s}
 .advice-ai-use:hover{filter:brightness(1.08)}
+.advice-ai-use.adopted{background:transparent;color:var(--accent);font-weight:700}
 .ws-chip{display:inline-flex;align-items:center;padding:5px 11px;border-radius:20px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:rgba(255,255,255,.68);font-size:12.5px;cursor:pointer;transition:all .15s;font-family:inherit}
 .ws-chip:active{transform:scale(.96)}
 .ws-chip:hover{border-color:rgba(255,255,255,.2)}
