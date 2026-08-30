@@ -151,7 +151,7 @@
 }
 
 
-/* 白天主题：逐章梗概卡片适配白底 */
+/* 白天主题：主线简述卡片适配白底 */
 [data-theme="light"] .cp-card {
   background: var(--panel);
   box-shadow: 0 2px 12px rgba(0,0,0,0.06);

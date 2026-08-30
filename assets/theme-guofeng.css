@@ -498,7 +498,7 @@
 [data-theme="guofeng"] .ws-opt.on .ws-opt-note { color: rgba(255,255,255,.85); }
 
 
-/* 逐章梗概卡片适配古风宣纸底色 */
+/* 主线简述卡片适配古风宣纸底色 */
 [data-theme="guofeng"] .cp-card {
   background: var(--gf-paper);
   box-shadow: 0 4px 12px rgba(0,0,0,0.15);

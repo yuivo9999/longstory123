@@ -599,6 +599,17 @@ body.reader-lock{overflow:hidden}
 .gs-entry .gs-f{display:flex;flex-direction:column;gap:3px}
 .gs-entry .gs-f>span{font-size:11px;color:var(--sub)}
 .gs-entry .gs-f input{min-height:36px;padding:6px 8px;font-size:13px;width:100%}
+.gs-entry .gs-f select{min-height:36px;padding:6px 8px;font-size:13px;width:100%;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:8px}
+.gs-sub-progress{font-size:12px;color:var(--sub);line-height:1.7;white-space:pre-wrap;word-break:break-word;background:color-mix(in srgb, var(--accent) 6%, transparent);border:1px dashed var(--line);border-radius:8px;padding:8px 10px}
+/* v1.0.113 副线收束看板 */
+.sb-row{padding:10px 12px;border:1px solid var(--line);border-radius:10px;margin-bottom:8px}
+.sb-row.sb-lost{border-color:color-mix(in srgb, #e5534b 55%, var(--line));background:color-mix(in srgb, #e5534b 7%, transparent)}
+.sb-row.sb-closed{opacity:.7}
+.sb-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.sb-status{font-size:12px;color:var(--sub)}
+.sb-lost .sb-status{color:#e5534b;font-weight:700}
+.sb-closed .sb-status{color:var(--muted)}
+.sb-meta{font-size:12px;color:var(--text);margin-top:4px;line-height:1.6;word-break:break-word}
 
 /* v10.2 原始构想只读卡：故事页最顶部，默认收缩，只读可复制 */
 .orig-card{margin-top:10px}
@@ -638,7 +649,7 @@ body.reader-lock{overflow:hidden}
 .pol-tab.active{background:var(--accent);color:var(--panel2);border-color:var(--accent);font-weight:600}
 
 /* =============================================
-   v10.19 逐章梗概卡片 - 独立暗红设计（通用于所有主题）
+   v10.19 主线简述卡片 - 独立暗红设计（通用于所有主题）
    ============================================= */
 .cp-card{margin-top:10px;border:none;border-radius:18px;overflow:hidden;background:#000;box-shadow:0 4px 24px rgba(0,0,0,0.4);padding:0}
 /* 头部：深红渐变，两行纵向布局 */
@@ -1258,4 +1269,5 @@ textarea[readonly]::selection{ background:color-mix(in srgb, var(--accent2) 45%,
 .reader-syn-card h4{ margin:0 0 10px; font-size:15px; font-weight:800; }
 .reader-syn-card .syn-body{ font-size:14px; line-height:1.8; white-space:pre-wrap; word-break:break-word; }
 .reader-syn-card .syn-body.muted{ color:var(--muted); }
+#chSumBody .syn-body{ white-space:pre-wrap; word-break:break-word; line-height:1.8; font-size:14px; }
 /* v10.53 概要段缩略显示 */
