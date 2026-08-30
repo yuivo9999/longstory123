@@ -7,7 +7,7 @@
 'use strict';
 
 /* ---------- 全局状态 ---------- */
-const APP_VERSION = '1.0.109';   // 应用版本号（P1-1v4 新增：标题/单章原始AI响应手动提取按钮）：index.html 的 ?v= 资源戳与之同步递增，用于标识产物已更新
+const APP_VERSION = '1.0.110';   // 应用版本号（P1-1v4 新增：标题/单章原始AI响应手动提取按钮）：index.html 的 ?v= 资源戳与之同步递增，用于标识产物已更新
 const KEY_CFG = 'fyp_cfg';
 const KEY_STATE = 'fyp_state';   // 旧版单项目 key（仅用于首次迁移）
 const KEY_LIB = 'fyp_lib';       // 新版多项目历史库
@@ -3766,11 +3766,11 @@ function chapterTitleBlock(){
         ${cc ? `<span class="pill tag-ok">${chapterCountHint()}</span>` : ''}
       </div>
     </div>`;
-  // 无章节标题：仅渲染 N 输入 + 生成全部标题按钮（从零开始）
+  // 无章节标题：仅渲染 N 输入 + 生成全部标题按钮（从零开始）。空态不折叠：只要没有标题清单，就让唯一主操作始终可见（v1.0.110）。
   if(!arr.length){
-    return `<div class="ct-block${state.ctCollapsed?' ct-collapsed':''}">
-    <div class="ct-head" data-ct-fold role="button" tabindex="0" title="展开/收起">
-      <b>📚 章节标题 <span class="ct-fold-ico">${state.ctCollapsed?'▸':'▾'}</span></b>
+    return `<div class="ct-block">
+    <div class="ct-head" style="cursor:default">
+      <b>📚 章节标题</b>
     </div>
     ${nIn}
     <p class="muted" style="margin:8px 0 6px">第二步：先填写「全书章节数」，再点击下方按钮，一次生成全部章节标题（第1章…第n章）。生成后可进入第三步「逐章梗概 + 万物词典」。</p>
