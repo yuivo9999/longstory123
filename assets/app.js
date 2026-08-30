@@ -19,7 +19,7 @@ let gglib = [];                  // v8 词典库：[{id, name, note, savedAt, g:
 const state = {
   mode: 'shortfilm',    // 'shortfilm' 短片 / 'longnovel' 经典长篇小说
   recipe: 'mesh',       // (兼容旧字段) 旧式单一范式 id；新项目用 recipeSet
-  recipeSet: { structure:null, rhythm:null, quality:[], titleStyle:[] }, // 长篇三维写作范式：结构(单选)+节奏(单选)+质量(可多选)；默认全部不选，由 AI 按构想发挥
+  recipeSet: { structure:null, rhythm:null, titleStyle:[] }, // 长篇写作范式：结构(单选)+标题(可多选)；默认全部不选，由 AI 按构想发挥
   wordRange: null,      // (兼容遗留) 不再作为长篇必填；保留字段避免旧快照破坏
   chapterRange: null,   // (兼容遗留) 同上
   totalWords: null,     // (兼容遗留) 同上
@@ -39,8 +39,8 @@ const state = {
   ctCollapsed: true,    // v10.53：章节标题管理块是否收缩（默认折叠，点击标题展开）
   gsCatFold: { char:true, place:true, proper:true },   // v10.53：词典小类别（人物/地点/专名）默认折叠，点击标题展开
   useChapterPlans: true,  // v10.29：逐章梗概本稿是否参与正文生成（默认开）；关则保留内容与历史、仅不注入 AI
-  autoQC: false,        // 自动质检开关（默认关闭，v10.18）：生成后自动两段式查错修正；关则直接落库
-  chapters: [],         // [{title, content, confirmed, editHistory:[], qcRecord:{}}]
+  chapterPlanOn: true,   // v10.58-narrow：长篇大纲是否生成"全部章节安排/分组"(structure.chapterPlan)；关则不提示、不兜底、不渲染该分组，主线四格照常。A 窄开关
+  chapters: [],         // [{title, content, confirmed, editHistory:[]}]
   characters: [],       // [{name, role, profile:{...}, prompts:{...}}]
   outlineHistory: [],   // 大纲版本历史（上限10）：[{outline, ts}] 覆盖前快照，支持预览/恢复
   expSel: [],           // 长篇导出勾选的章节索引（随项目快照持久化，P3-4）
@@ -178,7 +178,7 @@ function resolveActiveSpec(){
     ideaTemp:    (cfg.ideaTemp==null ? 0.5 : cfg.ideaTemp),          // v10.13 分任务温度：优化构想
     titleTemp:   (cfg.titleTemp==null ? 0.5 : cfg.titleTemp),        // v10.15 分任务温度：标题 AI
     chapterTemp: (cfg.chapterTemp==null ? 0.5 : cfg.chapterTemp),   // v10.8 分任务温度：章节
-    qcTemp:      (cfg.qcTemp==null ? 0.2 : cfg.qcTemp),              // v10.8 分任务温度：质检/提取
+    qcTemp:      (cfg.qcTemp==null ? 0.2 : cfg.qcTemp),              // 分任务温度：词库提取（严谨低温）
     planTemp:    (cfg.planTemp==null ? 0.4 : cfg.planTemp)           // v10.11 分任务温度：逐章梗概
   };
 }
@@ -231,7 +231,7 @@ function projectSnapshot(){
   return {
     mode: state.mode || 'shortfilm',
     recipe: state.recipe || 'mesh',
-    recipeSet: state.recipeSet || { structure:null, rhythm:null, quality:[], titleStyle:[] },
+    recipeSet: state.recipeSet || { structure:null, rhythm:null, titleStyle:[] },
     wordRange: state.wordRange || null,
     chapterRange: state.chapterRange || null,
     totalWords: state.totalWords || null,
@@ -249,13 +249,15 @@ function projectSnapshot(){
     stCollapsed: state.stCollapsed,
     cpCollapsed: state.cpCollapsed,   // v10.14 梗概卡折叠透传
     useChapterPlans: (typeof state.useChapterPlans === 'boolean') ? state.useChapterPlans : true,   // v10.29
+    chapterPlanOn: (typeof state.chapterPlanOn === 'boolean') ? state.chapterPlanOn : true,   // v10.58-narrow
     expOpenGroups: state.expOpenGroups,   // P5 长篇导出分组折叠所展开的分组透传
     polishOptions: state.polishOptions,   // v10.16 优化构想保留方案透传
     polishAdopted: state.polishAdopted,   // v10.16 当前采用的方案名
     polishHistory: state.polishHistory,   // v10.16 优化构想批量版本（≤5）透传
-    autoQC: (typeof state.autoQC === 'boolean') ? state.autoQC : false,
     chapters: state.chapters,
     characters: state.characters,
+    ctAdviceHist: Array.isArray(state.ctAdviceHist) ? state.ctAdviceHist : [],   // v10.59 章节标题 AI 建议快照
+    contentAdviceHist: Array.isArray(state.contentAdviceHist) ? state.contentAdviceHist : [],   // v10.59 章节内容 AI 建议快照
     outlineHistory: state.outlineHistory,
     expSel: Array.isArray(state.expSel) ? state.expSel : [],
     hist: state.hist || { characters:[], scenes:[], cover:[], storyboard:[] },
@@ -295,13 +297,18 @@ function applyProject(p){
   state.stCollapsed = !!p.stCollapsed;
   state.cpCollapsed = (typeof p.cpCollapsed === 'boolean') ? p.cpCollapsed : true;   // v10.14 梗概卡默认折叠
   state.useChapterPlans = (typeof p.useChapterPlans === 'boolean') ? p.useChapterPlans : true;   // v10.29 默认参与生成
+  state.chapterPlanOn = (typeof p.chapterPlanOn === 'boolean') ? p.chapterPlanOn : true;   // v10.58-narrow 默认生成全部章节安排
   state.expOpenGroups = Array.isArray(p.expOpenGroups) ? p.expOpenGroups : [];   // P5 长篇导出分组折叠所展开的分组
   state.polishOptions = Array.isArray(p.polishOptions) ? p.polishOptions : undefined;   // v10.16 保留方案
   state.polishAdopted = (typeof p.polishAdopted === 'string') ? p.polishAdopted : undefined;
   state.polishHistory = Array.isArray(p.polishHistory) ? p.polishHistory : undefined;   // v10.16 优化构想批量版本
-  state.autoQC = (typeof p.autoQC === 'boolean') ? p.autoQC : false;   // 自动质检默认关闭（v10.18）
   state.chapters = p.chapters || [];
+  // v10.60 去除质检：加载即从旧快照剥离已无用的 qcRecord 与标题 titleQC，避免残留数据
+  (state.chapters||[]).forEach(c=>{ if(c) delete c.qcRecord; });
+  if(state.outline) delete state.outline.titleQC;
   state.characters = p.characters || [];
+  state.ctAdviceHist = Array.isArray(p.ctAdviceHist) ? p.ctAdviceHist : [];   // v10.59 老项目缺省空
+  state.contentAdviceHist = Array.isArray(p.contentAdviceHist) ? p.contentAdviceHist : [];   // v10.59 老项目缺省空
   state.outlineHistory = Array.isArray(p.outlineHistory) ? p.outlineHistory : [];
   state.expSel = Array.isArray(p.expSel) ? p.expSel.filter(i=> Number.isInteger(i)) : [];
   state.hist = (p.hist && typeof p.hist === 'object') ? {
@@ -327,13 +334,14 @@ function applyProject(p){
 function clearState(){
   state.mode = 'shortfilm';
   state.recipe = 'mesh';
-  state.recipeSet = { structure:null, rhythm:null, quality:[], titleStyle:[] };
+  state.recipeSet = { structure:null, rhythm:null, titleStyle:[] };
   state.wordRange = null; state.chapterRange = null; state.totalWords = null; state.chapterCount = null;
   state.idea = ''; state.outline = null; state.coverPrompt = ''; state.coverWithTitle = false; state.outlineConfirmed = false;
   state.pendingGlossary = null; state.glossAdherence = 60; state.glossAllowFill = false; state.glossAutoFill = true; state.gsCollapsed = true;
-  state.autoQC = false;  // 自动质检默认关闭（v10.18）
   state.useChapterPlans = true;  // v10.29 新建作品默认参与生成
+  state.chapterPlanOn = true;  // v10.58-narrow 新建作品默认生成全部章节安排
   state.chapters = []; state.characters = []; state.scenes = []; state.storyboard = []; state.boardConcepts = []; state.titleHistory = []; state.raw = {};
+  state.ctAdviceHist = []; state.contentAdviceHist = [];   // v10.59 随项目的 AI 建议快照（章节标题 / 章节内容）
   state.outlineHistory = []; state.expSel = [];
   state.hist = { characters:[], scenes:[], cover:[], storyboard:[] };
   state.chapterStyle = { tags: [], intensity: 2, collapsed: false, elemOpen: false };
@@ -350,13 +358,12 @@ function migrateRecipeSet(set, legacyRecipe){
     return {
       structure: (typeof set.structure === 'string' && STRUCTURE_IDS.includes(set.structure)) ? set.structure : null,
       rhythm: (typeof set.rhythm === 'string' && RHYTHM_IDS.includes(set.rhythm)) ? set.rhythm : null,
-      quality: Array.isArray(set.quality) ? set.quality.filter(q=> QUALITY_IDS.includes(q)) : [],
       titleStyle: Array.isArray(set.titleStyle) ? set.titleStyle.filter(id=> TITLE_STYLE_IDS.includes(id)) : []
     };
   }
   // 旧 recipe 单一 id 迁移映射
-  const legacyMap = { mesh:{structure:'mesh',rhythm:null,quality:[]}, layered:{structure:'layered',rhythm:null,quality:[]}, dual:{structure:'mesh',rhythm:null,quality:['dual']}, web:{structure:null,rhythm:'web',quality:[]}, web100:{structure:null,rhythm:'web',quality:[]}, causal:{structure:'causal',rhythm:null,quality:[]} };
-  return legacyMap[legacyRecipe] || { structure:null, rhythm:null, quality:[] };
+  const legacyMap = { mesh:{structure:'mesh',rhythm:null}, layered:{structure:'layered',rhythm:null}, web:{structure:null,rhythm:'web'}, web100:{structure:null,rhythm:'web'}, causal:{structure:'causal',rhythm:null} };
+  return legacyMap[legacyRecipe] || { structure:null, rhythm:null };
 }
 // 落盘：优先写 IndexedDB（突破 5MB）；IDB 不可用或写入失败时回退 localStorage 双写，保证不丢。
 // 注意：保持内存模型 lib 不变，仅替换"落盘通道"。调用方（persist/开关项目/新建/删除）无需改动。
@@ -760,13 +767,13 @@ ${JSON_HEADER}
 };
 
 /* =========================================================
- * 长篇写作范式：结构 / 节奏 / 质量 三维，皆可独立或组合
+ * 长篇写作范式：结构 / 节奏 / 标题风格，皆可独立或组合
  * ---------------------------------------------------------
  * 结构(STRUCTURES, 单选互斥)   mesh多线网状 / causal单线因果 / layered分层递归
  *                              hero英雄之旅 / savecat节拍表 / seven七点结构
  * 节奏(RHYTHMS, 单选互斥)      web黄金网文 / repress压抑反转 / slice慢生活
  *                              mystery悬疑解谜 / epic群像史诗 / fatal悲剧宿命 / inward文艺向内
- * 质量(QUALITIES, 可多选可空)   dual写手-编辑双审 / selfref自省重写 / plothole伏笔洞检测
+ * 标题风格(TITLE_STYLES, 可多选可空)   归纳/画龙点睛/文学语句 等
  * 页面选择与介绍折叠遵循 v2 方案；默认节奏为 web（黄金网文），默认结构 mesh。
  * ========================================================= */
 const SIZE_DEFAULT = { min:3000, max:5000 };
@@ -1185,27 +1192,8 @@ const RHYTHMS = [
     effect:'文笔与情绪质感强、人物立体、差异化明显；代价是节奏慢、爽点少，需要读者耐性。' }
 ];
 
-const QUALITIES = [
-  { id:'dual', name:'写手-编辑双审', tag:'NovelForge', short:'双审', src:'开源 · NovelForge',
-    desc:'写手起草初稿后，编辑按角色一致性/剧情逻辑/世界观三维打分（0-100），低于阈值自动让写手按意见重写。',
-    mech:'一章初稿 → 编辑三维评分（role/plot/world，≥70 为 pass）→ 不达标则带上意见让写手重写，最多 2 轮。',
-    fit:'追求叙事质量下限、想减少硬伤与逻辑崩坏的作品。',
-    effect:'直接锁单章质量下限，逻辑更稳；代价是每章约多 1-2 次调用、更耗时。' },
-  { id:'selfref', name:'自省重写', tag:'Reflexion', short:'自省重写', src:'开源 · NovelForge Self-Reflection',
-    desc:'每章生成后让模型自评短板并自我修正，实现最简单（纯提示词追加）。',
-    mech:'章节初稿生成后，自问“本章最大短板”（情绪/逻辑/文笔/人物），据此重写 1 次完善，成本较低。',
-    fit:'想低成本增强单章完成度的作品。',
-    effect:'简单高效、单章完成度上升；代价是自评可能不敏锐，提升幅度不如双审稳定。' },
-  { id:'plothole', name:'伏笔洞检测', tag:'逻辑核查', short:'伏笔检测', src:'论文 · FLAWEDFICTIONS',
-    desc:'针对连续性错误（时间线/性格/伏笔回收）做专项核查与修正，与结构/节奏无关、任意组合可叠加。',
-    mech:'章节写出后专项检查时间线、性格一致、伏笔回收、专名统一四处；发现逻辑漏洞即按“一致性自检”重写修正。',
-    fit:'多线、长连载、伏笔密的作品；强烈建议与多线网状结构同用时开启。',
-    effect:'大幅减少吃书/穿帮/伏笔丢弃，中长期一致性更稳；代价是额外一次核查调用。' }
-];
-
 const STRUCTURE_IDS = STRUCTURES.map(s=> s.id);
 const RHYTHM_IDS = RHYTHMS.map(r=> r.id);
-const QUALITY_IDS = QUALITIES.map(q=> q.id);
 
 // 章节标题风格（可多选；不选则大纲阶段不注入任何标题要求，标题由 AI 自由发挥）
 const TITLE_STYLES = [
@@ -1594,6 +1582,100 @@ function setAiHist(a){
 function addAiHist(entry){ const a = getAiHist(); a.push(entry); setAiHist(a); return a.length; }
 function snapAiHist(){ return getAiHist(); }
 function aiHistEntryId(){ return 'ah'+Date.now().toString(36); }
+/* ---------- v10.59 随项目的 AI 建议快照（复刻配方历史的能力，存入 state、随项目存取） ---------- */
+// kind: 'ct'  章节标题 AI 建议；'content'  重生成章节内容 AI 建议
+function histState(kind){
+  const s = state;
+  if(kind === 'ct'){ if(!Array.isArray(s.ctAdviceHist)) s.ctAdviceHist = []; return s.ctAdviceHist; }
+  if(kind === 'content'){ if(!Array.isArray(s.contentAdviceHist)) s.contentAdviceHist = []; return s.contentAdviceHist; }
+  return [];
+}
+// 追加一条快照，逆序裁剪到 30 条上限并持久化
+function addAdvHist(kind, entry){
+  const a = histState(kind);
+  a.push(entry);
+  if(a.length > 30) a.splice(0, a.length - 30);   // 小体积文本，按条数截断即可
+  persist();
+  return a.length;
+}
+// 章节标题建议历史弹窗（复刻 openAiHistPanel；回填语义贴合两处：注入候选 + 回填首条到输入框）
+function openAdvHistPanel(kind){
+  const hist = histState(kind).slice();
+  const mode = kind === 'content';
+  const ov = document.createElement('div'); ov.id='advHistPanel'; ov.className='gs-overlay';
+  const entHtml = (e,hi)=>{
+    const ei = hist.length-1-hi;   // 倒序序号（与展示一致）
+    return `<div class="ws-lib-group ws-lib-fold" style="margin-top:6px">
+      <div class="ws-lib-fold-t" data-ah-fold="${ei}" role="button" tabindex="0" title="展开/收起">
+        <span>${mode?'📄':'📝'} ${esc(e.desc||'')} <span class="muted" style="font-size:10px">· ${new Date(e.ts).toLocaleString('zh-CN',{hour12:false})}</span></span>
+        <span class="sc-fold-ico">▸</span>
+      </div>
+      <div class="ws-lib-fold-body" style="display:none">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 8px">
+          <button type="button" class="btn small ghost" data-ah-apply="${ei}">↩ 回填首条建议</button>
+          <button type="button" class="btn small ghost" data-ah-del="${ei}">删</button>
+        </div>
+        ${ (Array.isArray(e.list)&&e.list.length) ? e.list.map((c,i)=>aiAdvHistCandHtml(c,i)).join('<hr style="margin:6px 0;opacity:.2">') : '<p class="muted">无建议。</p>' }
+      </div>
+    </div>`;
+  };
+  const list = hist.slice().reverse();
+  ov.innerHTML = `
+    <div class="gs-modal">
+      <div class="gs-modal-head"><b>${mode?'📄':'📝'} ${mode?'章节内容':'章节标题'} AI 建议历史（${hist.length}）</b>
+        <span style="display:flex;gap:6px">
+          <button class="btn small ghost" data-ah-clear>清空</button>
+          <button class="gs-x" data-ah-close>✕</button>
+        </span></div>
+      <div class="cv-body">
+        ${ list.length ? list.map(entHtml).join('') : '<p class="muted">暂无历史。用「✨ AI 优化此建议」生成后即自动保存于此，可随时回看。</p>' }
+      </div>
+    </div>`;
+  const close = ()=>{ const p=$('#advHistPanel'); if(p) p.remove(); };
+  ov.addEventListener('click', (e)=>{
+    const cl = e.target.closest('[data-ah-close]'); if(cl){ close(); return; }
+    const fold = e.target.closest('[data-ah-fold]');
+    if(fold){ const body = fold.closest('.ws-lib-group').querySelector('.ws-lib-fold-body'); if(body){ const open = body.style.display!=='none'; body.style.display = open?'none':'block'; fold.querySelector('.sc-fold-ico').textContent = open?'▸':'▾'; } return; }
+    const apply = e.target.closest('[data-ah-apply]');
+    if(apply){
+      const ei=+apply.dataset.ahApply; const entry=hist[ei];
+      if(entry && Array.isArray(entry.list) && entry.list.length){
+        if(mode){
+          aiAdviceCand = entry.list.slice(0,3);
+          const out = $('[data-advice-ai-out]'); if(out) out.innerHTML = aiAdviceResultHtml();
+          const ta = $('#rpAdvice'); if(ta){ ta.value = (entry.list[0]&&entry.list[0].text)||''; ta.focus(); }
+        }else{
+          ctAdviceCand = entry.list.slice(0,3); ctAdviceFold = false; ctAdoptedIdx = -1;
+          const out = $('[data-cth-ai-out]'); if(out) out.innerHTML = ctAdviceResultHtml();
+          updateFoldBtn();
+          const inp = $('#rtInput'); if(inp) inp.value = (entry.list[0]&&entry.list[0].text)||'';
+        }
+        toast('已回填该条建议');
+      }
+      close(); return;
+    }
+    const del = e.target.closest('[data-ah-del]');
+    if(del){ const ei=+del.dataset.ahDel; const a=histState(kind); if(a[ei]){ a.splice(ei,1); persist(); } refreshAdvHistBadge(kind); const p=$('#advHistPanel'); if(p) p.remove(); openAdvHistPanel(kind); return; }
+    const clr = e.target.closest('[data-ah-clear]');
+    if(clr){ if(confirm('确认清空全部该建议历史？')){ histState(kind).length = 0; persist(); refreshAdvHistBadge(kind); close(); } return; }
+    if(e.target===ov) close();
+  });
+  document.body.appendChild(ov);
+}
+// 历史条目候选的展示（{title,text}）
+function aiAdvHistCandHtml(c,i){
+  return `<div class="advice-ai-cand"><div class="advice-ai-head"><span class="advice-ai-idx">${'①②③'[i]||(i+1)}</span><b>${esc(c.title||('方案'+(i+1)))}</b></div><p>${esc(c.text||'')}</p></div>`;
+}
+// 刷新角标（kind：'ct' 在章节块内 / 'content' 在重生成面板内）
+function refreshAdvHistBadge(kind){
+  if(kind === 'ct'){
+    const card = $('.ct-block');
+    if(card){ const b = card.querySelector('[data-ctadv-hist] .ai-hist-badge'); if(b) b.textContent = histState('ct').length||''; }
+  }else{
+    const rp = $('#regenPanel');
+    if(rp){ const b = rp.querySelector('[data-advadv-hist] .ai-hist-badge'); if(b) b.textContent = histState('content').length||''; }
+  }
+}
 function aiRecipePrompt(userDesc){
   const lib = writeStyleLib();
   const spec = lib.map(s=> `- ${s.id}：${s.name}（${s.cat||'custom'}）`).join('\n');
@@ -1960,8 +2042,6 @@ function writeStylePlanBlock(){
 // 当前所选
 function selStructure(){ return state.recipeSet && STRUCTURES.find(s=> s.id === state.recipeSet.structure) || null; }
 function selRhythm(){ return state.recipeSet && RHYTHMS.find(r=> r.id === state.recipeSet.rhythm) || null; }
-function selQualities(){ return (state.recipeSet && Array.isArray(state.recipeSet.quality)) ? state.recipeSet.quality.filter(id=> QUALITY_IDS.includes(id)).map(id=> QUALITIES.find(q=> q.id===id)).filter(Boolean) : []; }
-function hasQuality(id){ return Array.isArray(state.recipeSet && state.recipeSet.quality) && state.recipeSet.quality.includes(id); }
 // 章节标题风格（多选）：返回选中的样式对象数组；未选返回 []
 function selTitleStyles(){ return (state.recipeSet && Array.isArray(state.recipeSet.titleStyle)) ? state.recipeSet.titleStyle.filter(id=> TITLE_STYLE_IDS.includes(id)).map(id=> TITLE_STYLES.find(s=> s.id===id)).filter(Boolean) : []; }
 function hasTitleStyle(id){ return Array.isArray(state.recipeSet && state.recipeSet.titleStyle) && state.recipeSet.titleStyle.includes(id); }
@@ -2098,74 +2178,6 @@ function pickSize(side){
 function chapterMaxTokens(){
   return Math.min(20000, Math.max(600, Math.ceil(8000 * 1.6)));
 }
-// 段落去重（落库前安全网）：把正文按空行切成段落，若有相邻两段相似度 ≥0.8（80% 以上重叠），
-// 则按“谁更像原稿/更长”保留其一、丢弃重复的那段，避免单章因多次段落级重写而出现整段重复。
-function dedupAdjacentParagraphs(text){
-  if(!text) return text;
-  const sep = '\n\n';
-  const paras = String(text).split(sep).map(p=> p.trim());
-  if(paras.length < 2) return text;
-  const norm = s => s.replace(/\s+/g,' ');
-  // 相似度 = 2×公共子串长度占两段长度之和的比例（粗略，够用于整段重复检测）
-  function sim(a,b){
-    const aa = norm(a), bb = norm(b);
-    if(!aa.length || !bb.length) return 0;
-    const short = aa.length < bb.length ? aa : bb;
-    const long = aa.length < bb.length ? bb : aa;
-    // 用重叠滑动窗口取最大公共子串近似
-    let best = 0;
-    for(let step = Math.max(2, Math.floor(short.length/4)); step <= short.length; step++){
-      let found = false;
-      for(let k=0; k+step <= short.length; k++){
-        if(long.indexOf(short.slice(k,k+step)) >= 0){ found = true; best = step; break; }
-      }
-      if(!found) break;
-    }
-    return 2*best / (aa.length + bb.length);
-  }
-  const out = [];
-  for(const p of paras){
-    if(!p) continue;                       // 跳过空段
-    const last = out[out.length-1];
-    // 只删「几乎完全相同」的相邻段落（阈值 0.95），且较短一半需达到较长一半的 60% 长度
-    //（避免把正常的一段误删：只有当两段高度重叠才判定为整段重复）
-    if(last && sim(p, last) >= 0.95){
-      const lenP = norm(p).length, lenL = norm(last).length;
-      const shorter = Math.min(lenP, lenL), longer = Math.max(lenP, lenL);
-      if(longer > 0 && shorter / longer >= 0.6){
-        // 保留更长/更完整的一段（通常新改写段更长，保留它）；等长时保留后插入的
-        if(p.length > last.length) out[out.length-1] = p;
-        else if(p.length === last.length && out[out.length-1] && p !== last) out[out.length-1] = last;
-        continue;                          // 丢弃重复的当前段
-      }
-    }
-    out.push(p);
-  }
-  return out.join(sep);
-}
-
-// 把「锚点 → 改写段落」应用回初稿（段落级重写合并）。锚点找不到则跳过该条，保守不破坏正文。
-// 采用「删除→插入」：以锚点句定位其所在整段，删掉该段后用改写段顶替，杜绝「原文保留+改写追加」式重复。
-function applyPatches(draft, patches){
-  if(!Array.isArray(patches) || !patches.length) return draft;
-  let out = draft;
-  for(const p of patches){
-    const a = String(p.anchor || '').trim();
-    const r = String(p.rewritten || '').trim();
-    if(!a || !r) continue;
-    const idx = out.indexOf(a);
-    if(idx < 0) continue;
-    const segStart = out.lastIndexOf('\n\n', idx) + 2;         // 该段起点
-    let segEnd = out.indexOf('\n\n', idx + a.length);          // 该段终点
-    if(segEnd < 0) segEnd = out.length;
-    const leading = out.slice(0, segStart);
-    const trailing = out.slice(segEnd);
-    // 删除→插入：删掉锚点所在整段，用改写段 r 顶替，从根上杜绝“原文保留+改写追加”式重复。
-    out = leading + r + (trailing.startsWith('\n') || /[\n。！？）」』]\s*$/.test(r) ? trailing : '\n' + trailing);
-  }
-  return out;
-}
-
 // 体量提示（拼入大纲提示词）：只给固定章节数，不给任何字数限制
 function outlineSizeNote(){
   const n = chapterCountVal();
@@ -2245,11 +2257,6 @@ const REGEN_TITLES_SYS = `你是一位深谙标题艺术的章节标题策划师
 8. 只输出 JSON 数组（不要解释、不要 markdown 代码块）：{"titles":["第1章标题","第2章标题",...]}
 【自由发挥区】标题的立意、措辞、角度由你把握，让每章标题读起来各有记忆点、整批标题风格错落。`;
 
-// v10.15 标题质检：重生成标题后自动跑一次（qcTemp 0.2），只提示不自动改。
-const TITLE_QC_SYS = `你是长篇小说的标题质检编辑。检查【标题列表】是否与【设定基准】一致，只判定以下问题并输出 JSON（不要解释、不要 markdown 代码块）：
-{"issues":[{"index":0,"type":"设定冲突|剧透|逻辑错位|套路化","fix":"一句话建议"}]}
-判定项：①设定冲突（出现词典外新名/与梗概或结构矛盾）；②剧透（泄露后续反转/结局）；③逻辑错位（标题顺序与结构安排不符）；④套路化（xx之怒/惊变式流水线命名）。无问题输出 {"issues":[]}。`;
-
 // v10.13 优化构想 AI：把用户粗糙构想优化为结构化高质量构想（通用核心要素 + 自适应分类要素）。
 // 极短输入（<15 字仅题材词）走「骨架展开模式」：给可改草稿 + 显式标注 + 反问清单引导补充独有设定。
 const IDEA_POLISH_SYS = `你是一位深谙网文与影视叙事的构想编辑。
@@ -2322,8 +2329,10 @@ const STRUCTURE_PLAN_SYS = `\n\n【长篇结构设计 · 章节计划（仅网�
 维度名按所选范式叫法（网状多线用各线索名、单线因果用各关卡名），反映的都是"章节→维度"的分组，每一章都归入某维度、一章不落。`;
 
 // 结构是否自带"章节→维度"的专属映射字段（英雄之旅 stageChapters / 节拍表 beats / 七点 points / 分层 volumes）。
-// 选这类结构时，章节安排用专属字段承载，不再要求统一 chapterPlan，避免两份互斥 schema 同时注入。
-function stHasStageMap(st){ return !!st && ['hero','savecat','seven','layered'].includes(st.id); }
+  // 选这类结构时，章节安排用专属字段承载，不再要求统一 chapterPlan，避免两份互斥 schema 同时注入。
+  function stHasStageMap(st){ return !!st && ['hero','savecat','seven','layered'].includes(st.id); }
+  // v10.58-narrow：A 窄开关"全部章节安排"是否开启（默认开）。关 → 不生成/不渲染 structure.chapterPlan 分组；主线四格照常。
+  function chapterPlanOn(){ return state.chapterPlanOn !== false; }
 
 // 取"全部章节安排"呈现数据：优先结构专属章节映射（stageChapters/beats/points），回退统一 chapterPlan。返回 {map} 或 null。
 // 分层 volume 单独处理；此函数供 structureCard / structurePlanBlock 共用，便于以后扩展新结构字段。
@@ -2356,13 +2365,15 @@ function buildOutlineSys(){
   //    未选结构时作为唯一轻量结构骨架要求，让 AI 产出主线/副暗/汇合（有则带、无则空，绝不硬造）。
   if(!st) parts.push(STRUCTURE_MAIN_SYS);
   // 统一「章节计划」任务块：仅无专属章节映射的范式（网状多线/单线因果）才推，避免与英雄之旅/节拍表/七点/分层的专属字段重复。
-  if(st && !stHasStageMap(st)) parts.push(STRUCTURE_PLAN_SYS);
+  // v10.58-narrow：A 窄开关关闭时跳过该"章节安排/分组"块（主线四格已在上方独立注入，不受影响）。
+  if(st && !stHasStageMap(st) && chapterPlanOn()) parts.push(STRUCTURE_PLAN_SYS);
   // ⑤ 基础大纲契约 OUTLINE_GEN_SYS（title/logline/chapters 的 JSON 契约）：置于词典之前。
   //    互斥原则：选中结构时该契约已由 st.outlineSys 独家承担（大纲契约+结构一体），故不重复推，避免两套 schema 同时注入；
   //    仅未选结构时推，作为稳定产出大纲骨架的兜底。
   if(!st) parts.push(OUTLINE_GEN_SYS);
   // ⑤-2 未选结构时：要求 AI 自由分组输出 chapterPlan（按主题/起承转合），作为"全部章节写作安排"的呈现。
-  if(!st) parts.push(CHAPTER_PLAN_FREE_SYS);
+  // v10.58-narrow：A 窄开关关闭时不要求该"章节安排/分组"（主线四格由 ④ STRUCTURE_MAIN_SYS 承载，不受影响）。
+  if(!st && chapterPlanOn()) parts.push(CHAPTER_PLAN_FREE_SYS);
   parts.push(outlineGlossaryInject(state.pendingGlossary));   // ⑥ v8 双轨：有导引用权威块，无导入保持原「请自造词典」块
   parts.push('\n\n'+ORIGINALITY_OUTLINE_SYS);                   // ⑦ v10.12 原创性要求（防雷同）· 大纲侧，全部结构范式生效
   return parts.join('\n\n');
@@ -2410,24 +2421,27 @@ function structurePlanBlock(o){
   if(s.hiddenLine) lines.push('暗线：'+s.hiddenLine);
   if(s.pivotPlan) lines.push('汇合/大逆转：'+s.pivotPlan);
   // 全章节计划：优先结构专属章节映射，回退 chapterPlan；分层卷结构单独成行。
-  const plan = structureChapterPlan(s, o);
-  if(plan){
-    lines.push('全章节计划：');
-    Object.keys(plan.map).forEach(k=>{
-      const arr = Array.isArray(plan.map[k]) ? plan.map[k] : [plan.map[k]];
-      if(arr.length) lines.push('·（'+k+'）'+arr.join('、'));
-    });
-  } else if((o.chapters||[]).length){
-    lines.push('全章节计划：');
-    lines.push('·（全章规划）'+ (o.chapters||[]).map(c=>c&&c.title).filter(Boolean).join('、'));
-  }
-  // 分层递归卷结构
-  if(o.volumes && o.volumes.length){
-    lines.push('卷结构：');
-    o.volumes.forEach(v=>{
-      const chs = (v.chapters||[]).map(c=>c&&c.title).filter(Boolean);
-      if(chs.length) lines.push('·（'+(v.name||'卷')+'）'+chs.join('、'));
-    });
+  // v10.58-narrow：A 窄开关关闭时不下发"章节安排/分组"清单，仅保留主线四格
+  if(chapterPlanOn()){
+    const plan = structureChapterPlan(s, o);
+    if(plan){
+      lines.push('全章节计划：');
+      Object.keys(plan.map).forEach(k=>{
+        const arr = Array.isArray(plan.map[k]) ? plan.map[k] : [plan.map[k]];
+        if(arr.length) lines.push('·（'+k+'）'+arr.join('、'));
+      });
+    } else if((o.chapters||[]).length){
+      lines.push('全章节计划：');
+      lines.push('·（全章规划）'+ (o.chapters||[]).map(c=>c&&c.title).filter(Boolean).join('、'));
+    }
+    // 分层递归卷结构
+    if(o.volumes && o.volumes.length){
+      lines.push('卷结构：');
+      o.volumes.forEach(v=>{
+        const chs = (v.chapters||[]).map(c=>c&&c.title).filter(Boolean);
+        if(chs.length) lines.push('·（'+(v.name||'卷')+'）'+chs.join('、'));
+      });
+    }
   }
   return lines.join('\n');
 }
@@ -2557,7 +2571,7 @@ async function extractNewGlossary(bodyTexts){
     return arr.length ? `${label}：${arr.join('、')}` : `${label}：（无）`;
   }).join('\n');
   const user = `【现有词典】\n${dict}\n\n【本章正文】\n${body}`;
-  const txt = await callDeepSeek(GLOSSARY_EXTRACT_SYS, user, {maxTokens: 2000, temperature: resolveActiveSpec().qcTemp});   // v10.8 质检/提取温度
+  const txt = await callDeepSeek(GLOSSARY_EXTRACT_SYS, user, {maxTokens: 2000, temperature: resolveActiveSpec().qcTemp});   // v10.8 词库提取温度
   const j = parseJson(txt) || {};
   const keepChar = c => {
     if(c.name == null || !String(c.name).trim()) return null;
@@ -3615,7 +3629,6 @@ function viewStory(){
         </div>` : '' }
         <div class="ch-toolbar">
           <span class="ch-toolbar-t">📚 章节列表（共 ${state.chapters.length} 章，已生成 ${state.chapters.filter(c=>c.content && String(c.content).trim()).length} 章）</span>
-          <button type="button" class="btn small ${state.autoQC?'tag-ok':'ghost'}" data-autogc title="生成后是否自动两段式质检（草扫硬伤+段落精修）；关闭则直接落库、省调用">🧪 自动质检：${state.autoQC?'开':'关'}</button>
         </div>
         <div id="chaptersWrap"></div>
         <div class="btn-row" style="margin-top:12px">
@@ -3853,10 +3866,8 @@ function chapterTitleBlock(){
   const o = state.outline;
   const arr = (o && Array.isArray(o.chapters)) ? o.chapters : [];
   if(!arr.length) return '';
-  // P1-4 标题质检持久化：render 时从 o.titleQC 恢复标红（不再只存活一次渲染）
-  const qc = (o.titleQC && Array.isArray(o.titleQC.issues)) ? o.titleQC.issues : [];
   const rows = arr.map((c,i)=>`
-    <div class="ct-row ${qc.some(q=>+q.index===i)?'ct-issue':''}" data-ct-row="${i}">
+    <div class="ct-row" data-ct-row="${i}">
       <span class="ct-no">第${i+1}章</span>
       <span class="ct-title" title="${esc((c&&c.title)||'')}">${esc((c&&c.title)||('第'+(i+1)+'章'))}</span>
       <button type="button" class="ct-edit" data-ct-edit="${i}" title="编辑标题">✎</button>
@@ -3876,6 +3887,7 @@ function chapterTitleBlock(){
     <textarea class="rt-input" id="rtInput" placeholder="重生成要求（选填）：如『标题更有悬念感』『避免剧透式标题』『每章标题用双字词』"></textarea>
     <div class="advice-ai-row">
       <button type="button" class="btn small ghost" data-cth-ai>✨ AI 优化此建议</button>
+      <button type="button" class="ai-upload-btn ai-hist-btn" data-ctadv-hist title="章节标题 AI 建议历史：回看已生成过的建议（随项目保存）">📖<span class="ai-hist-badge">${Array.isArray(state.ctAdviceHist)?state.ctAdviceHist.length:''}</span></button>
       <span class="cth-fold-btn" data-cth-ai-unfold role="button" style="display:none">↗ 展开建议</span>
       <button type="button" class="ct-rtgen" data-rt-gen>重生成</button>
     </div>
@@ -3904,6 +3916,8 @@ function bindChapterTitles(){
   if(rawT) rawT.onclick = ()=> openTitlesRawPanel();
   const cthA = $('[data-cth-ai]');
   if(cthA) cthA.onclick = ()=> ctAiRefineAdvice();   // v10.32 章节标题 AI 优化建议
+  const cthH = $('[data-ctadv-hist]');
+  if(cthH) cthH.onclick = ()=> openAdvHistPanel('ct');   // v10.59 章节标题 AI 建议历史
   const ctBlock = $('.ct-block');
   if(ctBlock) ctBlock.onclick = e=>{
     // v10.38 整卡点击：选中该项（高亮），回填输入框，保持展开不回填后收起
@@ -3998,13 +4012,16 @@ async function ctAiRefineAdvice(){
     ctAdviceCand = list.slice(0,3);
     ctAdviceFold = false;   // v10.33 新一批默认展开显示
     ctAdoptedIdx = -1;      // v10.34 新一批重置已采用状态
+    // v10.59 生成成功即存项目快照（随项目保存，切页/刷新不丢；复刻配方历史）
+    addAdvHist('ct', { id: aiHistEntryId(), ts: Date.now(), desc: '章节标题重生成建议', list: JSON.parse(JSON.stringify(list.slice(0,3))) });
+    refreshAdvHistBadge('ct');
   }catch(e){
     ctAdviceCand = null;
     if(out) out.innerHTML = `<p class="muted" style="color:var(--danger);margin:6px 0 0">⚠️ ${esc((e&&e.message)||'优化失败')}</p>`;
   }
   _aiOptBusy = false;   // v10.43 结束/异常均复位
   if(out) out.innerHTML = ctAdviceResultHtml();
-  if(btn){ btn.disabled = false; btn.textContent = '✨ AI 优化此建议'; }
+  if(btn){ btn.disabled = false; btn.textContent = '✨ AI 优化此建议'; btn.classList.remove('is-busy'); }
   // v10.34 控制折叠按钮显示
   const foldBtn = $('[data-cth-ai-unfold]');
   if(foldBtn){
@@ -4061,7 +4078,6 @@ function setAllTitles(titles){
       cnt++;
     }
   });
-  if(o) o.titleQC = undefined;   // 标题被整体替换后，旧质检标红失效，清空待新质检
   persist();
   return cnt;
 }
@@ -4209,7 +4225,7 @@ function openTitleBatchPreview(idx){
 }
 function closeTitleBatchPreview(){ const p=$('#ctbPreview'); if(p) p.remove(); }
 
-// v10.15 重生成全部章节标题：保留梗概/结构/词典，只重出标题；可选用户建议；生成后自动标题质检（qcTemp）
+// v10.15 重生成全部章节标题：保留梗概/结构/词典，只重出标题；可选用户建议
 async function regenAllTitles(btn){
   const o = state.outline;
   if(!o || !Array.isArray(o.chapters) || !o.chapters.length){ toast('尚无章节标题'); return; }
@@ -4266,41 +4282,12 @@ async function regenAllTitles(btn){
       const batchBtn = ctRow2.querySelector('[data-ct-batch]');
       if(batchBtn) batchBtn.innerHTML = '版本('+chTitleBatches().length+'/50)';
     }
-    // 清除旧标题质检数据（禁用标题质检）
-    if(o) o.titleQC = undefined;
-    // 移除所有行上的红色质检标记
-    document.querySelectorAll('.ct-row').forEach(row=> row.classList.remove('ct-issue'));
-    // 自动标题质检（已禁用）
     toast(`已重生成 ${cnt} 个章节标题`);
   }catch(e){
     if(e.name==='AbortError'){ toast('已停止重生成标题'); }
     else { toast('重生成标题失败：'+e.message); }
   }
   finally{ hideStopBtn(); if(preview) preview.remove(); if(btn) busy(btn,false); }
-}
-
-// v10.15 标题质检：qcTemp 0.2 调用 TITLE_QC_SYS；问题标题行标红 + toast（失败静默跳过）
-async function runTitleQC(titles){
-  const o = state.outline;
-  if(!o) return;
-  try{
-    const spec = resolveActiveSpec();
-    const user = `【标题列表】\n${(titles||[]).map((t,i)=>`${i}. ${t}`).join('\n')}\n\n【设定基准】\n小说：${o.title||''}\n小说简介：${o.logline||''}\n${chapterGlossaryBlock()}`;
-    const txt = await callDeepSeek(TITLE_QC_SYS, user, {temperature: spec.qcTemp});
-    const j = parseJson(txt) || {};
-    const issues = Array.isArray(j.issues) ? j.issues : [];
-    // P1-4 标题质检持久化：结果含时间戳存入 outline.titleQC，标红从数据恢复
-    o.titleQC = { ts: Date.now(), issues: issues.map(it=>({ index:+it.index, type:String(it.type||''), fix:String(it.fix||'') })) };
-    persist();
-    // 标红问题标题行
-    document.querySelectorAll('.ct-row').forEach(row=> row.classList.remove('ct-issue'));
-    (issues||[]).forEach(it=>{
-      const idx = +it.index;
-      const row = document.querySelector('[data-ct-row="'+idx+'"]');
-      if(row) row.classList.add('ct-issue');
-    });
-    if(issues.length) toast(`${issues.length} 个标题可能有问题（红色标记，可 ✎ 修改）`);
-  }catch(e){ /* 质检失败静默跳过，不影响标题使用 */ }
 }
 
 // v10.19 逐章梗概区块：暗红渐变色卡片，独立设计通用于所有主题
@@ -5064,7 +5051,6 @@ function renderChapters(){
             <button class="btn ghost" data-ch-raw="${i}" title="手动提取 AI 原始响应数据，当自动更新失败时使用">🔧</button>
             ${hasChVersions(i)?`<button class="btn ghost" data-ver="${i}">📚 版本(${chVersions(i).length})</button>`:''}
             ${hasEditHistory(i)?`<button class="btn ghost" data-undo="${i}" title="撤销最近一次手动编辑">↩ 撤销编辑</button>`:''}
-            ${isLong() && c.qcRecord ? `<button class="btn ghost" data-qc="${i}" title="查看本次生成的质检记录（AI 改了哪里）">🧪 质检记录</button>`:''}
           </div>
         </div>
       </div>`;
@@ -5919,7 +5905,7 @@ function bindView(){
   // v10.18 结构骨架 / 可复用词典折叠（默认收起，点标题展开）
   $$('[data-rec-fold]').forEach(h=> h.onclick = ()=>{
     const key = h.dataset.recFold;
-    state.recipeSet = state.recipeSet || {structure:null,rhythm:null,quality:[]};
+    state.recipeSet = state.recipeSet || {structure:null,rhythm:null,titleStyle:[]};
     if(!state.recipeSet.recFold) state.recipeSet.recFold = {};
     state.recipeSet.recFold[key] = !state.recipeSet.recFold[key];
     const body = h.parentNode && h.parentNode.querySelector('.recipe-fold-b');
@@ -5931,14 +5917,14 @@ function bindView(){
   // 长篇：三维写作范式选择（结构单选 / 节奏单选 / 质量多选 / 体量二选一）
   $$('[data-structure]').forEach(b=> b.onclick = ()=>{
     const id = b.dataset.structure;
-    state.recipeSet = state.recipeSet || {structure:null,rhythm:null,quality:[]};
+    state.recipeSet = state.recipeSet || {structure:null,rhythm:null,titleStyle:[]};
     if(state.recipeSet.structure === id){ /* 已选中，可取消 */ state.recipeSet.structure = null; }
     else { state.recipeSet.structure = id; }
     persist(); render();
   });
-  // 自动质检开关（取代旧「质量机制」多选）：点击切换 开/关
-  $$('[data-autogc]').forEach(b=> b.onclick = ()=>{
-    state.autoQC = !((typeof state.autoQC === 'boolean') ? state.autoQC : true);
+  // v10.58-narrow：A 窄开关「全部章节安排」：点击切换，生成大纲前选定（关则不生成/不渲染章节分组）
+  $$('[data-cpon]').forEach(b=> b.onclick = ()=>{
+    state.chapterPlanOn = !chapterPlanOn();
     persist(); render();
   });
   // 全书章节数：直接填整数（1-200 必填）。失焦/回车提交 → 设定或解锁范式
@@ -6103,11 +6089,10 @@ const lnER = $('#lnExportReader'); if(lnER) lnER.onclick = openExportReader;
   renderChapters();
   // 用事件委托处理章节区内部点击：分页/折叠会重建部分按钮，委托在 #chaptersWrap 上保证始终生效（Bug2 修复）
   const chaptersDelegate = (e)=>{
-    const t = e.target.closest('[data-regen],[data-toggle],[data-read],[data-fold],[data-page],[data-ver],[data-undo],[data-qc],[data-ch-raw]');
+    const t = e.target.closest('[data-regen],[data-toggle],[data-read],[data-fold],[data-page],[data-ver],[data-undo],[data-ch-raw]');
     if(!t) return;
     if(t.hasAttribute('data-ver')){ openChapterVersionPanel(+t.dataset.ver); }
     else if(t.hasAttribute('data-undo')){ undoChapterEdit(+t.dataset.undo); }
-    else if(t.hasAttribute('data-qc')){ openChapterQcPanel(+t.dataset.qc); }
     else if(t.hasAttribute('data-regen')){ openChapterRegenPanel(+t.dataset.regen); }
     else if(t.hasAttribute('data-ch-raw')){ openChRawPanel(+t.dataset.chRaw); }
     else if(t.hasAttribute('data-toggle')){ const i=+t.dataset.toggle; state.chapters[i].confirmed=!state.chapters[i].confirmed; persist(); render(); }
@@ -6271,7 +6256,8 @@ async function genOutline(){
           // 章节安排兜底：若结构自带专属章节映射（stageChapters/beats/points/volumes），则不强行生成 chapterPlan，
           //   前端会优先用专属映射呈现；否则（网状多线/单线因果）兜底生成 chapterPlan，保证"全部章节安排"一格不空。
           const hasStage = s.stageChapters || s.beats || s.points || (o.volumes && o.volumes.length);
-          if(!hasStage){
+          // v10.58-narrow：A 窄开关关闭时不做"章节安排"扁平兜底（提示词也未要求分组，保持无 chapterPlan）
+          if(!hasStage && chapterPlanOn()){
             if(!s.chapterPlan || typeof s.chapterPlan !== 'object' || !Object.keys(s.chapterPlan).length){
               const flat = {};
               const planKey = (o.chapters && o.chapters[0] && o.chapters[0].volume) ? '全卷章节' : '全章规划';
@@ -6285,7 +6271,8 @@ async function genOutline(){
           if(!s.pivotPlan) s.pivotPlan = '';
         } else {
           // 未选结构：兜底 chapterPlan（AI 自由分组失败也至少保证"全部章节安排"一格不空）
-          if(!s.chapterPlan || typeof s.chapterPlan !== 'object' || !Object.keys(s.chapterPlan).length){
+          // v10.58-narrow：A 窄开关关闭时不兜底（无 chapterPlan），主线四格由上方 STRUCTURE_MAIN_SYS 已归一化
+          if(chapterPlanOn() && (!s.chapterPlan || typeof s.chapterPlan !== 'object' || !Object.keys(s.chapterPlan).length)){
             const flat = {};
             const planKey = (o.chapters && o.chapters[0] && o.chapters[0].volume) ? '全卷章节' : '全章规划';
             flat[planKey] = (o.chapters||[]).map((c,i)=>{ const t=(c&&c.title)||('第'+(i+1)+'章'); return `${t}`; });
@@ -6866,27 +6853,27 @@ function arcMapText(map){
   if(!map || typeof map !== 'object') return '';
   return Object.keys(map).map(k=> `${k}: ${(Array.isArray(map[k])?map[k]:[map[k]]).join('、')}`).join('  ');
 }
-// 自动质检开关（取代旧「质量机制」三选多选框，按 安排token.md §13.3）：默认开，生成后自动两段式查错修正
-function qualityToggleHtml(){
-  const on = (typeof state.autoQC === 'boolean') ? state.autoQC : true;
+// v10.58-narrow：A 窄开关「全部章节安排」——生成大纲前选要/不要，"重要性高于六种结构"：关则不生成该章节分组
+function chapterPlanToggleHtml(){
+  const on = chapterPlanOn();
   return `
     <div class="poly-dim">
-      <div class="poly-head"><span class="poly-ic">🛡️</span><b>自动质检</b><span class="poly-rule">默认开 · 生成后自动查错修正（逻辑/人物/专名/文笔），无错即通过</span></div>
+      <div class="poly-head"><span class="poly-ic">🗂️</span><b>全部章节安排</b><span class="poly-rule"></span></div>
       <div class="poly-grid">
-        <button type="button" class="autoqc-toggle ${on?'active':''}" data-autogc role="switch" aria-checked="${on}">
+        <button type="button" class="autoqc-toggle ${on?'active':''}" data-cpon role="switch" aria-checked="${on}">
           <span class="aqc-track"><span class="aqc-knob"></span></span>
-          <span class="aqc-label">${on?'已开启':'已关闭'}</span>
+          <span class="aqc-label">${on?'开启':'关闭'}</span>
         </button>
       </div>
     </div>`;
 }
-// 长篇：写作范式选择器（结构 + 质量 + 可复用词典，均折叠；节奏/标题两维度 v10.18 移除）
+
+// 长篇：写作范式选择器（结构 + 可复用词典，均折叠；节奏/标题/质量 v10.18/10.60 移除）
 function recipePicker(){
-  const rs = state.recipeSet || {structure:null,rhythm:null,quality:[]};
+  const rs = state.recipeSet || {structure:null,rhythm:null};
   const selSt = selStructure();
   // 组合摘要
   const labelSt = selSt ? selSt.name : '未选';
-  const labelQ = state.autoQC ? '自动质检' : '已关闭';
   // 体量小结：以章节数为准
   const cc = chapterCountVal();
   const szLabel = cc ? `全书 ${cc} 章` : '未填章节数';
@@ -6921,10 +6908,10 @@ function recipePicker(){
   };
   // 章节数必填后，范式区才展开
   const core = ccOn ? `
+    ${chapterPlanToggleHtml()}
     ${fold('🏗️','结构骨架','单选 · 可选其一', 'structure', STRUCTURES.map(it=>card(it,'structure', it.id===rs.structure)).join(''))}
-    ${qualityToggleHtml()}
     ${fold('📇','可复用词典','跨作品词典作一致性底稿', 'glossary', pendingGlossaryPanel())}
-    <p class="muted" style="margin:8px 0 0">结构、质量均可选可不选；全部不选时 AI 将按构想自由发挥。章节数已在「全书章节数」填定。结构骨架/可复用词典默认折叠，点标题展开。</p>`
+    <p class="muted" style="margin:8px 0 0">结构可选可不选；全部不选时 AI 将按构想自由发挥。章节数已在「全书章节数」填定。结构骨架/可复用词典默认折叠，点标题展开。</p>`
     : `<div class="tw-lock"><span class="tw-lock-ic">🔒</span><span>待填写全书章节数后，此处才展开“写作范式”设定。</span></div>`;
   return `<div class="card recipe-card poly-card">
     <div class="tw-panel">
@@ -6939,7 +6926,6 @@ function recipePicker(){
     <div class="poly-combo">
       <span class="pc-lbl">当前组合</span>
       <span class="pc-item">结构：${labelSt}</span>
-      <span class="pc-item">质量：${labelQ}</span>
       <span class="pc-item">体量：${szLabel}</span>
     </div>
     ${core}
@@ -7039,31 +7025,34 @@ function structureCard(o){
   blocks.push(wrapDel('汇合/大逆转','pivotPlan', s.pivotPlan||'', '汇合/大逆转（可留空）'));
   blocks.push(`<div class="sc-row sc-addrow"><button type="button" class="btn small ghost sc-add-sub" data-sc-add-sub>＋ 副线</button></div>`);
   // 章节安排：结构专属映射（stageChapters/beats/points）→ 回退 chapterPlan；卷/全章节为其它呈现
-  const plan = structureChapterPlan(s, o);
-  const pk = activePlanKey(s);
-  if(plan && pk){
-    Object.keys(plan.map).forEach(k=>{
-      const arr = Array.isArray(plan.map[k]) ? plan.map[k].filter(Boolean) : [];
-      blocks.push(`<div class="sc-row sc-plan"><b>${esc(k)}</b>
-        <div class="sc-editwrap">
-          <input type="text" class="sc-edit-in" data-sc-edit="plan:${pk}|${esc(k)}" value="${esc(arr.join('、'))}" placeholder="该维度章节（用、分隔）"/>
-          <button type="button" class="sc-x" data-sc-del="plan:${pk}|${esc(k)}" title="删除该维度章节安排">✕</button>
-        </div></div>`);
-    });
-  } else if(o.volumes && o.volumes.length){
-    o.volumes.forEach((v,i)=>{
-      const chs = (v.chapters||[]).map(c=>c&&c.title).filter(Boolean).join('、');
-      blocks.push(`<div class="sc-row sc-vol">
-        <div class="sc-volhead">
-          <b>卷·${esc(v.name||('第'+(i+1)+'卷'))}</b>
-          <button type="button" class="sc-x" data-sc-del="vol.${i}" title="删除整卷">✕</button>
-        </div>
-        <div class="sc-volbody">
-          <input type="text" class="sc-edit-in" data-sc-edit="volname.${i}" value="${esc(v.name||'')}" placeholder="卷名"/>
-          <input type="text" class="sc-edit-in" data-sc-edit="volchapters.${i}" value="${esc(chs)}" placeholder="该卷章节（用、分隔）"/>
-        </div>
-      </div>`);
-    });
+  // v10.58-narrow：A 窄开关关闭时整块隐藏（不渲染章节安排/分组/卷章节清单），主线四格照常显示
+  if(chapterPlanOn()){
+    const plan = structureChapterPlan(s, o);
+    const pk = activePlanKey(s);
+    if(plan && pk){
+      Object.keys(plan.map).forEach(k=>{
+        const arr = Array.isArray(plan.map[k]) ? plan.map[k].filter(Boolean) : [];
+        blocks.push(`<div class="sc-row sc-plan"><b>${esc(k)}</b>
+          <div class="sc-editwrap">
+            <input type="text" class="sc-edit-in" data-sc-edit="plan:${pk}|${esc(k)}" value="${esc(arr.join('、'))}" placeholder="该维度章节（用、分隔）"/>
+            <button type="button" class="sc-x" data-sc-del="plan:${pk}|${esc(k)}" title="删除该维度章节安排">✕</button>
+          </div></div>`);
+      });
+    } else if(o.volumes && o.volumes.length){
+      o.volumes.forEach((v,i)=>{
+        const chs = (v.chapters||[]).map(c=>c&&c.title).filter(Boolean).join('、');
+        blocks.push(`<div class="sc-row sc-vol">
+          <div class="sc-volhead">
+            <b>卷·${esc(v.name||('第'+(i+1)+'卷'))}</b>
+            <button type="button" class="sc-x" data-sc-del="vol.${i}" title="删除整卷">✕</button>
+          </div>
+          <div class="sc-volbody">
+            <input type="text" class="sc-edit-in" data-sc-edit="volname.${i}" value="${esc(v.name||'')}" placeholder="卷名"/>
+            <input type="text" class="sc-edit-in" data-sc-edit="volchapters.${i}" value="${esc(chs)}" placeholder="该卷章节（用、分隔）"/>
+          </div>
+        </div>`);
+      });
+    }
   }
   return `<div class="card structure-card">
     <div class="sc-head" data-st-fold role="button" tabindex="0" title="展开/收起">
@@ -7177,9 +7166,9 @@ function bindStructureEdit(){
     };
   });
 }
-// 写一条章节正文（依所勾选质量机制 post-processing：dual 双审 / selfref 自省 / plothole 伏笔洞检测）
-// 省 token 策略：正文与初审均带上 max_tokens 上限；各机制一律「段落级重写」而非整章重写，
-// v10.11 已去除「AI 返回本章梗概」契约（事后回填 summary 移除）：AI 输出全文即正文，直接过质检。
+// 拆分章节输出：AI 输出全文即正文，直接落库
+// 省 token 策略：正文沿用写入时的 max_tokens 上限；
+// v10.11 已去除「AI 返回本章梗概」契约（事后回填 summary 移除），v10.60 去除质检两段式修正。
 function splitChapterOutput(txt){
   return { content: String(txt||'').trim(), summary: '' };
 }
@@ -7192,110 +7181,9 @@ async function writeOneChapterContent(i, user, onPhase, onStream, styleOverride,
   onPhase('撰写本章正文…');
   let txt = await callDeepSeek(longChapterSys(styleOverride), user, {maxTokens: mt, onStream, temperature: resolveActiveSpec().chapterTemp, signal: signal || _abortCtl?.signal});   // v10.8 章节温度 / v2.0 风格覆盖
   _chRawBuf = { i, raw: txt, ts: Date.now() };   // 保存原始响应供手动提取
-  // v10.11 全文即正文（无【本章梗概】标记需要拆分），直接过质检
+  // v10.60 去除质检：AI 输出全文即正文，直接落库，不再做两段式查错修正
   const sp = splitChapterOutput(txt);
-  const { final, record } = await applyChapterQuality(sp.content, user, mt, onPhase);   // P1-4/P2-2：返回 {定稿, 质检记录}
-  if(state.chapters[i]) state.chapters[i].qcRecord = record;   // 质检记录（含初稿/定稿对照）挂到本章
-  return final;
-}
-// 对单章正文执行统一「两段式自动质检」：草扫(scanDraft)判定有无硬伤 + 精修(rewriteSegment)只改错误段落。
-// 取代旧的三种质量范式（dual 双审 / selfref 自省 / plothole 伏笔洞），一套规则、无错即过、零无效输出（按 安排token.md §10-§15）。
-// 草扫只发本章，判定「逻辑/人物关系/人名专名/写作」四类硬伤；无错 → pass:true 零改写；有错 → 对每个 anchor 定位的错误段做局部精修，绝不重发全文。
-// 由 buildGen 与批量（2章/多章）共用；autoQC 关闭时直接过，不产生质检请求。
-// P1-4/P2-2：返回 { final, record }——final 为定稿文本；record 为质检记录（scan 判定 + 初稿/定稿对照），供「🧪 质检记录」弹窗展示。
-async function applyChapterQuality(txt, user, mt, onPhase){
-  const noRecord = (f)=> ({ final: String(f||'').trim(), record: null });
-  if(!isLong()) return noRecord(txt);
-  if(typeof state.autoQC !== 'undefined' && !state.autoQC) return noRecord(txt);   // 自动质检开关：关则直接落库
-  mt = mt || chapterMaxTokens();
-  onPhase = onPhase || (()=>{});
-  // 第一步：草扫——只判「有无硬伤 + anchor 定位」，禁止返回改写正文（省最贵的输出 token）
-  onPhase('自动质检（判定）…');
-  let scan;
-  const SCAN_SYS = `你是长篇小说的硬伤审核编辑。请通读【本章初稿】，只判定以下四类硬伤是否存在：①逻辑错误（因果/时间线/前后矛盾）；②人物关系错误（角色关系、称谓、性格与前文不一致）；③人名/地名/专名错误（与前文一致性基准不同或自造拼写）；④写作错误（错字、破损句、明显低质段落）。
-规则：只有确实存在、会损害连贯性或质量的硬伤才标记；本章无明显硬伤则 pass=true。
-请严格只输出如下 JSON（不要解释、不要 markdown 代码块）：
-{"pass":true|false,"issues":[{"type":"逻辑|人物|专名|文笔","anchor":"错误所在段的原文一句，用于精确整段定位替换"}]}
-当 pass=true 时只输出 {"pass":true}，禁止输出 issues/rewritten/how/任何正文。`;
-  let issues;
-  try{
-    const j = parseJson(await callDeepSeek(SCAN_SYS, '【本章初稿】\n'+txt.trim(), {temperature: resolveActiveSpec().qcTemp}));   // v10.8 质检温度
-    issues = (j && !j.pass && Array.isArray(j.issues)) ? j.issues.filter(x=>x && x.anchor && String(x.anchor).trim()) : [];
-  }catch(e){ issues = []; }
-  const record = { ts: Date.now(), passed: !issues.length, issues: [], draft: String(txt||'').trim(), final: '' };
-  if(!issues.length){ record.final = dedupAdjacentParagraphs(txt).trim(); return { final: record.final, record }; }   // 无错即过，零改写（省返回 token）
-  // 第二步：精修——只发「错误段 + 一致性词典 + 词典基准」做局部重写，逐段落回，不重发全文
-  let budget = 3;                                   // 精修次数上限（防止极端硬伤输出放大）
-  let out = txt;
-  const gloss = chapterGlossaryBlock();
-  for(const it of issues){
-    if(budget <= 0) break;
-    const seg = locateSegment(out, it.anchor);
-    if(seg == null) continue;                        // anchor 定位不到该段则跳过精修
-    budget--;
-    onPhase('修正：'+(it.type||'问题')+'…');
-    let rw;
-    try{
-      rw = String((await callDeepSeek(
-        `你是长篇小说的段落改写编辑。只针对【需修正段落】中符合【错误类型】的部分做局部修正，其余文字保持原文、风格与世界观一致，人名/地名/专名一律遵循【一致性基准】，禁止自造新拼写。只输出修正后的段落完整文字，不要解释、不要标题、不要标记。`,
-        `${gloss}\n【错误类型】${it.type||''}\n\n【需修正段落】\n${seg}`,
-        {temperature: resolveActiveSpec().qcTemp}   // v10.8 质检温度
-      )).trim());
-    }catch(e){ rw = ''; }
-    if(rw && rw.length > 8){
-      record.issues.push({ type: it.type||'', anchor: it.anchor, orig: seg, rewritten: rw });   // P1-4：记录原文段 → 修正段对照
-      out = applyPatches(out, [{anchor:it.anchor, rewritten:rw}]);
-    }
-  }
-  record.final = dedupAdjacentParagraphs(out).trim();
-  record.passed = !record.issues.length;
-  return { final: record.final, record };
-}
-/* ---------- P1-4/P2-2 质检记录弹窗：scan 判定 + 原文/修正对照 + 初稿/定稿 ---------- */
-function openChapterQcPanel(i){
-  closeChapterQcPanel();
-  const c = state.chapters[i]; if(!c || !c.qcRecord) { toast('本章暂无质检记录'); return; }
-  const r = c.qcRecord;
-  const fmtTs = ts=>{ const d=new Date(ts); return (d.getMonth()+1)+'-'+d.getDate()+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); };
-  const issuesHtml = r.issues.length ? r.issues.map((it,idx)=>`
-    <div class="qc-issue">
-      <div class="qc-issue-t">${idx+1}. 类型：<b>${esc(it.type||'未分类')}</b><span class="muted"> · anchor：${esc(it.anchor||'')}</span></div>
-      <div class="qc-pair">
-        <div class="qc-side"><div class="qc-side-t">✂️ 原文段（AI 判定的问题段）</div><div class="qc-pre">${esc(it.orig||'')}</div></div>
-        <div class="qc-side"><div class="qc-side-t">✅ 修正后段落</div><div class="qc-pre qc-fixed">${esc(it.rewritten||'')}</div></div>
-      </div>
-    </div>`).join('') : '<p class="muted">草扫未发现硬伤，零改写通过。</p>';
-  const ov = document.createElement('div'); ov.id='qcPanel'; ov.className='gs-overlay';
-  ov.innerHTML = `
-    <div class="gs-modal">
-      <div class="gs-modal-head"><b>🧪 质检记录 · 第${i+1}章「${esc(cleanChapterTitle(c.title))}」</b>
-        <button class="gs-x" data-qc-close>✕</button></div>
-      <div class="cv-body">
-        <div class="cv-row cur"><div class="cv-meta"><span class="cv-time">${fmtTs(r.ts)}</span><span class="cv-wc">${r.passed ? '✅ 通过（零改写）' : '⚠️ 已修正 '+r.issues.length+' 处'}</span></div></div>
-        <div class="cv-div">AI 质检改了哪些地方、初稿 vs 定稿，都在这里可查。</div>
-        ${issuesHtml}
-        <div class="cv-div" style="margin-top:10px">📄 初稿 / 定稿 对照（仅展示，正文以当前章节内容为准）</div>
-        <div class="qc-pair">
-          <div class="qc-side"><div class="qc-side-t">初稿（AI 原始返回，QC 前）</div><div class="qc-pre">${esc((r.draft||'').slice(0,1200))}${(r.draft||'').length>1200?'…':''}</div></div>
-          <div class="qc-side"><div class="qc-side-t">定稿（QC 修正后落库）</div><div class="qc-pre qc-fixed">${esc((r.final||'').slice(0,1200))}${(r.final||'').length>1200?'…':''}</div></div>
-        </div>
-      </div>
-    </div>`;
-  document.body.appendChild(ov);
-  ov.querySelector('[data-qc-close]').onclick = closeChapterQcPanel;
-  ov.addEventListener('click', e=>{ if(e.target===ov) closeChapterQcPanel(); });
-}
-function closeChapterQcPanel(){ const p=$('#qcPanel'); if(p) p.remove(); }
-// 依 anchor 定位其在整章中的所在段原文（供精修第二步只发该段；复用 applyPatches 的段落边界逻辑）
-function locateSegment(txt, anchor){
-  const a = String(anchor || '').trim();
-  if(!txt || !a) return null;
-  const idx = txt.indexOf(a);
-  if(idx < 0) return null;
-  const segStart = txt.lastIndexOf('\n\n', idx) + 2;
-  let segEnd = txt.indexOf('\n\n', idx + a.length);
-  if(segEnd < 0) segEnd = txt.length;
-  return txt.slice(segStart, segEnd);
+  return String(sp.content).trim();
 }
 // 组装单章生成的 user 提示词。恒定前缀块（标题/梗概/全部章节标题/一致性词典）保持在前、全章不变，
 // 以最大化 DeepSeek 上下文缓存命中；可变信息（上一章全文/结构注入）尽量放后。
@@ -7457,6 +7345,7 @@ function openChapterRegenPanel(i){
         <textarea id="rpAdvice" class="rp-advice" placeholder="例如：这一章节奏太慢，请压缩到 1500 字以内；女主的性格再外放一点；增加与上一章结尾的衔接…（可选）"></textarea>
         <div class="advice-ai-row">
           <button type="button" class="btn small ghost" data-advice-ai="${i}">✨ AI 优化此建议</button>
+          <button type="button" class="ai-upload-btn ai-hist-btn" data-advadv-hist="${i}" title="章节内容 AI 建议历史：回看已生成过的建议（随项目保存）">📖<span class="ai-hist-badge">${Array.isArray(state.contentAdviceHist)?state.contentAdviceHist.length:''}</span></button>
           <span class="muted" style="font-size:11px">AI 基于本章全文与上下文学你的要求，给出 3 个可直接采用的命令；点击即回填，可再手改</span>
         </div>
         <div data-advice-ai-out></div>
@@ -7616,6 +7505,8 @@ function openChapterRegenPanel(i){
   // v1.0.60 AI 提炼优化：触发生成 + 候选点击回填并聚焦
   const aiBtn = ov.querySelector('[data-advice-ai]');
   if(aiBtn) aiBtn.onclick = ()=>{ aiRefineAdvice(i); };
+  const advH = ov.querySelector('[data-advadv-hist]');
+  if(advH) advH.onclick = ()=> openAdvHistPanel('content');   // v10.59 章节内容 AI 建议历史
   ov.addEventListener('click', e=>{
     const t = e.target.closest('[data-advice-ai-pick]'); if(!t) return;
     const j = +t.dataset.adviceAiPick;
@@ -7682,6 +7573,10 @@ async function aiRefineAdvice(i){
     const list = parseAiJsonList(res);
     if(!Array.isArray(list) || !list.length) throw new Error('AI 未返回有效建议，请重试');
     aiAdviceCand = list.slice(0,3);
+    // v10.59 生成成功即存项目快照（随项目保存，关弹窗/切页不丢；复刻配方历史）
+    const _ch = state.chapters[i] || {}; const _oc = (state.outline&&state.outline.chapters&&state.outline.chapters[i])||{};
+    addAdvHist('content', { id: aiHistEntryId(), ts: Date.now(), desc: '章节「'+( _ch.title || _oc.title || ('第'+(i+1)+'章') )+'」重生成建议', list: JSON.parse(JSON.stringify(list.slice(0,3))) });
+    refreshAdvHistBadge('content');
   }catch(e){
     aiAdviceCand = null;
     if(out) out.innerHTML = `<p class="muted" style="color:var(--danger);margin:6px 0 0">⚠️ ${esc((e&&e.message)||'优化失败')}</p>`;
@@ -7714,12 +7609,10 @@ async function genChapterCompare(i, styleA, styleB){
     const user = buildChapterUser(i, {regenerating:true});
     setPhase('生成 A 稿（当前风格）…');
     const txtA = await writeOneChapterContent(i, user, setPhase, null, styleA);
-    const qcA = state.chapters[i] && state.chapters[i].qcRecord ? state.chapters[i].qcRecord : null;
     setPhase('生成 B 稿（对比风格）…');
     const txtB = await writeOneChapterContent(i, user, setPhase, null, styleB);
-    const qcB = state.chapters[i] && state.chapters[i].qcRecord ? state.chapters[i].qcRecord : null;
     chState[i] = 'done';
-    openComparePanel(i, txtA, txtB, qcA, qcB);
+    openComparePanel(i, txtA, txtB);
     if(st){ st.className='status ok'; st.textContent = `第 ${i+1} 章双风格对比稿已生成，请在弹窗中选择采用。`; }
     toast('两稿已生成，请选择采用');
   }catch(e){
@@ -7733,7 +7626,7 @@ async function genChapterCompare(i, styleA, styleB){
   }
 }
 // 对比结果弹窗：左右两栏（复用 .qc-pair）+ 采用 A/B + 未采用稿与旧正文一并入版本历史
-function openComparePanel(i, a, b, qcA, qcB){
+function openComparePanel(i, a, b){
   closeComparePanel();
   const c = state.chapters[i];
   const title = c && c.title ? c.title : ('第'+(i+1)+'章');
@@ -7768,7 +7661,6 @@ function openComparePanel(i, a, b, qcA, qcB){
     ch.content = pick;
     if(other && String(other).trim()) ch.history.push({ content: other, ts: Date.now() });   // 未采用稿也入历史备查
     if(ch.history.length > 50) ch.history.splice(0, ch.history.length - 50);
-    ch.qcRecord = isA ? (qcA||null) : (qcB||null);   // 质检记录与采用稿对齐，避免误导
     persist(); closeComparePanel(); renderChapters(); updateWcTotal();
     toast('已采用 '+(isA?'A':'B')+' 稿');
   });
@@ -7853,7 +7745,7 @@ async function genTwoChapters(pairStart){
 
 // 一次写 n 章（v10）：由「一次请求连写 n 章再 splitNChapters 切分」改为逐章顺序生成——每章独立一个请求，
 // 第 k 章用上一章刚生成/已写的真实正文承接；产出即章节，无需切分器判归属，杜绝整批错切/缺章/挤一格。
-// 篇幅均衡自动由每章独立生成其区间保证；质检随 writeOneChapterContent 逐章执行；失败向上抛错交由批次停批。
+// 篇幅均衡自动由每章独立生成其区间保证；失败向上抛错交由批次停批。
 async function genNChapters(start, n){
   if(n <= 0) return;
   for(let k=0;k<n;k++){

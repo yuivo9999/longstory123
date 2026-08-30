@@ -108,9 +108,7 @@ label.field>span{display:block;font-size:12px;color:var(--sub);margin-bottom:6px
 .prompt-text .shot-edit{margin-top:2px}
 .scene-edit-name,.scene-edit-role,.scene-edit-desc,.scene-edit-prompt,.cover-edit{padding:4px 8px;font-size:13px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--text);font-family:inherit}
 .scene-edit-desc,.scene-edit-prompt,.cover-edit{width:100%}
-/* P1-4/P2-2 质检记录弹窗 */
-.qc-issue{border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px;background:var(--panel2)}
-.qc-issue-t{font-size:13px;margin-bottom:6px}
+/* 对比结果弹窗（复用 .qc-pair/.qc-side/.qc-pre） */
 .qc-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 @media(max-width:560px){ .qc-pair{grid-template-columns:1fr} }
 .qc-side{border:1px solid var(--line);border-radius:8px;overflow:hidden}
@@ -302,7 +300,7 @@ label.field>span{display:block;font-size:12px;color:var(--sub);margin-bottom:6px
 .poly-grid .pt span{color:var(--sub);flex:1;word-break:break-word}
 .r-check{position:absolute;top:10px;right:10px;width:18px;height:18px;border-radius:50%;border:1.5px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:11px;color:#fff;background:transparent}
 .poly-grid .recipe.active .r-check{border-color:var(--accent);background:var(--accent)}
-/* 自动质检开关（v9：取代旧「质量机制」多选） */
+/* 胶囊开关（.autoqc-toggle：复用为「全部章节安排」等开关） */
 .autoqc-toggle{display:inline-flex;align-items:center;gap:10px;padding:10px 16px;border:1.5px solid var(--line);border-radius:999px;background:var(--panel2);cursor:pointer;transition:all .18s}
 .autoqc-toggle:hover{border-color:var(--accent)}
 .autoqc-toggle.active{border-color:var(--accent);background:color-mix(in srgb, var(--accent) 14%, var(--panel2))}
@@ -653,7 +651,7 @@ body.reader-lock{overflow:hidden}
 .pol-text{min-height:120px;width:100%;padding:8px 10px;font-size:13px;line-height:1.7;box-sizing:border-box}
 .pol-multi{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--muted);cursor:pointer}
 .pol-multi input{width:14px;height:14px;cursor:pointer}
-/* v10.17 章节列表工具栏（右上角质检开关） */
+/* v10.17 章节列表工具栏 */
 .ch-toolbar{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:10px 0 4px;flex-wrap:wrap}
 .ch-toolbar-t{font-size:13px;color:var(--sub)}
 
@@ -757,9 +755,12 @@ body.reader-lock{overflow:hidden}
 .ct-block.ct-collapsed > .advice-ai-row,
 .ct-block.ct-collapsed > [data-cth-ai-out],
 .ct-block.ct-collapsed > .ct-list{display:none}
-.ct-fold-ico{font-size:11px;margin-left:2px}
-.ct-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px}
-.ct-head b{font-size:13px}
+.ct-fold-ico{font-size:11px;margin-left:2px;color:#fff !important;opacity:.9;text-shadow:0 1px 2px rgba(20,80,50,.3)}
+.ct-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px !important;background:linear-gradient(135deg,#3cb371 0%,#a9e087 100%);border:none !important;border-bottom:none !important;border-radius:12px;padding:10px 12px !important;box-shadow:0 4px 16px rgba(60,179,113,.45), inset 0 1px 1px rgba(255,255,255,.3)}
+.ct-head:hover{background:linear-gradient(135deg,#4cc884 0%,#c2f3a8 100%)}
+.ct-head b{font-size:13px;color:#fff !important;text-shadow:0 1px 2px rgba(20,80,50,.35)}
+.ct-head .ct-tools .btn{background:rgba(255,255,255,.22);border:1px solid rgba(255,255,255,.5);color:#fff !important;text-shadow:0 1px 2px rgba(20,80,50,.35)}
+.ct-head .ct-tools .btn:hover{background:rgba(255,255,255,.34);color:#fff !important}
 .ct-tools{display:flex;gap:6px;flex-wrap:wrap}
 .rt-style-row{display:flex;align-items:center;gap:4px;font-size:12px;font-weight:600;color:var(--txt);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:5px 8px;margin-bottom:6px;width:fit-content;user-select:none;cursor:pointer}
 .rt-style-row input{accent-color:var(--accent);margin:0}
@@ -770,8 +771,6 @@ body.reader-lock{overflow:hidden}
 .ct-row2{display:flex;align-items:center;gap:8px;margin-bottom:6px}
 .ct-row2 .btn{flex:0 0 auto}
 .ct-row2 .btn[data-ct-batch]{margin-left:auto}
-.ct-issue .ct-title{color:#e5534b}
-.ct-issue .ct-no{color:#e5534b;font-weight:700}
 .ct-list{max-height:220px;overflow:auto;display:flex;flex-direction:column;gap:2px}
 .ct-row{display:flex;align-items:center;gap:8px;padding:3px 4px;border-radius:6px}
 .ct-row:hover{background:color-mix(in srgb, var(--accent2) 8%, transparent)}

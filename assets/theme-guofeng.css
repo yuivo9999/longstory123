@@ -493,9 +493,9 @@
 [data-theme="guofeng"] .ws-opt:hover { border-color: var(--gf-gold); background: rgba(212,168,75,0.15); }
 [data-theme="guofeng"] .ws-opt-name { color: var(--gf-ink); }
 [data-theme="guofeng"] .ws-opt-note { color: var(--gf-dim); }
-[data-theme="guofeng"] .ws-opt.on { border-color: var(--gf-red); background: rgba(166,50,50,.12); box-shadow: inset 3px 0 0 var(--gf-red); }
-[data-theme="guofeng"] .ws-opt.on .ws-opt-name { color: var(--gf-red); }
-[data-theme="guofeng"] .ws-opt.on .ws-opt-note { color: var(--gf-dim); }
+[data-theme="guofeng"] .ws-opt.on { border-color: var(--gf-red); background: var(--gf-red); box-shadow: none; color: #fff; }
+[data-theme="guofeng"] .ws-opt.on .ws-opt-name { color: #fff; }
+[data-theme="guofeng"] .ws-opt.on .ws-opt-note { color: rgba(255,255,255,.85); }
 
 
 /* 逐章梗概卡片适配古风宣纸底色 */
