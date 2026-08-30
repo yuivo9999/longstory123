@@ -7,7 +7,7 @@
 'use strict';
 
 /* ---------- 全局状态 ---------- */
-const APP_VERSION = '1.0.34';   // 应用版本号（P1-1v4 新增：标题/单章原始AI响应手动提取按钮）：index.html 的 ?v= 资源戳与之同步递增，用于标识产物已更新
+const APP_VERSION = '1.0.106';   // 应用版本号（P1-1v4 新增：标题/单章原始AI响应手动提取按钮）：index.html 的 ?v= 资源戳与之同步递增，用于标识产物已更新
 const KEY_CFG = 'fyp_cfg';
 const KEY_STATE = 'fyp_state';   // 旧版单项目 key（仅用于首次迁移）
 const KEY_LIB = 'fyp_lib';       // 新版多项目历史库
@@ -24,13 +24,14 @@ const state = {
   chapterRange: null,   // (兼容遗留) 同上
   totalWords: null,     // (兼容遗留) 同上
   chapterCount: null,   // 全书章节数量（整数 1-200，生成大纲前唯一必填数字；null=未设）
+  loglineRange: {min:300, max:700},   // v11 小说简介字数范围（生成大纲前用户可调）：{min,max}，max 上限 5000，min>max 自动对调
   idea: '',
   coverPrompt: '',      // 整部小说封面提示词（场景页生成 / 长篇模式用）
   coverWithTitle: false,// 封面提示词是否包含「汉字书名」（false=纯画面无文字）
   outline: null,        // {title, logline, chapters:[{title,summary}]}
   outlineConfirmed: false,
   pendingGlossary: null, // v8 辅轨槽位：大纲前导入的待用词典 {characters,places,propernouns}，不写进 outline 直至确认
-  glossAdherence: 60,   // v8 遵从度（%）：用户控制 AI 遵循词典的程度；默认 60（折中，续作/新作均安全，见规划 Q4）
+  glossAdherence: 80,   // v11 遵从度滑条已移除：固定基准 80（尽量沿用既有命名，允许小幅调整）；留有字段兼容旧快照
   glossAllowFill: false, // v8 「允许 AI 补充」开关：低遵从时是否放行 AI 新增实体
   glossAutoFill: true,   // v8c 词典自动补全（默认开）：批量生成章节后自动提取正文中的新人物/地名/专名并入词典；关则只保留手动「📥 提取新增」
   gsCollapsed: true,    // v8b：万物词典卡片是否整卡收缩（默认收缩，点圆形展开全部）
@@ -760,7 +761,7 @@ ${JSON_HEADER}
 4. 必须考虑【下一章标题】，在本章结尾处埋下指向下一章的线索或悬念，但不得提前揭示下一章的具体情节。
 5. 万物词典中的设定（人物身份与关系、地名、专名等）必须准确使用，不得出现与词典相悖或自造新名的情况。
 6. 人物言行需符合其性格设定（可从小说简介或万物词典中获取），对话需具有辨识度，避免千人一面。
-7. 正文长度控制在3000—7000字之间，可根据本章内容密度适当浮动，但须保证情节充实而不拖沓。
+7. 正文长度控制在2000—5000字之间，可根据本章内容密度适当浮动，但须保证情节充实而不拖沓。
 8. 章节内部应有节奏变化，例如紧张场景与舒缓场景交替，避免通篇平铺直叙。每段描写应服务于情节推进或人物塑造。
 9. 内部自查（不写入输出）：输出前确认本章主线简述中的关键事件均已覆盖，且与上一章结尾和下一章标题形成合理连接。若主线简述与小说简介有细微冲突，以小说简介为准，并在正文中自然调和，不显突兀。`,
 
@@ -2112,7 +2113,7 @@ ${JSON_HEADER}
 {"title":"小说名","logline":"小说简介（含核心冲突与深层命题）"}
 【硬性约束】
 1. 只输出 书名 与 小说简介 两项，禁止输出章节标题、逐章梗概、阶段目标或结构规划——书名/章节标题/逐章梗概将在后续独立步骤分别生成。
-2. 小说简介须点明核心冲突与深层命题，篇幅控制在 300—700 字之间，为后续生成章节标题与逐章梗概提供依据。
+2. 小说简介须点明核心冲突与深层命题，篇幅须落在末尾【简介字数约束】指定的字数区间内，为后续生成章节标题与逐章梗概提供依据。
 【自由发挥区】在满足以上约束的前提下，书名的立意、简介的表述方式由你自由构思。`;
 
 const GLOSSARY_SYS = `\n\n【glossary 万物词典（必须一并输出）】请在返回的 JSON 顶层再追加一个 glossary 字段，作为全文保持一致性的权威基准：
@@ -2121,13 +2122,18 @@ const GLOSSARY_SYS = `\n\n【glossary 万物词典（必须一并输出）】请
 【relation 与 identity 务必区分，不可混淆】
 · identity 身份 = 她/他自己是谁：职业/职务/族群/社会地位，可独立成句——「她是捕快」「她是市长」「她是尼罗河努比亚族船女」「她是篮球运动员」；
 · relation 关系 = 她/他和谁是什么关联：血缘/姻亲/友伴/主仆，必须带"谁的"才成立——「林晚的妹妹」「她的仆人」「朋友：陈默」；禁止把身份词（捕快/市长/船女）写进 relation；
-人物条目中不设"职能/角色定位"字段。trait 归纳稳定性格以便后续各章保持一致。`;
+人物条目中不设"职能/角色定位"字段。trait 归纳稳定性格以便后续各章保持一致。
+【人物字段自洽（硬约束）】同一人物的名字与其各字段必须相互自洽、并能容纳其剧情设定，禁止出现下列矛盾：
+· 已写明"在此地居住/任职/习武多年"，而 age 却小于该年限——例如"已在此住了30年"却仅23岁；应上调 age 或下调年限，取能自圆其说的一致值；
+· 履历类身份（当官/从军/任职）须让年龄能容纳任职时长——例如18岁却"当官5年"自相矛盾；任职起始须早于当前 age，身份与 age 区间匹配（太后/驸马/童养媳等对 age 亦有隐含约束）；
+· relation 蕴含的年龄轴：子代须小于亲代、兄弟/姐妹年龄差须合理；
+· 特殊预设（转世/穿越/长生/修仙/不老/永生）可豁免数值约束，但必须在 identity 或 relation 中显式标注，不允许无理由的年限冲突。`;
 
 // v11 全书规划师：不再生成"节奏/埋点/回收"三段式梗概，改为每章主线简述 + 定稿章节标题 + 初期万物词典。
 // 一套请求三样产出：titles(定稿标题) / chapterPlans(每章主线简述) / glossary(初期词典，写正文的一致性种子)。
 const CHAPTER_PLAN_SYS = `你是一名全书级叙事规划师（全书规划师）。
 【核心任务】基于用户提供的小说书名、小说简介、全部章节标题（仅作参考，非最终定稿）、万物词典，一次产出如下三样：
-一、每章【主线简述】：本章发生了哪些剧情内容（起承转合、关键事件、人物动向、为下一章留下的引子）。不写节奏类型，不写埋点回收。
+一、每章【主线简述】：本章发生了哪些剧情内容（起承转合、关键事件、人物动向）。不写节奏类型，不写埋点回收。
 二、【定稿章节标题】：根据参考标题，在【不改变章节数量、一章不增不减】的前提下，为每一章重拟一版更有表现力的最终标题。
 三、【初期万物词典】：主角与核心配角、关键地名、专名，作为全文一致性基准；不必穷举所有路人，其余交正文增量补全。
 【输出】严格只输出如下 JSON（不要解释、不要 markdown 代码块）：
@@ -2137,7 +2143,12 @@ const CHAPTER_PLAN_SYS = `你是一名全书级叙事规划师（全书规划师
 1. titles 与 chapterPlans 的数量必须与现有章节数完全一致、顺序一一对应；一章不增不减。
 2. titles：不照抄参考标题，改写得更有表现力；立意新颖但不剧透、不泄露后续反转；不重复前文已用梗。
 3. 每章主线简述：写清本章真实发生的剧情（关键事件、人物动向、冲突推进），给后续写正文提供依据；80—160字。
-4. glossary：只列主角与核心配角（含身份 identity/关系 relation）、关键地名与专名；正文一律只使用本词典人名/地名/专名。
+4. glossary：只列主角与核心配角（包含了"name":"人名","identity":"身份/职业/社会身份","age":"岁数/年龄","gender":"性别","appearance":"外貌特征","hobby":"爱好/习惯","relation":"与该人的血缘/人际关联","trait":"性格要点"）、关键地名与专名；正文一律只使用本词典人名/地名/专名。
+4.1 ★【人物字段自洽（硬约束）】本阶段为初期词典，是后续正文一次性兜底的自洽基准；同一人物的各字段必须相互自洽并能容纳其剧情设定，禁止出现下列矛盾：
+· 已写明"在此地居住/任职/习武多年"而 age 却小于该年限——例如"已在此住了30年"却仅23岁；应上调 age 或下调年限，取能自圆其说的一致值；
+· 履历类身份（当官/从军/任职）须让年龄容纳任职时长——例如18岁却"当官5年"自相矛盾；任职起始须早于当前 age，身份与 age 区间匹配；
+· relation 蕴含的年龄轴：子代须小于亲代、兄弟/姐妹年龄差须合理；
+· 特殊预设（转世/穿越/长生/修仙/不老/永生）可豁免数值约束，但必须在 identity 或 relation 中显式标注，不允许无理由的年限冲突。
 5. 不要 markdown 代码块。`;
 
 
@@ -2169,9 +2180,9 @@ const REGEN_TITLES_SYS = `你是一位深谙标题艺术的章节标题策划师
 2. 标题必须服从现有设定：与小说简介、结构设计、设定词典保持一致，不引入新人物/地名/专名；
 3. 标题有表现力、立意新颖但不剧透：体现本章走向/情绪，不泄露后续反转与结局，不重复前文已用梗；
 4. **防套路第一优先**：避免"xx之怒/惊变/震惊"式流水线命名与网文高频句式，也不刻意追求"钩子感"（钩子感要求已废除，防套路优先）；立意从本作独特设定推导；
-5. 若用户提示中出现【写作风格约束（首位要求，须优先遵循）】块，必须作为首位硬约束执行——每条标题的措辞基调都须贴合该风格（如"严肃"则标题庄重不轻佻、"温情细腻"则带温度、"冷峻克制"则惜字如金），不得忽略或降级；
+5. 若用户提示中出现【写作风格】块，每条标题的措辞基调都须贴合该风格（如"严肃"则标题庄重不轻佻、"温情细腻"则带温度、"冷峻克制"则惜字如金），不得忽略或降级；
 6. 若用户提供了【重生成要求】，须以要求为最高优先（高于全书要求与写作风格）；
-7. 优先级契约：若【全书要求】与【写作风格约束】同时出现，以全书要求为准、写作风格其次；但二者均不得违反设定词典一致性（人名/地名/专名）；
+7. 优先级契约：若【全书要求】与【重生成要求】同时出现，以重生成要求为准、全书要求其次；但二者均不得违反设定词典一致性（人名/地名/专名）；
 8. 只输出 JSON 数组（不要解释、不要 markdown 代码块）：{"titles":["第1章标题","第2章标题",...]}
 【自由发挥区】标题的立意、措辞、角度由你把握，让每章标题读起来各有记忆点、整批标题风格错落。`;
 
@@ -2209,6 +2220,7 @@ const GLOSSARY_EXTRACT_SYS = `你是长篇小说设定整理助手。给定【�
    · 从正文中提取该人物的身份、年龄、性别、外貌、爱好、关系、性格等信息，正文未明说的字段按上下文合理推断后填写；
    · 实在无法推断的字段填「未知」，不得留空、不得删除该字段；
    · relation 与 identity 务必区分：身份词（捕快/市长/船女）归 identity；带"谁的"的人际关联（XX的妹妹/她的仆人）归 relation。
+   · ★推断须自洽：填写的 age 与履历/居住年限类设定不得矛盾（如"在此已住30年"却23岁、"18岁却已当官5年"）；子代须小于亲代；转世/穿越/长生/修仙等特殊预设可豁免，但需有对应标注。
 4. 无明显新实体时输出 {"characters":[],"places":[],"propernouns":[]}。`;
 
 /** 未选结构时的「章节安排」提示：仅要求 AI 输出 structure.chapterPlan，把全部章节按主题/起承转合自由分组、一章不落；
@@ -2254,6 +2266,12 @@ function buildOutlineSys(){
   //   N 迁至第二步「章节标题」生成前作为标题数量锚点；词典在第三步「逐章梗概」前生成。
   parts.push(OUTLINE_GEN_SYS);
   parts.push('\n\n'+ORIGINALITY_OUTLINE_SYS);   // 防套路/人名规避（沿用）
+  // v11 用户可调简介字数区间（仅长篇、生成大纲前设定）：动态注入，AI 严格遵守
+  const lr = state.loglineRange;
+  const _m = Number.isFinite(lr&&lr.min)?Math.max(1,Math.floor(lr.min)):300;
+  const _x = Number.isFinite(lr&&lr.max)?Math.min(5000,Math.max(1,Math.floor(lr.max))):700;
+  const _lo = Math.min(_m,_x), _hi = Math.max(_m,_x);   // 兜底：min>max 自动对调
+  parts.push(`\n\n【简介字数约束】本作小说简介总字数必须控制在 ${_lo}—${_hi} 字之间，严格遵守区间，不得超出。`);
   return parts.join('\n\n');
 }
 // 遵从度 → 喂给 AI 的要求（v8：与 adherenceHint 的语义一一对应，供模型判断遵循程度）
@@ -3467,6 +3485,7 @@ function viewStory(){
       </div>
       ${ polishKeepBar() }
       ${ isLong() ? recipePicker() : specPickerHtml() }
+      ${ isLong() ? loglineRangeHtml() : '' }
       <div class="btn-row">
         <button id="btnGenOutline" class="btn primary block">${isLong()?'📚 生成长篇大纲':'✨ 生成故事大纲'}</button>
       </div>
@@ -3477,8 +3496,6 @@ function viewStory(){
   const o = state.outline;
   let html = `
     ${ origIdeaCard() }
-    ${ isLong() ? aiRecipeCard() : '' }
-    ${ writeStyleCard() }
     <div class="card">
       <div class="card-head-row">
         <h3 style="margin:0">📋 故事大纲</h3>
@@ -3491,6 +3508,8 @@ function viewStory(){
         <p class="global-req-hint">全书级要求：注入「标题 / 逐章梗概 / 章节内容」，优先级：写作风格 &gt; 单章干预 &gt; 全书要求 &gt; 字典一致性。</p>
       </div>
       ${ chapterTitleBlock() }
+      ${ isLong() ? aiRecipeCard() : '' }   <!-- v11 卡片顺序：AI配方助手 移到 章节标题 与 全书规划师 之间 -->
+      ${ writeStyleCard() }
       ${ state.outlineConfirmed ? `
         ${ isLong() ? chapterPlanBlock() : '' }
         ${ isLong() ? glossaryCardHtml() : '' }
@@ -3771,7 +3790,7 @@ function chapterTitleBlock(){
     ${nIn}
     <textarea class="rt-input" id="rtInput" placeholder="重生成要求（选填）：如『标题更有悬念感』『避免剧透式标题』『每章标题用双字词』"></textarea>
     <div class="advice-ai-row">
-      <button type="button" class="btn small ghost" data-cth-ai>✨ AI 优化此建议</button>
+      <button type="button" class="btn small ghost" data-cth-ai>✨ 标题优化建议</button>
       <button type="button" class="ai-upload-btn ai-hist-btn" data-ctadv-hist title="章节标题 AI 建议历史：回看已生成过的建议（随项目保存）">📖<span class="ai-hist-badge">${Array.isArray(state.ctAdviceHist)?state.ctAdviceHist.length:''}</span></button>
       <span class="cth-fold-btn" data-cth-ai-unfold role="button" style="display:none">↗ 展开建议</span>
       <button type="button" class="ct-rtgen" data-rt-gen>重生成</button>
@@ -3857,56 +3876,63 @@ let ctAdoptedIdx = -1;     // v10.34 当前已采用的选项索引（-1 表示�
 function buildCtAdviceCtx(){
   const o = state.outline || {};
   return {
-    小说标题: o.title || '',
+    小说书名: o.title || '',
     小说简介: o.logline || '',
-    设定词典: chapterGlossaryBlock(),
-    现有章节标题: (o.chapters||[]).map((c,i)=>`第${i+1}章 ${(c&&c.title)||''}`).join(' / ')
+    现有全部章节标题: (o.chapters||[]).map((c,i)=>`第${i+1}章 ${cleanChapterTitle(c&&c.title)}`).join('\n')
   };
 }
 function ctAiRefinePrompt(ctx, raw){
+  const _raw = String(raw||'').trim();
   return { system:[
-    '你是资深长篇小说的章标题策划师。用户在"重生成全部标题"的要求框里写了一段粗略的重生成要求（可能是风格方向、悬念感、字数对仗、避免套路等）。',
-    '请把它提炼成 3 条【可直接作为重生成要求下发给标题生成 AI 的建议稿】，供用户挑选回填。',
-    '输出：仅一个 JSON 数组（3 项），无任何讲解、无 markdown 代码块前后缀。每项结构：',
-    '{ "title":"一句话说明这条要求侧重什么", "text":"完整重生成要求（用命令式、可执行，可直接提交给标题生成 AI）" }',
-    '规则：',
-    '1.充分依据给出的【现有章节标题】风格与【长篇结构】【设定词典】，让要求具体可执行，不空话。',
-    '2.三条从不同角度覆盖（如：一条偏立意/悬念、一条偏字数对仗/画面感、一条偏避免套路/统一专名与人名），或按用户原话拆三个侧重点。',
-    '3.text 用对标题 AI 说的命令式祈使句，明确范围与幅度，不得自造与大纲、词典冲突的设定或专名。',
-    '4.若用户原话已足够明确，则逐条拆细表达而非改写其语义。'
+    '你是资深长篇小说的章标题策划师。用户在"重生成要求"框里可能写了一段补充要求（风格方向、悬念感、字数对仗、避免套路等），也可能留空、只想听你对全部章节标题的专业点评。',
+    '请审读给出的【现有全部章节标题】【小说书名】【小说简介】，输出 1–3 条建议（至少 1 条、最多 3 条）；每条 = { title(一句话定位本条侧重), text(完整点评 + 可直接作为重生成要求下发给标题 AI 的可执行命令) }。',
+    '【允许"无建议"】若现有标题整体已足够好，就只返回 1 条：{"title":"无建议","text":"现有标题整体稳定，暂不建议改动。"}——宁缺毋滥，不硬凑条数、不胡说。',
+    '【点评要点】整套标题风格是否统一、有无重复/呆板/同质化标题、字数是否对仗、悬念与画面感、与书名/简介的契合度、整体节奏感。',
+    '【有补充要求时】先满足用户要求（'+ (_raw? _raw.slice(0,120)+'…' : '（用户未给出方向）') +'）的角度，再在该方向之外综合点评；要求为空时直接审读全部标题点评。',
+    '【可执行】text 用对标题 AI 说的命令式祈使句，明确范围与幅度，可行时用换行拆 2–3 个可独立启用的子要点；不臆造与书名/简介冲突的新名或专名。',
+    '输出仅一个 JSON 数组（1–3 项），无任何讲解、无 markdown 代码块前后缀。每项结构：{ "title":"一句话说明本条侧重什么", "text":"完整点评+可执行命令" }'
     ].join('\n'),
-    user: JSON.stringify({ 上下文: ctx, 用户原始要求: raw }, null, 1) };
+    user: JSON.stringify({ 上下文: ctx, 用户原始要求: (_raw||'(无)') }, null, 1) };
 }
 async function ctAiRefineAdvice(){
   if(_aiOptBusy){ toast('AI 建议优化中，请稍候'); return; }
   if(genBusy()){ toast('已有生成任务进行中，请稍候'); return; }   // v10.43 互斥：重生成标题等任务进行中不并发
   _aiOptBusy = true;   // v10.43 占位，供 genBusy 判定「AI 建议进行中」
   const inp = $('#rtInput'); if(!inp){ _aiOptBusy = false; return; }
-  const raw = inp.value.trim();
-  if(!raw){ toast('请先填一点粗略要求，再让 AI 优化'); _aiOptBusy = false; return; }
+  const raw = inp.value.trim();   // 可空：无补充要求也能生成点评
   const out = $('[data-cth-ai-out]');
-  if(out) out.innerHTML = `<p class="muted" style="margin:6px 0 0">⏳ AI 正结合现有标题与世界观优化你的建议…</p>`;
-  const btn = $('[data-cth-ai]'); if(btn){ btn.disabled = true; btn.classList.add('is-busy'); btn.textContent = '优化中…'; }
+  if(out) out.innerHTML = `<p class="muted" style="margin:6px 0 0">⏳ AI 正审读现有全部章节标题并给出优化建议…</p>`;
+  const btn = $('[data-cth-ai]'); if(btn){ btn.disabled = true; btn.classList.add('is-busy'); btn.textContent = '生成中…'; }
   try{
     const ctx = buildCtAdviceCtx();
     const {system, user} = ctAiRefinePrompt(ctx, raw);
     const spec = resolveActiveSpec();
-    const res = await callDeepSeek(system, user, {temperature: spec.titleTemp, maxTokens:1200});
+    const res = await callDeepSeek(system, user, {temperature: spec.titleTemp, maxTokens:1500});
     const list = parseAiJsonList(res);
-    if(!Array.isArray(list) || !list.length) throw new Error('AI 未返回有效建议，请重试');
-    ctAdviceCand = list.slice(0,3);
+    const ls = Array.isArray(list) ? list.filter(x=> x && String(x.text||'').trim()) : [];
+    if(!ls.length) throw new Error('AI 未返回有效建议，请重试');
+    // 单条"无建议"标记 → 只提示，不强制造可选择回填项
+    if(ls.length===1 && /无建议/.test(String(ls[0].title||'')+' '+String(ls[0].text||''))){
+      ctAdviceCand = null; ctAdviceFold = false; ctAdoptedIdx = -1;
+      if(out) out.innerHTML = `<p class="muted" style="margin:6px 0 0">💡 ${esc(String(ls[0].text||'现有标题整体稳定，暂不建议改动。').trim())}</p>`;
+      _aiOptBusy = false;
+      const fBtn = $('[data-cth-ai-unfold]'); if(fBtn) fBtn.style.display = 'none';
+      if(btn){ btn.disabled = false; btn.textContent = '✨ 标题优化建议'; btn.classList.remove('is-busy'); }
+      return;
+    }
+    ctAdviceCand = ls.slice(0,3);
     ctAdviceFold = false;   // v10.33 新一批默认展开显示
     ctAdoptedIdx = -1;      // v10.34 新一批重置已采用状态
-    // v10.59 生成成功即存项目快照（随项目保存，切页/刷新不丢；复刻配方历史）
-    addAdvHist('ct', { id: aiHistEntryId(), ts: Date.now(), desc: '章节标题重生成建议', list: JSON.parse(JSON.stringify(list.slice(0,3))) });
+    // v10.59 生成成功即存项目快照（随项目保存，切页/刷新不丢）
+    addAdvHist('ct', { id: aiHistEntryId(), ts: Date.now(), desc: '标题优化建议', list: JSON.parse(JSON.stringify(ls.slice(0,3))) });
     refreshAdvHistBadge('ct');
   }catch(e){
     ctAdviceCand = null;
-    if(out) out.innerHTML = `<p class="muted" style="color:var(--danger);margin:6px 0 0">⚠️ ${esc((e&&e.message)||'优化失败')}</p>`;
+    if(out) out.innerHTML = `<p class="muted" style="color:var(--danger);margin:6px 0 0">⚠️ ${esc((e&&e.message)||'生成失败')}</p>`;
   }
   _aiOptBusy = false;   // v10.43 结束/异常均复位
   if(out) out.innerHTML = ctAdviceResultHtml();
-  if(btn){ btn.disabled = false; btn.textContent = '✨ AI 优化此建议'; btn.classList.remove('is-busy'); }
+  if(btn){ btn.disabled = false; btn.textContent = '✨ 标题优化建议'; btn.classList.remove('is-busy'); }
   // v10.34 控制折叠按钮显示
   const foldBtn = $('[data-cth-ai-unfold]');
   if(foldBtn){
@@ -3957,7 +3983,8 @@ function setAllTitles(titles){
   let cnt = 0;
   (titles||[]).forEach((t,i)=>{
     if(i<n && String(t||'').trim()){
-      const tt = String(t).trim();
+      const tt0 = String(t).trim();
+      const tt = cleanChapterTitle(tt0) || tt0;   // 入库前剥掉可能重复的"第N章"前缀，只存标题名
       if(o && o.chapters[i]) o.chapters[i].title = tt;
       if(state.chapters && state.chapters[i]) state.chapters[i].title = tt;
       cnt++;
@@ -4341,9 +4368,55 @@ function glossaryFieldCheck(){
   return rows;
 }
 function glossaryCheckCount(){ return glossaryFieldCheck().length; }
+// v1.0.106 后置软审计：对词典人物做「属性自洽」低置信检查（不阻断，仅软提示）。
+// 只标记高风险矛盾；命中转世/穿越/长生/修仙/永生/不老等豁免词则跳过，避免误伤超自然设定。
+function parseAgeNum(v){
+  if(v==null) return null;
+  const s = String(v).replace(/[，。、；：,.；\s\/~\-]/g,'');
+  const m = s.match(/([0-9一二三四五六七八九十百]+)/g);
+  if(!m) return null;
+  const n = m[m.length-1];
+  const c = n.match(/^[0-9]+$/) ? parseInt(n,10) : /^[一二三四五六七八九十]{1,2}$/.test(n) ? (Array.from(n).reduce((a,ch)=>{const t={'一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9,'十':10}[ch]; return a + (ch==='十'?(a?10:0):t);},0)||10) : null;
+  return c;
+}
+function auditGlossaryPlausibility(){
+  const g = (state.outline && state.outline.glossary) || {};
+  const EXEMPT = /长生|修仙|修者|转世|穿越|永生|不朽|不老|活了几百|活了一百|千百岁|岁月如刀|修真|修仙界|活了\s*\d+\s*岁|永世|不死不灭|寿元/;
+  const rows = [];
+  (g.characters||[]).forEach(c=>{
+    const name = String(c.name||'未命名').trim();
+    const ageStr = String(c.age||'').trim();
+    if(!ageStr) return;
+    const n = parseAgeNum(ageStr);
+    if(n==null) return;
+    const txt = ['identity','hobby','relation','trait'].map(k=>String(c[k]||'')).join('，');
+    if(EXEMPT.test(txt)) return;                       // 超自然豁免：不校验数值
+    const yre = txt.match(/(?:已|在此|从小|在这|于此|待了)?\s*([0-9一二三四五六七八九十]+)\s*年(?:了|的|多|整)?/g) || [];
+    yre.forEach(ym=>{
+      const m = ym.match(/([0-9一二三四五六七八九十]+)/);
+      const yrs = m ? parseAgeNum(m[1]) : null;
+      if(yrs!=null && yrs>1 && n<yrs+2){
+        rows.push({ name, reason:`设定提到「${ym.trim()}」，但年龄仅${ageStr}，疑似自相矛盾（软提示，可人工修正）` });
+      }
+    });
+    if(/父|母|父亲|母亲|亲/.test(txt) && n<=8){ rows.push({ name, reason:`年龄${ageStr}却担"父亲/母亲"类亲老关系，疑似过早（软提示，可人工修正）` }); }
+  });
+  // 去重（同一人物多条只留首条，避免刷屏）
+  const seen = {}; const out = [];
+  rows.forEach(r=>{ if(!seen[r.name]){ seen[r.name]=1; out.push(r); } });
+  return out;
+}
+function plausibilityCount(){ return auditGlossaryPlausibility().length; }
 function openGlossaryCheckPanel(){
   closeGlossaryCheckPanel();
   const rows = glossaryFieldCheck();
+  const plaus = auditGlossaryPlausibility();
+  const plausBody = plaus.length ? `<div class="cv-div" style="margin-top:8px">⚠️ 属性自洽软提示（${plaus.length}）：以下为低置信猜测，可能与修仙/转世/长生等设定冲突而误报，可人工修正或忽略，不影响流程。</div>` + plaus.map(r=>
+    `<div class="cv-row"><div class="cv-meta" style="flex:1;min-width:0">
+      <div class="cv-time">${esc(r.name)}</div>
+      <div class="cv-t" style="font-size:12px;line-height:1.6"><span class="gs-unk">自洽：${esc(r.reason)}</span></div>
+    </div></div>`
+  ).join('') : '';
   const body = rows.length ? rows.map(r=>{
     const m = r.missing.map(k=>CHAR_FIELD_LABEL[k]).join('、');
     const u = r.unknown.map(k=>CHAR_FIELD_LABEL[k]).join('、');
@@ -4362,6 +4435,7 @@ function openGlossaryCheckPanel(){
     <div class="cv-body">
       <div class="cv-div">生成章节时，人物 7 字段会完整注入给章节 AI；字段缺失或「未知」会导致 AI 信息不足而写错内容。可点开对应词典条目补全，补全后对后续生成的章节生效。</div>
       ${body}
+      ${plausBody}
     </div></div>`;
   document.body.appendChild(ov);
   ov.querySelector('[data-gsck-close]').onclick = closeGlossaryCheckPanel;
@@ -4378,7 +4452,7 @@ function glossaryCardHtml(){
   const hasBody = state.chapters.some(c=>c && c.content);   // 是否有正文可做覆盖面统计（阶段4）
   const tools = `<span class="gs-tools">
     <button type="button" class="btn ghost gs-tool" data-gs-history>🕘 历史更改</button>
-    <button type="button" class="btn ghost gs-tool" data-gs-check ${glossaryCheckCount()?'':'hidden'} title="人物 7 字段完整性：缺失/未知标出，建议补全">🔍 字段检查${glossaryCheckCount()?`<b class="gs-check-badge">${glossaryCheckCount()}</b>`:''}</button>
+    <button type="button" class="btn ghost gs-tool" data-gs-check ${glossaryCheckCount()+plausibilityCount()?'':'hidden'} title="人物 7 字段完整性 + 属性自洽软审计：缺失/未知标出，建议补全">🔍 字段检查${(glossaryCheckCount()+plausibilityCount())?`<b class="gs-check-badge" ${plausibilityCount()&&!glossaryCheckCount()?'style="background:#b8860b"':''}>${glossaryCheckCount()||plausibilityCount()}</b>`:''}</button>
     <button type="button" class="btn ghost gs-tool" data-gs-coverage ${hasBody?'':'hidden'}>📊 覆盖面</button>
     <button type="button" class="btn ghost gs-tool" data-gs-extract ${hasBody?'':'hidden'} title="从已生成正文提取词典未收录的新人物/地名/专名并入库">📥 提取新增</button>
     <button type="button" class="btn ghost gs-tool" data-gs-clean ${hasBody?'':'hidden'} title="清理在全部已生成正文中均未出现的条目（如重生成覆盖后失效的旧人物）">🧹 清理未使用</button>
@@ -5685,7 +5759,8 @@ function buildLongMarkdown(){
     const csum = (c && c.summary && String(c.summary).trim()) ? String(c.summary).trim() : '';
     const plan = csum ? '' : ((Array.isArray(o.chapterPlans) && o.chapterPlans[i] && String(o.chapterPlans[i]).trim()) ? String(o.chapterPlans[i]).trim() : '');
     const disp = csum ? csum : plan;
-    md += `${i+1}. **${c.title||''}**${disp?` — 梗概：${disp}`:'（未生成梗概）'}\n`;
+    const dispTag = csum ? '本章梗概' : (plan ? '主线简述' : '');
+    md += `${i+1}. **${cleanChapterTitle(c.title)||''}**${disp?` — ${dispTag}：${disp}`:'（未生成梗概）'}\n`;
   });
   md += `\n## 二、章节正文\n`;
   // 长篇：仅列出已写章；大纲刚生成、尚未写正文时给占位提示，大纲/梗概仍可先行导出
@@ -5856,6 +5931,22 @@ function bindView(){
     idea.oninput = ()=> state.idea = idea.value;
     bindPolishIdea();   // v10.13 优化构想按钮 + 优化区绑定
     $('#btnGenOutline').onclick = genOutline;
+  }
+  // v11 简介字数范围（生成大纲前、仅长篇）：双数字输入，min>max 自动对调、max 上限 5000
+  const llMin = $('#llMin'), llMax = $('#llMax');
+  if(isLong() && llMin && llMax){
+    const commitLL = ()=>{
+      let mn = Math.floor(Number(llMin.value)), mx = Math.floor(Number(llMax.value));
+      if(!Number.isFinite(mn) || mn<1) mn = 300;
+      if(!Number.isFinite(mx) || mx<1) mx = 700;
+      if(mn>5000){ mn = 5000; llMin.value = 5000; }
+      if(mx>5000){ mx = 5000; llMax.value = 5000; }
+      if(mn>mx){ const _t=mn; mn=mx; mx=_t; llMin.value=mn; llMax.value=mx; }   // 兜底：自动对调
+      state.loglineRange = {min:mn, max:mx};
+      persist();
+    };
+    llMin.addEventListener('change', commitLL);
+    llMax.addEventListener('change', commitLL);
   }
   // v10.18 结构骨架 / 可复用词典折叠（默认收起，点标题展开）
   $$('[data-rec-fold]').forEach(h=> h.onclick = ()=>{
@@ -6183,9 +6274,12 @@ async function genOutline(){
     const prevGloss = (state.outline && state.outline.glossary && sourceHasGlossary(state.outline.glossary)) ? state.outline.glossary : null;
     snapshotOutline();
     state.outline = o; state.outlineConfirmed=false;
-    // v11 G 简介字数软约束（300-700）：不达标仅提示，不卡流程
+    // v11 G 简介字数软约束（默认300-700，用户可在生成前调整）：不达标仅提示，不卡流程
     const _ll = String(o.logline||'').trim().length;
-    if(_ll < 300 || _ll > 700){ toast(`提示：小说简介当前 ${_ll} 字，建议控制在 300—700 字之间。`); }
+    const _lr = state.loglineRange||{};
+    const _lo = Math.min(Number.isFinite(_lr.min)?_lr.min:300, Number.isFinite(_lr.max)?_lr.max:700);
+    const _hi = Math.max(Number.isFinite(_lr.min)?_lr.min:300, Number.isFinite(_lr.max)?_lr.max:700);
+    if(_ll < _lo || _ll > _hi){ toast(`提示：小说简介当前 ${_ll} 字，目标 ${_lo}—${_hi} 字，未落在区间内，建议重生成或手动补足。`); }
     // v11 H 万物词典：旧大纲已建词典则沿用（防换书名/重生成大纲时抹除规划师种子与正文增量），否则落空占位
     if(prevGloss){
       o.glossary = prevGloss;
@@ -6200,7 +6294,7 @@ async function genOutline(){
     // v8 双轨合并：若构想阶段挂载过辅轨词典，按遵从度把它与新作大纲词典合并为权威词典，再清空辅轨槽位
     let mergeNote = '';
     if(state.pendingGlossary && sourceHasGlossary(state.pendingGlossary)){
-      const m = glossaryMerge(state.pendingGlossary, o.glossary, state.glossAdherence, state.glossAllowFill);
+      const m = glossaryMerge(state.pendingGlossary, o.glossary, 80, false);   // v11 遵从度滑条/允许补充已移除：固定基准 80、不允许自由新增
       o.glossary = m.glossary;
       mergeNote = ` · 词典已并入（沿用 ${m.kept} · 新增 ${m.added}${m.rec?` · 覆盖 ${m.rec}`:''}）`;
       state.pendingGlossary = null; state.glossAllowFill = false;
@@ -6258,7 +6352,7 @@ async function genChapterPlans(btn){
     if(!arr.length || !arr.some(Boolean)){ toast('未解析到主线简述，请重试'); return; }
     // 数量与章节对齐：不足补齐占位，超出截断
     const n = (o.chapters||[]).length;
-    const plans = Array.from({length:n},(_,i)=> arr[i] || '');
+    const plans = Array.from({length:n},(_,i)=> cleanChapterTitle(arr[i]||''));   // 剥掉可能重复的"第N章"前缀
     // P1-1v3 覆盖前把旧整批归档为可回退版本（整批、上限5、去重）
     pushChapterPlansSnapshot();
     o.chapterPlans = plans;
@@ -6741,6 +6835,19 @@ function applyChRawResponse(i, raw){
 
 // 长篇：写作范式选择器（结构 + 可复用词典，均折叠；节奏/标题/质量 v10.18/10.60 移除）
 // 长篇：写作范式选择器（可复用词典折叠；结构/节奏/标题风格已移除 v11）
+function loglineRangeHtml(){
+  const lr = state.loglineRange || {min:300, max:700};
+  const _m = Number.isFinite(lr.min)?Math.max(1,Math.min(5000,Math.floor(lr.min))):300;
+  const _x = Number.isFinite(lr.max)?Math.max(1,Math.min(5000,Math.floor(lr.max))):700;
+  const _lo = Math.min(_m,_x), _hi = Math.max(_m,_x);
+  return `<div class="logline-range">
+    <span class="llr-label">简介字数范围：</span>
+    <input type="number" id="llMin" class="llr-input" min="1" max="5000" step="1" value="${_lo}" aria-label="简介最少字数">
+    <span class="llr-sep">—</span>
+    <input type="number" id="llMax" class="llr-input" min="1" max="5000" step="1" value="${_hi}" aria-label="简介最多字数">
+    <span class="llr-hint">字（生成大纲时 AI 严格遵守此区间；两数颠倒会自动对调）</span>
+  </div>`;
+}
 function recipePicker(){
   // 体量小结：以章节数为准
   const cc = chapterCountVal();
@@ -6769,33 +6876,24 @@ function recipePicker(){
   </div>`;
 }
 
-// v8 辅轨词典面板（仅长篇小说构想阶段）：把上一部导出的词典就地挂载为「待用词典」，供生成长篇大纲时带入。
-// 附遵从度滑条 + 「允许 AI 补充」开关（未挂载词典时两控件隐藏，恪守主轨道零干扰）。
+// v11 辅轨词典面板（仅长篇构想阶段）：精简为恒显架构——未挂词典只有一行标题+工具栏，挂词典后多一行紧凑状态条。
+// 不再提供遵从度滑条/允许补充开关（简介字数范围已作自由度控制），词典以固定基准并入。
 function pendingGlossaryPanel(){
   if(!isLong()) return '';
   const hasPending = state.pendingGlossary && sourceHasGlossary(state.pendingGlossary);
   const p = state.pendingGlossary || {};
   const nChar = (p.characters||[]).length, nPlace=(p.places||[]).length, nProp=(p.propernouns||[]).length;
   const counts = hasPending ? `<span class="gs-pend-count">人物 ${nChar} · 地点 ${nPlace} · 专名 ${nProp}</span>` : '';
-  const controls = hasPending ? `
-    <div class="gs-adherence">
-      <div class="gat-head"><b>📖 词典遵从度</b><span class="gat-val">${state.glossAdherence}%</span></div>
-      <input type="range" min="0" max="100" step="10" value="${state.glossAdherence}" id="glossAdherence" class="gor" />
-      <p class="gat-hint">${adherenceHint(state.glossAdherence)}</p>
-      <label class="gat-switch"><input type="checkbox" id="glossAllowFill" ${state.glossAllowFill?'checked':''} /> <span>允许 AI 按剧情补充新角色/地名/专名</span></label>
-    </div>` : '';
+  const pendRow = hasPending ? `<p class="gs-pend-row">${counts} <span class="sub">本次大纲将代入作为一致性底稿，以它为准沿用命名</span></p>` : '';
   return `<div class="card gs-pend">
     <h3 class="gs-card-title">📇 可复用词典 ${counts}
       <span class="gs-tools">
-        <button type="button" class="btn ghost gs-tool" id="gsGlib" title="跨作品词典库">🗂️ 词典库</button>
         ${hasPending ? `<button type="button" class="btn ghost gs-tool" id="gsClearPending">🗑 清除</button><button type="button" class="btn ghost gs-tool" id="gsExportPend">导出 JSON</button>` : ''}
         <button type="button" class="btn ghost gs-tool" id="gsImportPend">📥 导入词典(新篇)</button>
         <input type="file" id="gsImportPendFile" accept=".json,application/json" hidden />
       </span>
     </h3>
-    ${hasPending
-      ? `<p class="sub">本次生成大纲时将代入此词典作为一致性底稿：以它为主，按新大纲补全。遵从度与「允许补充」控制其遵循程度。生成后可在设定表中继续编辑。</p>${controls}`
-      : `<p class="sub">将上一部导出的「词典_xxx.json」在这里导入，即可把该书的人名/地名/专名作为本作的一致性底稿带进大纲生成（适合续作/同世界观）。不导入则完全不影响默认流程。</p>`}
+    ${pendRow}
   </div>`;
 }
 // 遵从度 → 语义化说明（v8：把百分比翻译成给用户看的自然语言）
@@ -6806,25 +6904,13 @@ function adherenceHint(a){
   if(a>=30)  return '灵感来源：可大改人名地名，仅保留题材与语感。';
   return '几乎放弃：仅作背景语感参考，允许完全重新构建设定。';
 }
-// v8 辅轨词典面板事件绑定（构想阶段）：导入/清除/导出 + 遵从度滑条 + 允许补充开关。
-// 滑条/开关变动只更新局部，不整页 render，避免中断用户输入。
+// v11 辅轨词典面板事件绑定（构想阶段）：仅保留 导入/清除/导出（词典库、遵从度滑条、允许补充已移除 v11）。
 function bindPendingGlossary(){
   const impBtn = $('#gsImportPend'); const impFile = $('#gsImportPendFile');
   if(impBtn && impFile){ impBtn.onclick = ()=>{ impFile.click(); }; impFile.onchange = e=>{ const f=e.target.files&&e.target.files[0]; if(f) importGlossaryJson(f,'pending'); impFile.value=''; }; }
-  const glibBtn = $('#gsGlib'); if(glibBtn) glibBtn.onclick = openGlibPanel;
   const clearBtn = $('#gsClearPending');
-  if(clearBtn) clearBtn.onclick = ()=>{ state.pendingGlossary=null; state.glossAllowFill=false; persist(); render(); toast('已清除待用词典，回到无词典默认流程'); };
+  if(clearBtn) clearBtn.onclick = ()=>{ state.pendingGlossary=null; persist(); render(); toast('已清除待用词典，回到无词典默认流程'); };
   const expBtn = $('#gsExportPend'); if(expBtn) expBtn.onclick = ()=>{ exportGlossaryJson(); };
-  const adh = $('#glossAdherence');
-  if(adh){ adh.oninput = ()=>{
-    const v = +adh.value;
-    state.glossAdherence = v;
-    const val = document.querySelector('.gat-val'); if(val) val.textContent = v+'%';
-    const hint = document.querySelector('.gat-hint'); if(hint) hint.textContent = adherenceHint(v);
-    persist();
-  }; }
-  const allow = $('#glossAllowFill');
-  if(allow) allow.onchange = ()=>{ state.glossAllowFill = allow.checked; persist(); };
 }
 // 拆分章节输出：AI 输出全文即正文，直接落库
 // 省 token 策略：正文沿用写入时的 max_tokens 上限；
@@ -6999,12 +7085,12 @@ function openChapterRegenPanel(i){
       <div class="gs-modal-head"><b>🔄 重生成 · 第${i+1}章「${esc(cleanChapterTitle(title))}」</b>
         <button class="gs-x" data-rp-close>✕</button></div>
       <div class="gs-body">
-        <p class="gs-q"><b>想如何改动这一章？</b> 可在下方填写你的具体要求（改动方向、补充设定、错误修正等）；留空则按现有风格直接重写。</p>
-        <textarea id="rpAdvice" class="rp-advice" placeholder="例如：这一章节奏太慢，请压缩到 1500 字以内；女主的性格再外放一点；增加与上一章结尾的衔接…（可选）"></textarea>
+        <p class="gs-q"><b>想如何改动这一章？</b> 可在下方填写你的具体要求（改动方向、补充设定、错误修正等）；留空则 AI 会直接审读本章正文给出点评建议。</p>
+        <textarea id="rpAdvice" class="rp-advice" placeholder="可选：写具体要求（如压缩到1500字、女主性格外放、增加与上章衔接…）；留空则直接点评本章正文"></textarea>
         <div class="advice-ai-row">
-          <button type="button" class="btn small ghost" data-advice-ai="${i}">✨ AI 优化此建议</button>
+          <button type="button" class="btn small ghost" data-advice-ai="${i}">✨ 正文优化建议</button>
           <button type="button" class="ai-upload-btn ai-hist-btn" data-advadv-hist="${i}" title="章节内容 AI 建议历史：回看已生成过的建议（随项目保存）">📖<span class="ai-hist-badge">${Array.isArray(state.contentAdviceHist)?state.contentAdviceHist.length:''}</span></button>
-          <span class="muted" style="font-size:11px">AI 基于本章全文与上下文学你的要求，给出 3 个可直接采用的命令；点击即回填，可再手改</span>
+          <span class="muted" style="font-size:11px">AI 审读本章全文、上一章全文、下一章标题与万物词典给 1–3 条点评建议；点击即回填，可再手改</span>
         </div>
         <div data-advice-ai-out></div>
         ${histHtml}
@@ -7183,64 +7269,78 @@ function buildAiRefineCtx(i){
   const o = state.outline || {};
   const chap = state.chapters[i] || {};
   const prev = i>0 ? (state.chapters[i-1]||{}) : null;
-  const plan = (state.useChapterPlans && Array.isArray(o.chapterPlans) && o.chapterPlans[i]) ? String(o.chapterPlans[i]).trim() : '';
   const st = curWriteStyle();
   const chapNames = (Array.isArray(st.tags)?st.tags:[]).map(id=>{ const s=writeStyleById(id); return s&&s.group==='element'?s.name:null; }).filter(Boolean).join('、');
-  // 人物关系摘要（词典人物）：name（身份/关系）
+  // 万物词典全量（人物全字段 / 地点 / 专名）
   const g = (o && o.glossary) || {};
-  const persons = (g.characters||[]).map(c=>{
-    const notes = [c.identity?`身份:${c.identity}`:'', c.relation?`关系:${c.relation}`:'', c.trait?`性格:${c.trait}`:''].filter(Boolean).join('；');
-    return `${c.name||''}${notes?`（${notes}）`:''}`;
-  }).join('、');
+  const dictChars = (g.characters||[]).map(c=>{
+    const parts=[];
+    if(c.identity) parts.push('身份:'+c.identity);
+    if(c.age) parts.push('年龄:'+c.age);
+    if(c.gender) parts.push('性别:'+c.gender);
+    if(c.appearance) parts.push('外貌:'+c.appearance);
+    if(c.hobby) parts.push('爱好:'+c.hobby);
+    if(c.relation) parts.push('关系:'+c.relation);
+    if(c.trait) parts.push('性格:'+c.trait);
+    return (c.name||'')+(parts.length?'（'+parts.join('；')+'）':'');
+  }).join('；');
+  const dictPlaces = (g.places||[]).map(p=>`${p.name||''}${p.note?`（${p.note}）`:''}`).join('；');
+  const dictProps  = (g.propernouns||[]).map(p=>`${p.name||''}${p.note?`（${p.note}）`:''}`).join('；');
   return {
     书名: (o.title||''), 简介: (o.logline||''),
     本章标题: (chap.title||('第'+(i+1)+'章')),
-    本章全文: (chap.content||''),   // 续写/扩写需全文，无字数限制，原样提供
-    上一章结尾: prev && prev.content ? String(prev.content).split(/\n/).filter(Boolean).slice(-2).join('\n') : '',
-    本章梗概: plan || '',
-    人物关系摘要: persons || '（无）',
-    当前写作风格: chapNames || '无',
-    下一章标题: (o.chapters[i+1]&&o.chapters[i+1].title)||''
+    本章全文: (chap.content||''),   // 续写/扩写需全文，原样提供
+    上一章标题: prev ? (prev.title||('第'+i+'章')) : '',
+    上一章全文: (prev && prev.content) ? String(prev.content) : '',   // 上一章全文全量
+    下一章标题: (o.chapters[i+1]&&o.chapters[i+1].title)||'',
+    万物词典: `人物：${dictChars||'（无）'}\n地点：${dictPlaces||'（无）'}\n专名：${dictProps||'（无）'}`,
+    当前写作风格: chapNames || '无'
   };
 }
 function aiRefineAdvicePrompt(ctx, raw){
+  const _raw = String(raw||'').trim();
   return { system:[
-    '你是资深网文长篇编辑。用户的建议框里写了一段粗略的修改要求（可能是续写、扩写、改段落、修正错别字、修正人物称呼等）。',
-    '请把它改写成 3 条【可直接下发给章节生成 AI 的命令稿】，供用户挑选后回填。',
-    '输出：仅一个 JSON 数组（3 项），无任何讲解、无 markdown 代码块前后缀。每项结构：',
-    '{ "title":"一句话描述这条命令的作用", "text":"完整命令文字（可直接作为重生成建议提交）" }',
-    '规则：',
-    '1.充分依据给出的【上下文】（尤其本章全文、上一章结尾、本章梗概、人物关系、当前文风），让命令具体、可执行、可控幅度，不要空话。',
-    '2.三条从不同角度覆盖修改需求（如：一条偏续写、一条偏扩写/细化、一条偏校改称呼与错别字），或按用户原话拆三个侧重点。',
-    '3.text 用对章节 AI 说的祈使句，明确范围与幅度（增删多少、改哪一段、称呼怎么统一），不得自造与上下文冲突的设定。',
-    '4.凡涉及续写/扩写，必须承接本章全文结尾、承接上一章结尾（若存在），且不越界到下一章（下一章标题为：'+ (ctx.下一章标题||'') +'）的内容。'
+    '你是资深网文长篇编辑。用户在建议框里可能写了一段补充要求（续写、扩写、改段落、修正称呼错别字等），也可能留空、只是想听你对本章正文的专业点评。',
+    '请审读给出的【本章全文】【万物词典】【上下文】，输出 1–3 条建议（至少 1 条、最多 3 条）；每条 = { title(一句话定位本条侧重), text(完整点评 + 可直接下发给章节生成 AI 的可执行命令) }。',
+    '【允许"无建议"】若本章已写得很稳、没有真正值得动的地方，就只返回 1 条：{"title":"无建议","text":"本章整体稳定，暂不建议改动。"}——宁缺毋滥，绝不为了凑满条数硬找问题或胡说八道。',
+    '【点评要点】节奏是否拖沓或太赶、对白是否有辨识度与推进力、悬念与留白是否给足、人物言行是否与万物词典中的身份/性格/关系一致（有无OOC）、是否承接上一章结尾、是否为下一章（'+ (ctx.下一章标题||'') +'）留好引子、与万物词典命名/设定是否冲突。',
+    '【有补充要求时】先满足用户要求（'+ (_raw? _raw.slice(0,120)+'…' : '（用户未给出方向）') +'）的角度，再在该方向之外综合点评；要求为空时直接审读本章正文点评。',
+    '【可执行】text 用对章节 AI 说的祈使句，明确范围与幅度，可行时用换行拆 2–3 个可独立启用的子要点；续写/扩写必须承接本章与上一章结尾、不越界到下一章；不臆造万物词典外的新名。',
+    '输出仅一个 JSON 数组（1–3 项），无任何讲解、无 markdown 代码块前后缀。每项结构：{ "title":"一句话说明本条侧重什么", "text":"完整点评+可执行命令" }'
     ].join('\n'),
-    user: JSON.stringify({ 上下文: ctx, 用户原始要求: raw }, null, 1) };
+    user: JSON.stringify({ 上下文: ctx, 用户原始要求: (_raw||'(无)') }, null, 1) };
 }
 async function aiRefineAdvice(i){
   const ta = $('#rpAdvice'); if(!ta) return;
-  const raw = ta.value.trim();
-  if(!raw){ toast('请先填一点要求，再让 AI 优化'); return; }
+  const raw = ta.value.trim();   // 可空：无补充要求也能生成点评
   const out = $('[data-advice-ai-out]');
-  if(out) out.innerHTML = `<p class="muted" style="margin:6px 0 0">⏳ AI 正结合本章全文优化你的建议…</p>`;
-  const btn = $('[data-advice-ai]'); if(btn){ btn.disabled = true; btn.textContent = '优化中…'; }
+  if(out) out.innerHTML = `<p class="muted" style="margin:6px 0 0">⏳ AI 正审读本章正文并给出优化建议…</p>`;
+  const btn = $('[data-advice-ai]'); if(btn){ btn.disabled = true; btn.textContent = '生成中…'; }
   try{
     const ctx = buildAiRefineCtx(i);
     const {system, user} = aiRefineAdvicePrompt(ctx, raw);
-    const res = await callDeepSeek(system, user, {temperature:0.6, maxTokens:1200});
+    const res = await callDeepSeek(system, user, {temperature:0.6, maxTokens:1500});
     const list = parseAiJsonList(res);
-    if(!Array.isArray(list) || !list.length) throw new Error('AI 未返回有效建议，请重试');
-    aiAdviceCand = list.slice(0,3);
-    // v10.59 生成成功即存项目快照（随项目保存，关弹窗/切页不丢；复刻配方历史）
-    const _ch = state.chapters[i] || {}; const _oc = (state.outline&&state.outline.chapters&&state.outline.chapters[i])||{};
-    addAdvHist('content', { id: aiHistEntryId(), ts: Date.now(), desc: '章节「'+( _ch.title || _oc.title || ('第'+(i+1)+'章') )+'」重生成建议', list: JSON.parse(JSON.stringify(list.slice(0,3))) });
+    const ls = Array.isArray(list) ? list.filter(x=> x && String(x.text||'').trim()) : [];
+    if(!ls.length) throw new Error('AI 未返回有效建议，请重试');
+    // 单条"无建议"标记 → 只提示，不强制造可选择回填项
+    if(ls.length===1 && /无建议/.test(String(ls[0].title||'')+' '+String(ls[0].text||''))){
+      aiAdviceCand = null;
+      if(out) out.innerHTML = `<p class="muted" style="margin:6px 0 0">💡 ${esc(String(ls[0].text||'本次无建议，正文暂无需改动。').trim())}</p>`;
+      if(btn){ btn.disabled = false; btn.textContent = '✨ 正文优化建议'; }
+      return;
+    }
+    aiAdviceCand = ls.slice(0,3);
+    // v10.59 生成成功即存项目快照（随项目保存，关弹窗/切页不丢）
+    const _ch = state.chapters[i] || {};
+    addAdvHist('content', { id: aiHistEntryId(), ts: Date.now(), desc: '正文优化建议 · 第'+(i+1)+'章', list: JSON.parse(JSON.stringify(ls.slice(0,3))) });
     refreshAdvHistBadge('content');
   }catch(e){
     aiAdviceCand = null;
-    if(out) out.innerHTML = `<p class="muted" style="color:var(--danger);margin:6px 0 0">⚠️ ${esc((e&&e.message)||'优化失败')}</p>`;
+    if(out) out.innerHTML = `<p class="muted" style="color:var(--danger);margin:6px 0 0">⚠️ ${esc((e&&e.message)||'生成失败')}</p>`;
   }
   if(out) out.innerHTML = aiAdviceResultHtml();
-  if(btn){ btn.disabled = false; btn.textContent = '✨ AI 优化此建议'; }
+  if(btn){ btn.disabled = false; btn.textContent = '✨ 正文优化建议'; }
 }
 function aiAdviceResultHtml(){
   if(!Array.isArray(aiAdviceCand) || !aiAdviceCand.length) return '';
