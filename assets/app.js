@@ -7,7 +7,7 @@
 'use strict';
 
 /* ---------- 全局状态 ---------- */
-const APP_VERSION = '1.0.106';   // 应用版本号（P1-1v4 新增：标题/单章原始AI响应手动提取按钮）：index.html 的 ?v= 资源戳与之同步递增，用于标识产物已更新
+const APP_VERSION = '1.0.107';   // 应用版本号（P1-1v4 新增：标题/单章原始AI响应手动提取按钮）：index.html 的 ?v= 资源戳与之同步递增，用于标识产物已更新
 const KEY_CFG = 'fyp_cfg';
 const KEY_STATE = 'fyp_state';   // 旧版单项目 key（仅用于首次迁移）
 const KEY_LIB = 'fyp_lib';       // 新版多项目历史库
@@ -30,7 +30,6 @@ const state = {
   coverWithTitle: false,// 封面提示词是否包含「汉字书名」（false=纯画面无文字）
   outline: null,        // {title, logline, chapters:[{title,summary}]}
   outlineConfirmed: false,
-  pendingGlossary: null, // v8 辅轨槽位：大纲前导入的待用词典 {characters,places,propernouns}，不写进 outline 直至确认
   glossAdherence: 80,   // v11 遵从度滑条已移除：固定基准 80（尽量沿用既有命名，允许小幅调整）；留有字段兼容旧快照
   glossAllowFill: false, // v8 「允许 AI 补充」开关：低遵从时是否放行 AI 新增实体
   glossAutoFill: true,   // v8c 词典自动补全（默认开）：批量生成章节后自动提取正文中的新人物/地名/专名并入词典；关则只保留手动「📥 提取新增」
@@ -38,6 +37,7 @@ const state = {
   stCollapsed: false,   // v10.3：长篇结构设计栏是否收缩（默认展开，点击标题收起）
   cpCollapsed: true,    // v10.14：逐章方向梗概卡是否收缩（默认折叠，点击标题展开）
   ctCollapsed: true,    // v10.53：章节标题管理块是否收缩（默认折叠，点击标题展开）
+  soCollapsed: false,   // v1.0.107：故事大纲卡「小说简介」是否折叠（默认展开，点标题收起）
   gsCatFold: { char:true, place:true, proper:true },   // v10.53：词典小类别（人物/地点/专名）默认折叠，点击标题展开
   useChapterPlans: true,  // v10.29：逐章梗概本稿是否参与正文生成（默认开）；关则保留内容与历史、仅不注入 AI
   plannerFinalized: false,  // v11：全书规划师是否已定稿全书章节标题（未定稿时正文任务行轻提示「沿用参考稿」）
@@ -242,13 +242,13 @@ function projectSnapshot(){
     coverWithTitle: state.coverWithTitle,
     outline: state.outline,
     outlineConfirmed: state.outlineConfirmed,
-    pendingGlossary: state.pendingGlossary,
     glossAdherence: state.glossAdherence,
     glossAllowFill: state.glossAllowFill,
     glossAutoFill: state.glossAutoFill,
     gsCollapsed: state.gsCollapsed,
     stCollapsed: state.stCollapsed,
     cpCollapsed: state.cpCollapsed,   // v10.14 梗概卡折叠透传
+    soCollapsed: !!state.soCollapsed,
     useChapterPlans: (typeof state.useChapterPlans === 'boolean') ? state.useChapterPlans : true,   // v10.29
     expOpenGroups: state.expOpenGroups,   // P5 长篇导出分组折叠所展开的分组透传
     polishOptions: state.polishOptions,   // v10.16 优化构想保留方案透传
@@ -289,13 +289,13 @@ function applyProject(p){
   state.coverWithTitle = !!p.coverWithTitle;
   state.outline = p.outline || null;
   state.outlineConfirmed = !!p.outlineConfirmed;
-  state.pendingGlossary = p.pendingGlossary || null;
   state.glossAdherence = (typeof p.glossAdherence === 'number') ? p.glossAdherence : 60;
   state.glossAllowFill = !!p.glossAllowFill;
   state.glossAutoFill = (typeof p.glossAutoFill === 'boolean') ? p.glossAutoFill : true;
   state.gsCollapsed = (typeof p.gsCollapsed === 'boolean') ? p.gsCollapsed : true;
   state.stCollapsed = !!p.stCollapsed;
   state.cpCollapsed = (typeof p.cpCollapsed === 'boolean') ? p.cpCollapsed : true;   // v10.14 梗概卡默认折叠
+  state.soCollapsed = !!p.soCollapsed;
   state.useChapterPlans = (typeof p.useChapterPlans === 'boolean') ? p.useChapterPlans : true;   // v10.29 默认参与生成
   state.plannerFinalized = (typeof p.plannerFinalized === 'boolean') ? p.plannerFinalized : false;   // v11 标题定稿标记（旧项目默认未定稿）
   state.expOpenGroups = Array.isArray(p.expOpenGroups) ? p.expOpenGroups : [];   // P5 长篇导出分组折叠所展开的分组
@@ -340,7 +340,7 @@ function clearState(){
   state.recipeSet = { rhythm:null, titleStyle:[] };
   state.wordRange = null; state.chapterRange = null; state.totalWords = null; state.chapterCount = null;
   state.idea = ''; state.outline = null; state.coverPrompt = ''; state.coverWithTitle = false; state.outlineConfirmed = false;
-  state.pendingGlossary = null; state.glossAdherence = 60; state.glossAllowFill = false; state.glossAutoFill = true; state.gsCollapsed = true;
+  state.glossAdherence = 60; state.glossAllowFill = false; state.glossAutoFill = true; state.gsCollapsed = true;
   state.useChapterPlans = true;  // v10.29 新建作品默认参与生成
   state.chapters = []; state.characters = []; state.scenes = []; state.storyboard = []; state.boardConcepts = []; state.titleHistory = []; state.raw = {};
   state.ctAdviceHist = []; state.contentAdviceHist = [];   // v10.59 随项目的 AI 建议快照（章节标题 / 章节内容）
@@ -3502,7 +3502,10 @@ function viewStory(){
         ${hasOutlineHistory()?`<button type="button" class="btn small ghost" id="btnOutlineHist" title="查看并恢复历史大纲版本">📚 大纲版本(${outlineHistoryCount()})</button>`:''}
         ${titleManagerHtml()}
       </div>
-      <p class="sub">${esc(o.logline||'')}</p>
+      <div class="so-fold-head" data-so-toggle role="button" tabindex="0" title="展开/收起小说简介">
+        <span class="so-fold">${state.soCollapsed?'▸':'▾'}</span><b>📌 小说简介</b>
+      </div>
+      <p class="sub so-logline" ${state.soCollapsed?'hidden':''}>${esc(o.logline||'')}</p>
       <div class="global-req">
         <textarea id="globalReqInp" rows="3" placeholder="写全书风格基准/对标本（如对标《寅次郎的故事》等），指挥标题、逐章梗概、章节正文统一基调">${esc(o.globalReq||'')}</textarea>
         <p class="global-req-hint">全书级要求：注入「标题 / 逐章梗概 / 章节内容」，优先级：写作风格 &gt; 单章干预 &gt; 全书要求 &gt; 字典一致性。</p>
@@ -3576,6 +3579,17 @@ function bindOrigIdea(){
   if(cpy) cpy.onclick = ()=>{
     const ta = $('.orig-text'); if(!ta) return;
     copyText(ta.value);
+  };
+}
+// v1.0.107 故事大纲卡「小说简介」折叠绑定：点标题头翻转简介 hidden + 箭头，并持久化 soCollapsed（纯 DOM，不整卡重渲染）
+function bindOutlineFold(){
+  const h = $('[data-so-toggle]'); if(!h) return;
+  h.onclick = ()=>{
+    const body = $('.so-logline'); if(!body) return;
+    const on = !body.hidden;
+    body.hidden = on;
+    const f = h.querySelector('.so-fold'); if(f) f.textContent = on ? '▸' : '▾';
+    if(state){ state.soCollapsed = on; if(typeof persist==='function') persist(); }
   };
 }
 // v10.30 AI 配方助手绑定（事件委托到容器，容动态渲染的候选/缺口；仅长篇小说模式有该容器）
@@ -4793,9 +4807,7 @@ function exportWorkGlossaryJSON(id){
   download(`词典_${(p.title||'story').slice(0,12)}.json`, JSON.stringify({ ...meta, ...g }, null, 2));
   toast('已导出该作词典 JSON');
 }
-// 词典 JSON 导入入口（v8 双轨）：已导出的文件可能带 _meta 头（v8），在此剥离；支持两种落点
-//  - 已生成大纲 → 覆盖 outline.glossary（用户主动导入，不走影响评估）
-//  - 未生成大纲（构想阶段）→ 写入 pendingGlossary 辅轨槽位，供生成长篇大纲时带入
+// 词典 JSON 导入入口：已导出的文件可能带 _meta 头，在此剥离；仅写入已生成大纲的 outline.glossary（用户主动导入，不走影响评估）
 function normalizeGlossaryJSON(j){
   const src = (j && j._meta) ? j : j;
   const ok = src && typeof src==='object'
@@ -4810,16 +4822,12 @@ function importGlossaryJson(file, target){
       const j = JSON.parse(r.result);
       const g = normalizeGlossaryJSON(j);
       if(!g) throw 0;
-      if(target === 'pending' || !(state.outline && state.outline.glossary)){
-        // 构想阶段 / 显式挂到辅轨：写 pendingGlossary，不进 outline
-        state.pendingGlossary = g;
-        persist(); render();
-        toast(`已挂载词典（预检通过）：人物 ${g.characters.length} · 地点 ${g.places.length} · 专名 ${g.propernouns.length}，可在生成大纲时带入`);
-      } else {
-        if(!state.outline) state.outline = state.outline || {};
+      if(state.outline && state.outline.glossary){
         state.outline.glossary = g;
         persist(); render();
         toast('词典已导入');
+      } else {
+        toast('请先生成大纲后再导入词典');
       }
     }catch(e){ toast('导入失败：JSON 结构须含 characters/places/propernouns'); }
   };
@@ -5973,12 +5981,12 @@ function bindView(){
   }
   bindGlossary();
   bindOrigIdea();     // v10.2 原始构想只读卡绑定
+  bindOutlineFold();  // v1.0.107 故事大纲卡「小说简介」折叠绑定
   bindAiRecipe();     // v10.30 AI配方助手绑定
   bindChapterPlan();  // v10.11 逐章梗概区块绑定
   bindChapterPlanFold(); // v10.14 梗概卡折叠绑定
   bindChapterTitles();// v10.14 章节标题编辑 + 复制绑定
   bindWriteStyle();   // v2.0 写作风格卡片绑定（chips/浓度/预设/收藏/管理/清空）
-  bindPendingGlossary();
   bindGlobalReq(); // v10.44 全书要求输入框绑定（失焦即存）
   // v10.44 全书要求：books 级风格基准，注入标题/梗概/章节内容
   function bindGlobalReq(){
@@ -6291,17 +6299,9 @@ async function genOutline(){
     // v10.11 逐章梗概：新大纲生成时重置为空（防旧梗概错配新章节数/新标题）；兜底非数组
     if(!Array.isArray(o.chapterPlans)) o.chapterPlans = [];
     o.chapterPlans.length = 0;
-    // v8 双轨合并：若构想阶段挂载过辅轨词典，按遵从度把它与新作大纲词典合并为权威词典，再清空辅轨槽位
-    let mergeNote = '';
-    if(state.pendingGlossary && sourceHasGlossary(state.pendingGlossary)){
-      const m = glossaryMerge(state.pendingGlossary, o.glossary, 80, false);   // v11 遵从度滑条/允许补充已移除：固定基准 80、不允许自由新增
-      o.glossary = m.glossary;
-      mergeNote = ` · 词典已并入（沿用 ${m.kept} · 新增 ${m.added}${m.rec?` · 覆盖 ${m.rec}`:''}）`;
-      state.pendingGlossary = null; state.glossAllowFill = false;
-    }
     state.chapters = o.chapters.map(c=>({title:c.title, content:'', summary:'', confirmed:false}));
     persist(); render();
-    toast('大纲已生成'+mergeNote);
+    toast('大纲已生成');
   }catch(e){
     if(e.name==='AbortError'){ st.className='status'; st.textContent='已停止生成'; }
     else { st.className='status err'; st.textContent = e.message; }
@@ -6852,21 +6852,8 @@ function recipePicker(){
   // 体量小结：以章节数为准
   const cc = chapterCountVal();
   const szLabel = cc ? `全书 ${cc} 章` : '未填章节数';
-  // v10.18 可折叠维度：默认折叠，点标题展开/收起（state.recipeSet.recFold 记忆状态）
-  const fold = (icon, title, rule, key, cardsHtml) => {
-    const foldState = (state.recipeSet && state.recipeSet.recFold) || {};
-    const open = !!foldState[key];
-    return `
-    <div class="poly-dim recipe-fold">
-      <div class="poly-head recipe-fold-t" data-rec-fold="${key}" role="button" tabindex="0" aria-expanded="${open}">
-        <span class="poly-ic">${icon}</span><b>${title}</b><span class="poly-rule">${rule}</span><span class="rec-fold-ico">${open?'▾':'▸'}</span>
-      </div>
-      <div class="poly-grid recipe-fold-b" ${open?'':'hidden'}>${cardsHtml}</div>
-    </div>`;
-  };
   const core = `
-    ${fold('📇','可复用词典','跨作品词典作一致性底稿', 'glossary', pendingGlossaryPanel())}
-    <p class="muted" style="margin:8px 0 0">全书章节数请到「第二步 · 章节标题」区填写；填完后点击「生成全部章节标题」。可复用词典默认折叠，点标题展开。</p>`;
+    <p class="muted" style="margin:8px 0 0">全书章节数请到「第二步 · 章节标题」区填写；填完后点击「生成全部章节标题」。</p>`;
   return `<div class="card recipe-card poly-card">
     <div class="poly-combo">
       <span class="pc-lbl">当前组合</span>
@@ -6876,26 +6863,6 @@ function recipePicker(){
   </div>`;
 }
 
-// v11 辅轨词典面板（仅长篇构想阶段）：精简为恒显架构——未挂词典只有一行标题+工具栏，挂词典后多一行紧凑状态条。
-// 不再提供遵从度滑条/允许补充开关（简介字数范围已作自由度控制），词典以固定基准并入。
-function pendingGlossaryPanel(){
-  if(!isLong()) return '';
-  const hasPending = state.pendingGlossary && sourceHasGlossary(state.pendingGlossary);
-  const p = state.pendingGlossary || {};
-  const nChar = (p.characters||[]).length, nPlace=(p.places||[]).length, nProp=(p.propernouns||[]).length;
-  const counts = hasPending ? `<span class="gs-pend-count">人物 ${nChar} · 地点 ${nPlace} · 专名 ${nProp}</span>` : '';
-  const pendRow = hasPending ? `<p class="gs-pend-row">${counts} <span class="sub">本次大纲将代入作为一致性底稿，以它为准沿用命名</span></p>` : '';
-  return `<div class="card gs-pend">
-    <h3 class="gs-card-title">📇 可复用词典 ${counts}
-      <span class="gs-tools">
-        ${hasPending ? `<button type="button" class="btn ghost gs-tool" id="gsClearPending">🗑 清除</button><button type="button" class="btn ghost gs-tool" id="gsExportPend">导出 JSON</button>` : ''}
-        <button type="button" class="btn ghost gs-tool" id="gsImportPend">📥 导入词典(新篇)</button>
-        <input type="file" id="gsImportPendFile" accept=".json,application/json" hidden />
-      </span>
-    </h3>
-    ${pendRow}
-  </div>`;
-}
 // 遵从度 → 语义化说明（v8：把百分比翻译成给用户看的自然语言）
 function adherenceHint(a){
   if(a>=100) return '铁律：人名/地名/专名必须逐字沿用，禁止改拼写，仅按新大纲补新角色。';
@@ -6903,14 +6870,6 @@ function adherenceHint(a){
   if(a>=60)  return '主要参照：核心角色沿用，地名/专名可按新剧情调整。';
   if(a>=30)  return '灵感来源：可大改人名地名，仅保留题材与语感。';
   return '几乎放弃：仅作背景语感参考，允许完全重新构建设定。';
-}
-// v11 辅轨词典面板事件绑定（构想阶段）：仅保留 导入/清除/导出（词典库、遵从度滑条、允许补充已移除 v11）。
-function bindPendingGlossary(){
-  const impBtn = $('#gsImportPend'); const impFile = $('#gsImportPendFile');
-  if(impBtn && impFile){ impBtn.onclick = ()=>{ impFile.click(); }; impFile.onchange = e=>{ const f=e.target.files&&e.target.files[0]; if(f) importGlossaryJson(f,'pending'); impFile.value=''; }; }
-  const clearBtn = $('#gsClearPending');
-  if(clearBtn) clearBtn.onclick = ()=>{ state.pendingGlossary=null; persist(); render(); toast('已清除待用词典，回到无词典默认流程'); };
-  const expBtn = $('#gsExportPend'); if(expBtn) expBtn.onclick = ()=>{ exportGlossaryJson(); };
 }
 // 拆分章节输出：AI 输出全文即正文，直接落库
 // 省 token 策略：正文沿用写入时的 max_tokens 上限；
