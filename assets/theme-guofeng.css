@@ -533,4 +533,18 @@
   color: var(--gf-dim);
 }
 
+/* v10.56 章节标题卡片标题行：金漆墨字 + 金线分隔，贴合古风 */
+[data-theme="guofeng"] .ct-head {
+  color: var(--gf-ink);
+  border-bottom: 1px solid var(--gf-line);
+  padding-bottom: 6px;
+  margin-bottom: 8px;
+}
+[data-theme="guofeng"] .ct-head b {
+  font-size: 14px;
+  color: var(--gf-ink);
+  letter-spacing: 1px;
+}
+[data-theme="guofeng"] .ct-fold-ico { color: var(--gf-gold); }
+
 [data-theme="guofeng"] .cp-head-left h3 { color: #fff; }

@@ -1579,6 +1579,21 @@ const WRITE_GROUP_LABEL = { tone:'① 标题风格', texture:'② 梗概风格',
 // seal 默认 0（不锁），与"词条加入词库后立即纳入当前配方"两处决策一致。
 const AI_CAT_LABEL = { '语言质感':'① 语言质感', '情绪与张力':'② 情绪与张力', '节奏与网感':'③ 节奏与网感', '叙事技法':'④ 叙事技法', '台词设计':'⑤ 台词设计', custom:'⭐ 我的自定义' };
 let aiRp = null; // {list:[...], err:'' } 运行期临时候选（不持久化；render 重建主卡时会保留，重启清空）
+// —— v10.57 AI 配方历史快照存储（独立 key，与主 cfg 解耦；生成即存，供书本图标回看）——
+const KEY_AIHIST = 'fyp_aiRecipeHist_v1';
+const AIHIST_CAP = 30;                       // 快照条数上限
+const AIHIST_MAX_BYTES = 3600000;            // 存储体积安全阈值（约 3.4MB）
+function getAiHist(){ try{ return JSON.parse(localStorage.getItem(KEY_AIHIST)||'[]'); }catch(e){ return []; } }
+function setAiHist(a){
+  let list = Array.isArray(a) ? a.slice(-AIHIST_CAP) : [];
+  let s;
+  try{ s = JSON.stringify(list); }catch(e){ return; }
+  while(list.length && s.length > AIHIST_MAX_BYTES){ list.shift(); s = JSON.stringify(list); }
+  try{ localStorage.setItem(KEY_AIHIST, s); }catch(e){ /* 超限静默；设独立键，不影响主 cfg */ }
+}
+function addAiHist(entry){ const a = getAiHist(); a.push(entry); setAiHist(a); return a.length; }
+function snapAiHist(){ return getAiHist(); }
+function aiHistEntryId(){ return 'ah'+Date.now().toString(36); }
 function aiRecipePrompt(userDesc){
   const lib = writeStyleLib();
   const spec = lib.map(s=> `- ${s.id}：${s.name}（${s.cat||'custom'}）`).join('\n');
@@ -1596,6 +1611,7 @@ function aiRecipePrompt(userDesc){
     '2.gap 为 null 表示现有词库足够；gap 非空时每个新词条必须五维齐全（note/tips/avoid/check/demo），缺一则该条作废。',
     '3.不同候选用词尽量不同、风格拉开差异便于挑选。',
     '4.仅 JSON 输出。',
+    '5.why / scenario / reasons 里引用词条时，必须使用词条的中文【name】，禁止出现英文 id；英文 id 只允许出现在 tags 字段。',
     '【现有词库 id/name/cat】：', spec
   ].join('\n'), user: userDesc };
 }
@@ -1615,6 +1631,7 @@ function aiPromptFromOutline(text){
     '2.gap 词条须五维齐全（note/tips/avoid/check/demo），缺一作废。',
     '3.不同候选用词尽量不同、风格拉开差异便于挑选。',
     '4.仅 JSON 输出。',
+    '5.why / scenario / reasons 里引用词条时，必须使用词条的中文【name】，禁止出现英文 id；英文 id 只允许出现在 tags 字段。',
     '【现有词库 id/name/cat】：', spec
   ].join('\n'), user: text };
 }
@@ -1637,6 +1654,7 @@ function aiRecipeCard(){
       <div class="ai-recipe-tool">
         <button type="button" class="btn primary" data-ai-recipe-gen>✨ 生成配方</button>
         <button type="button" class="btn small ghost" data-ai-recipe-clear>清空</button>
+        <button type="button" class="ai-upload-btn ai-hist-btn" data-ai-recipe-hist title="AI 配方历史：回看已生成过的候选配方">📖<span class="ai-hist-badge">${snapAiHist().length||''}</span></button>
         <button type="button" class="ai-upload-btn" data-ai-recipe-file title="上传逐章梗概TXT">＋</button>
       </div>
       <input type="file" id="aiReFile" accept=".txt,text/plain" hidden />
@@ -1658,8 +1676,8 @@ function aiRecipeResultHtml(lib){
         <span class="muted" style="font-size:11px">${esc(c.desc||'')}</span>
       </div>
       <div class="ai-recipe-tags">${ (c.tags||[]).map(id=>{ const s=writeStyleById(id); return `<span class="ai-recipe-tg">${esc(s?s.name:id)}</span>`; }).join('') }</div>
-      <div class="ai-recipe-sec"><span class="ar-lab">为何这样选</span>${esc(c.why||'')}</div>
-      <div class="ai-recipe-sec"><span class="ar-lab">适用场景</span>${esc(c.scenario||'')}</div>
+      <div class="ai-recipe-sec"><span class="ar-lab">为何这样选</span>${esc(wiseWhyText(c.why||''))}</div>
+      <div class="ai-recipe-sec"><span class="ar-lab">适用场景</span>${esc(wiseWhyText(c.scenario||''))}</div>
       <div class="ai-recipe-gap">
         ${ gapHtml(c, ci) }
       </div>
@@ -1709,6 +1727,8 @@ async function aiRecipeGen(){
     const list = parseAiJsonList(raw);
     if(!list || !list.length) throw new Error('AI 未返回有效配方，请重试');
     aiRp = { list, hi: 0 };
+    // v10.57 生成成功即存历史快照（书本图标可回看；outline 由 aiRecipeFromOutline 存）
+    if(aiSource !== 'outline') addAiHist({ id: aiHistEntryId(), ts: Date.now(), src:'desc', desc: desc, list: JSON.parse(JSON.stringify(list)), applied:[] });
   }catch(e){
     aiRp = { list:null, err: (e&&e.message)||'生成失败' };
   }
@@ -1716,6 +1736,7 @@ async function aiRecipeGen(){
   if(gen){ gen.disabled = false; gen.textContent = '✨ 生成配方'; }
 }
 // v1.0.62 上传逐章梗概 → 全文直发 AI 通读 → 提炼可模仿的写作配方（复用 aiRp 渲染链，不分段）
+let _aiOutlineFname = ''; // v10.57 暂存上传文件名，供快照 desc 标记
 async function aiRecipeFromOutline(text){
   aiSource = 'outline';
   const out = $('[data-ai-recipe-out]');
@@ -1727,6 +1748,8 @@ async function aiRecipeFromOutline(text){
     const list = parseAiJsonList(raw);
     if(!list || !list.length) throw new Error('AI 未返回有效配方，请重试');
     aiRp = { list, hi: 0 };
+    // v10.57 生成成功即存历史快照（以梗概文件名标记来源；不存原文大文本）
+    addAiHist({ id: aiHistEntryId(), ts: Date.now(), src:'outline', desc: _aiOutlineFname || '逐章梗概', list: JSON.parse(JSON.stringify(list)), applied:[] });
   }catch(e){
     aiRp = { list:null, err: (e&&e.message)||'通读失败' };
   }
@@ -1744,8 +1767,8 @@ function parseAiJsonList(raw){
   }
 }
 // 选用候选配方：① 存入「我的配方」（customCombos）；②（选用时）应用到写作风格并立即持久化生效
-function aiRecipeStore(ci){
-  const c = aiRp.list[ci]; if(!c) return null;
+function storeRecipeCandidate(c){
+  if(!c) return null;
   const cfg = getCfg(); cfg.styleCustom = cfg.styleCustom || {};
   cfg.styleCustom.customCombos = cfg.styleCustom.customCombos || [];
   const libIds = writeStyleLib().map(s=>s.id);
@@ -1756,15 +1779,19 @@ function aiRecipeStore(ci){
   let tags = (c.tags||[]).filter(id=> libIds.includes(id));
   // 缺口词条若已入库，一并自动纳入 tags（决策2）
   (c.gap||[]).forEach(g=>{ if(g && g.id && libIds.includes(g.id) && !tags.includes(g.id)) tags.push(g.id); });
-  cfg.styleCustom.customCombos.push({ id:'cu'+Date.now().toString(36)+Math.random().toString(36).slice(2,5), name, desc:(c.desc||''), why:(c.why||''), tags });
+  cfg.styleCustom.customCombos.push({ id:'cu'+Date.now().toString(36)+Math.random().toString(36).slice(2,5), name, desc:(c.desc||''), why: wiseWhyText(c.why||''), tags });
   saveCfg(cfg);
   return { combo:cfg.styleCustom.customCombos[cfg.styleCustom.customCombos.length-1], name };
 }
-// 选用此配方 → 存储 + 立即应用（替换式写生效配置并持久化）
-function aiRecipePick(ci){
-  if(!aiRp || !Array.isArray(aiRp.list)) return;
-  const stored = aiRecipeStore(ci); if(!stored) return;
-  const c = aiRp.list[ci];
+// [历史兼容] 走 aiRp 的存储封装
+function aiRecipeStore(ci){
+  if(!aiRp || !Array.isArray(aiRp.list)) return null;
+  return storeRecipeCandidate(aiRp.list[ci]);
+}
+// 选用此配方 → 存储 + 立即应用（替换式写生效配置并持久化）；opts 兼容历史弹层（无需 render 主卡时传 render:false）
+function applyChosenCandidate(c, opts){
+  if(!c) return null;
+  const stored = storeRecipeCandidate(c); if(!stored) return null;
   const libIds = writeStyleLib().map(s=>s.id);
   // v10.48 选用即应用：替换写生效配置并持久化；回退依赖「收藏当前」预设或本配方仍存于「我的配方」
   const st2 = writeStyleState();
@@ -1774,10 +1801,14 @@ function aiRecipePick(ci){
   st2.tags = d2.tags.slice(); st2.intensity = d2.intensity||2;
   persist();
   wsDraft = null;                                 // 草稿与生效合一 -> 卡片显示「✔已生效」
-  aiRp = null;
-  render();
-  refreshWsUI();                                  // 卡片即时高亮已选中词条 / 摘要行
+  if(!opts || opts.render !== false) aiRp = null;
+  if(!opts || opts.render !== false){ render(); refreshWsUI(); }
   toast('已应用到「写作风格」：'+stored.name);
+  return stored;
+}
+function aiRecipePick(ci){
+  if(!aiRp || !Array.isArray(aiRp.list)) return;
+  applyChosenCandidate(aiRp.list[ci]);
 }
 // 收藏不采用：仅存入「我的配方」，不应用到写作风格
 function aiRecipeSave(ci){
@@ -1863,6 +1894,20 @@ function writeStyleLib(){
 }
 function writeStyleById(id){
   return writeStyleLib().find(s=> s.id === id) || null;
+}
+// v10.57 方案2兜底：把自由文本（why/scenario 等）里出现的英文词条 id 替换为中文 name。
+// 仅替换词库内真实存在的 id；查不到（拼错/幻觉）的原样保留，不误伤；中文不受影响。
+let _idNameMap = null;
+function _idName(){
+  if(_idNameMap) return _idNameMap;
+  const m = new Map();
+  writeStyleLib().forEach(s=>{ if(s.id) m.set(s.id, s.name); });
+  return (_idNameMap = m);
+}
+function wiseWhyText(txt){
+  if(!txt) return txt;
+  const N = _idName();
+  return String(txt).replace(/\b[A-Za-z_]\w*\b/g, w=> (N.has(w) ? N.get(w) : w));
 }
 // 当前生效的写作风格配置：override 优先（单章覆盖/对比用），缺省用 state.chapterStyle
 function curWriteStyle(override){
@@ -3021,7 +3066,7 @@ function writeStyleCard(){
         <button type="button" class="btn small ghost" data-ws-fold-all title="展开全部词条类别">⤵ 全部展开</button>
         <button type="button" class="btn small ghost" data-ws-fold-none title="收起全部词条类别">⤴ 全部收起</button>
       </div>
-      ${writeStyleChipsHtml(draft, 'ws', { plus:false, cardFold:true, showTip:false })}   // v10.54 加号移至下方工具行最左
+      ${writeStyleChipsHtml(draft, 'ws', { plus:false, cardFold:true, showTip:false })}
       <div class="ws-tools">
         <button type="button" class="ws-chip ws-chip-plus" data-ws-add="element" title="点击新建文风词条">＋</button>
         <button type="button" class="btn small primary ws-apply${dirty?'':' disabled'}" data-ws-apply ${dirty?'':'disabled'} title="把当前草稿设为生效配置（从此生成用这套风格）">✔ 应用并保存</button>
@@ -3289,7 +3334,7 @@ function openStyleLibPanel(){
     <div class="ws-lib-item">
       <div class="ws-lib-name">${c.custom?'🏷':'🎬'} ${esc(c.name||'未命名')}</div>
       <div class="ws-lib-note" style="white-space:pre-wrap;margin:2px 0 4px">${esc(c.desc||'')}</div>
-      ${c.why?`<div class="ws-lib-why">💡 为何这样选：${esc(c.why)}</div>`:''}
+      ${c.why?`<div class="ws-lib-why">💡 为何这样选：${esc(wiseWhyText(c.why))}</div>`:''}
       <span class="muted" style="font-size:11px">词条：${(c.tags||[]).map(id=>{const s=writeStyleById(id); return s?s.name:id;}).join(' + ')||'无'}</span>
     </div>`).join('') : '<p class="muted">暂无配方。</p>';
   const ov = document.createElement('div'); ov.id='wsLibPanel'; ov.className='gs-overlay';
@@ -3651,6 +3696,9 @@ function bindAiRecipe(){
     cfg.aiRecipeCollapsed = nowCollapsed; saveCfg(cfg);
     const ico = foldHead.querySelector('.sc-fold-ico'); if(ico) ico.textContent = nowCollapsed?'▸':'▾';
   });
+  // v10.57 书本图标：打开 AI 配方历史弹层（徽标随快照数更新）
+  const histBtn = card.querySelector('[data-ai-recipe-hist]');
+  if(histBtn) histBtn.onclick = ()=>{ openAiHistPanel(); };
   // v1.0.62 上传逐章梗概 TXT：圆形加号 → FileReader.readAsText → AI 通读提炼配方
   const fIn = $('#aiReFile');
   const readOutline = (f)=>{
@@ -3661,6 +3709,7 @@ function bindAiRecipe(){
       const txt = String((r.result)||'').trim();
       if(!txt){ toast('文件内容为空'); return; }
       const nm = card.querySelector('[data-ai-upload-name]'); if(nm) nm.textContent = f.name;
+      _aiOutlineFname = f.name;   // v10.57 供快照标记来源
       aiRecipeFromOutline(txt);
     };
     r.onerror = ()=> toast('读取文件失败');
@@ -3679,6 +3728,82 @@ function bindAiRecipe(){
     const ag = e.target.closest('[data-ai-recipe-addgap]');
     if(ag){ aiRecipeAddGap(ag.dataset.aiRecipeAddgap); return; }
   });
+}
+// —— v10.57 AI 配方历史弹层（书本图标；读持久化快照，与瞬时 aiRp 解耦）——
+function aiHistCandHtml(c, idx){
+  if(!c) return '';
+  return `<div class="ai-recipe-cand" style="margin-top:6px">
+    <div class="ai-recipe-cand-head">
+      <b>${esc(c.name||('候选'+(idx+1)))}</b>
+      <span class="muted" style="font-size:11px">${esc(c.desc||'')}</span>
+    </div>
+    <div class="ai-recipe-tags">${ (c.tags||[]).map(id=>{ const s=writeStyleById(id); return `<span class="ai-recipe-tg">${esc(s?s.name:id)}</span>`; }).join('') }</div>
+    <div class="ai-recipe-sec"><span class="ar-lab">为何这样选</span>${esc(wiseWhyText(c.why||''))}</div>
+    <div class="ai-recipe-sec"><span class="ar-lab">适用场景</span>${esc(wiseWhyText(c.scenario||''))}</div>
+    <div class="ai-recipe-gap">
+      ${ Array.isArray(c.gap) && c.gap.length
+        ? `<div class="ar-gaptitle">⚠️ 词条缺口（${c.gap.length} 项）</div>` + c.gap.map(g=>`
+            <div class="ai-recipe-gapitem">
+              <div class="ar-gaphead"><b>${esc((g&&g.name)||'')}</b><span class="muted" style="font-size:11px">${ (AI_CAT_LABEL[(g&&g.cat)||'']||((g&&g.cat)||'custom')) }</span></div>
+              <div class="ar-gapwhy">${esc((g&&g.reasons)||'')}</div>
+              ${gapFiveHtml(g)}
+            </div>`).join('')
+        : `<span class="ar-ok">✓ 现有词库即可覆盖，无需新词条</span>` }
+    </div>
+  </div>`;
+}
+function openAiHistPanel(){
+  const hist = getAiHist();
+  const ov = document.createElement('div'); ov.id='aiHistPanel'; ov.className='gs-overlay';
+  const entHtml = (e,hi)=>{
+    const ei = hist.length-1-hi;   // 倒序序号（与展示一致）
+    return `<div class="ws-lib-group ws-lib-fold" style="margin-top:6px">
+      <div class="ws-lib-fold-t" data-ah-fold="${ei}" role="button" tabindex="0" title="展开/收起">
+        <span>${e.src==='outline'?'📑':'📝'} ${esc(e.desc||'')} <span class="muted" style="font-size:10px">· ${new Date(e.ts).toLocaleString('zh-CN',{hour12:false})}</span></span>
+        <span class="sc-fold-ico">▸</span>
+      </div>
+      <div class="ws-lib-fold-body" style="display:none">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 8px">
+          <button type="button" class="btn small ghost" data-ah-apply="${ei}">✔ 重新采用首个</button>
+          <button type="button" class="btn small ghost" data-ah-del="${ei}">删</button>
+        </div>
+        ${ (Array.isArray(e.list)&&e.list.length) ? e.list.map((c,i)=>aiHistCandHtml(c,i)).join('<hr style="margin:6px 0;opacity:.2">') : '<p class="muted">无候选。</p>' }
+      </div>
+    </div>`;
+  };
+  const list = hist.slice().reverse();
+  ov.innerHTML = `
+    <div class="gs-modal">
+      <div class="gs-modal-head"><b>📖 AI 配方历史（${hist.length}）</b>
+        <span style="display:flex;gap:6px">
+          <button class="btn small ghost" data-ah-clear>清空</button>
+          <button class="gs-x" data-ah-close>✕</button>
+        </span></div>
+      <div class="cv-body">
+        ${ list.length ? list.map(entHtml).join('') : '<p class="muted">暂无历史。用「✨ 生成配方」生成后即自动保存于此，可随时回看。</p>' }
+      </div>
+    </div>`;
+  const close = ()=>{ const p=$('#aiHistPanel'); if(p) p.remove(); };
+  ov.addEventListener('click', (e)=>{
+    const cl = e.target.closest('[data-ah-close]'); if(cl){ close(); return; }
+    const fold = e.target.closest('[data-ah-fold]');
+    if(fold){ const body = fold.closest('.ws-lib-group').querySelector('.ws-lib-fold-body'); if(body){ const open = body.style.display!=='none'; body.style.display = open?'none':'block'; fold.querySelector('.sc-fold-ico').textContent = open?'▸':'▾'; } return; }
+    const apply = e.target.closest('[data-ah-apply]');
+    if(apply){ const ei=+apply.dataset.ahApply; const entry=hist[ei]; if(entry&&Array.isArray(entry.list)&&entry.list.length){ applyChosenCandidate(entry.list[0], {render:false}); refreshAiHistBadge(); close(); } return; }
+    const del = e.target.closest('[data-ah-del]');
+    if(del){ const ei=+del.dataset.ahDel; const a=getAiHist(); if(a[ei]){ a.splice(ei,1); setAiHist(a); } refreshAiHistBadge(); const p=$('#aiHistPanel'); if(p) p.remove(); openAiHistPanel(); return; }
+    const clr = e.target.closest('[data-ah-clear]');
+    if(clr){ if(confirm('确认清空全部 AI 配方历史？')){ setAiHist([]); refreshAiHistBadge(); close(); } return; }
+    if(e.target===ov) close();
+  });
+  document.body.appendChild(ov);
+}
+function closeAiHistPanel(){ const p=$('#aiHistPanel'); if(p) p.remove(); }
+// 更新卡片书本徽标（按当前快照数）
+function refreshAiHistBadge(){
+  const n = getAiHist().length;
+  const card = $('.ai-recipe-card');
+  if(card){ const b = card.querySelector('[data-ai-recipe-hist] .ai-hist-badge'); if(b) b.textContent = n||''; }
 }
 // v10.3 长篇结构设计栏折叠绑定：点击标题收起/展开，状态持久化
 function bindStructureFold(){

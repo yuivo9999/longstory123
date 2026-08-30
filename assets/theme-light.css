@@ -204,3 +204,17 @@
 [data-theme="light"] .cp-body .muted {
   color: var(--muted);
 }
+
+/* v10.56 章节标题卡片标题行：浅色橙强调 + 底边 */
+[data-theme="light"] .ct-head {
+  color: var(--txt);
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 6px;
+  margin-bottom: 8px;
+}
+[data-theme="light"] .ct-head b {
+  font-size: 14px;
+  color: var(--accent);
+  font-weight: 700;
+}
+[data-theme="light"] .ct-fold-ico { color: var(--accent2); }

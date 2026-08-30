@@ -1069,6 +1069,11 @@ textarea[readonly]::selection{ background:color-mix(in srgb, var(--accent2) 45%,
 .ai-recipe-card .ai-recipe-tool{display:flex;align-items:center;gap:8px;margin:8px 0}
 .ai-upload-btn{width:22px;height:22px;border-radius:50%;border:1px solid color-mix(in srgb,var(--accent) 45%,transparent);background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--accent);font-size:14px;font-weight:700;line-height:1;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s;padding:0;margin-left:auto;flex:none}
 .ai-upload-btn:hover{background:color-mix(in srgb,var(--accent) 22%,transparent)}
+/* v10.57 书本图标（AI 配方历史）：尺寸同加号，紧邻加号左侧；徽标=累计快照数 */
+.ai-hist-btn{position:relative;font-size:13px;margin-left:auto}
+.ai-hist-btn + .ai-upload-btn{margin-left:4px}
+.ai-hist-badge{position:absolute;top:-6px;right:-6px;min-width:14px;height:14px;border-radius:8px;background:#ff6a3d;color:#fff;font-size:10px;line-height:14px;text-align:center;padding:0 3px;box-sizing:border-box}
+.ai-hist-badge:empty,.ai-hist-badge[style*="display:none"]{display:none}
 /* v10.31 工具行按钮高度统一约 22px（宽度不变，仅本卡片作用域） */
 .ai-recipe-tool .btn{height:22px;line-height:20px;padding:0 10px;font-size:12px;min-height:0;box-sizing:border-box}
 .ai-recipe-tool .btn.primary,.ai-recipe-tool .btn.small.ghost{width:auto}
@@ -1106,12 +1111,12 @@ textarea[readonly]::selection{ background:color-mix(in srgb, var(--accent2) 45%,
 .advice-ai-row{display:flex;align-items:center;gap:8px;margin:8px 0 4px;flex-wrap:wrap}
 /* v10.53 AI 优化建议按钮：常态橙纯色 / 生成中金黄渐变（全主题一致） */
 .advice-ai-row .btn{height:22px;line-height:20px;padding:0 10px;font-size:12px;font-weight:600;box-sizing:border-box;background:transparent;border:1px solid transparent;color:var(--danger,#e74c3c)}
-.advice-ai-row [data-cth-ai]{background:#ff6a3d;border:1px solid transparent;color:#fff;opacity:1}
-.advice-ai-row [data-cth-ai]:hover:not(:disabled):not(.is-busy){background:#ff7d52;color:#fff}
-.advice-ai-row [data-cth-ai]:disabled,
-.advice-ai-row [data-cth-ai].is-busy{background:linear-gradient(135deg,#f59e0b 0%,#d97706 100%);border:1px solid transparent;color:#fff;opacity:1;box-shadow:0 1px 6px rgba(245,158,11,.4)}
-.advice-ai-row [data-cth-ai]:disabled .spinner,
-.advice-ai-row [data-cth-ai].is-busy .spinner{border-color:rgba(255,255,255,.4);border-top-color:#fff}
+.advice-ai-row .btn.ghost[data-cth-ai]{background:#ff6a3d;border:1px solid transparent;color:#fff;opacity:1;box-shadow:none;text-shadow:none}
+.advice-ai-row .btn.ghost[data-cth-ai]:hover:not(:disabled):not(.is-busy){background:#ff7d52;color:#fff}
+.advice-ai-row .btn.ghost[data-cth-ai]:disabled,
+.advice-ai-row .btn.ghost[data-cth-ai].is-busy{background:linear-gradient(135deg,#f59e0b 0%,#d97706 100%);border:1px solid transparent;color:#fff;opacity:1;box-shadow:0 1px 6px rgba(245,158,11,.4);text-shadow:none;top:0}
+.advice-ai-row .btn.ghost[data-cth-ai]:disabled .spinner,
+.advice-ai-row .btn.ghost[data-cth-ai].is-busy .spinner{border-color:rgba(255,255,255,.4);border-top-color:#fff}
 .advice-ai-row .muted{color:var(--sub);font-size:11.5px}
 /* v10.34 折叠按钮移到 advice-ai-row 最右侧 */
 .cth-fold-btn{margin-left:auto;display:inline-flex;align-items:center;gap:4px;height:20px;line-height:20px;padding:0 8px;font-size:11px;color:var(--accent);border:1px solid color-mix(in srgb,var(--accent) 40%,transparent);border-radius:999px;background:color-mix(in srgb,var(--accent) 10%,transparent);cursor:pointer;user-select:none;flex:none}

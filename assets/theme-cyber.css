@@ -335,3 +335,18 @@
 [data-theme="cyber"] .reader-syn-btn:hover{ background: var(--cy-cyan); color:#06222b; }
 [data-theme="cyber"] .reader-syn-card{ background: rgba(16, 14, 34, 0.95); color: var(--cy-text); border: 1px solid var(--cy-line); box-shadow: 0 0 26px rgba(34,211,238,.22), 0 14px 44px rgba(0,0,0,.55); }
 [data-theme="cyber"] .reader-syn-card .syn-body.muted{ color: var(--cy-dim); }
+
+/* v10.56 章节标题卡片标题行：赛博霓虹青色发光 */
+[data-theme="cyber"] .ct-head {
+  color: var(--cy-text);
+  border-bottom: 1px solid var(--cy-line);
+  padding-bottom: 6px;
+  margin-bottom: 8px;
+}
+[data-theme="cyber"] .ct-head b {
+  font-size: 14px;
+  color: var(--cy-cyan);
+  text-shadow: 0 0 10px rgba(34,211,238,0.55);
+  letter-spacing: 1px;
+}
+[data-theme="cyber"] .ct-fold-ico { color: var(--cy-cyan); }

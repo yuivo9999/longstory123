@@ -93,3 +93,18 @@
   100%{ transform:translateY(0) scale(1); opacity:1; filter:none; }
 }
 [data-theme="blackboard"] .tabbar{ box-shadow:0 -6px 18px rgba(0,0,0,.4); }
+
+/* v10.56 章节标题卡片标题行：粉笔字 + 虚线分隔 */
+[data-theme="blackboard"] .ct-head {
+  color: #fff;
+  border-bottom: 1px dashed rgba(255,255,255,.35);
+  padding-bottom: 6px;
+  margin-bottom: 8px;
+}
+[data-theme="blackboard"] .ct-head b {
+  font-size: 14px;
+  color: #fff;
+  text-shadow: 0 1px 0 rgba(0,0,0,.4);
+  font-weight: 600;
+}
+[data-theme="blackboard"] .ct-fold-ico { color: #ffd27f; }
