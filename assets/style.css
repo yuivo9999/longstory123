@@ -258,7 +258,6 @@ label.field>span{display:block;font-size:12px;color:var(--sub);margin-bottom:6px
 .cover-modes button:active{transform:scale(.98)}
 
 /* 写作范式选择器（长篇） */
-.recipe-card{border-left:3px solid var(--accent);background:var(--panel2)}
 .recipe-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .recipe{display:flex;flex-direction:column;align-items:flex-start;gap:4px;text-align:left;padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--panel);cursor:pointer}
 .recipe.active{border-color:var(--accent);background:color-mix(in srgb, var(--accent) 16%, var(--panel))}
@@ -268,10 +267,6 @@ label.field>span{display:block;font-size:12px;color:var(--sub);margin-bottom:6px
 .recipe .r-desc{font-size:11px;color:var(--muted);line-height:1.4}
 
 /* 三维写作范式（结构/节奏/质量 + 体量） */
-.poly-card{padding:16px}
-.poly-combo{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:10px 0 14px;padding:10px 12px;border:1px dashed color-mix(in srgb,var(--accent) 55%, var(--line));border-radius:10px;background:var(--panel2)}
-.pc-lbl{font-size:11px;letter-spacing:1px;color:var(--accent);font-weight:700;flex:0 0 auto}
-.pc-item{font-size:12px;background:var(--panel2);border:1px solid var(--line);border-radius:20px;padding:3px 10px;color:var(--txt)}
 .poly-dim{margin-bottom:16px}
 .poly-head{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
 /* v10.18 生成大纲前「结构骨架 / 可复用词典」可折叠维度 */
@@ -353,7 +348,7 @@ input.tw-in[data-first]::placeholder{color:color-mix(in srgb,var(--accent) 70%, 
 .drs.ds-off::after{content:"";position:absolute;left:2px;right:2px;top:50%;height:6px;transform:translateY(-50%);background:var(--panel);border:1px solid var(--line);border-radius:999px}
 .size-scale{font-size:10px;color:var(--muted);text-align:center}
 .size-hint{font-size:11.5px;color:var(--accent);margin:8px 0 0}
-@media(max-width:560px){ .poly-grid{grid-template-columns:1fr} .size-block{padding:10px} .poly-card{padding:12px} .poly-grid .recipe{min-height:0} }
+@media(max-width:560px){ .poly-grid{grid-template-columns:1fr} .size-block{padding:10px} .poly-grid .recipe{min-height:0} }
 
 /* 长篇模式：导出页多选章节列表 */
 .exp-ch-list{display:flex;flex-direction:column;gap:8px;max-height:min(52vh,480px);overflow-y:auto;padding-right:6px}
@@ -1263,8 +1258,4 @@ textarea[readonly]::selection{ background:color-mix(in srgb, var(--accent2) 45%,
 .reader-syn-card h4{ margin:0 0 10px; font-size:15px; font-weight:800; }
 .reader-syn-card .syn-body{ font-size:14px; line-height:1.8; white-space:pre-wrap; word-break:break-word; }
 .reader-syn-card .syn-body.muted{ color:var(--muted); }
-/* v10.44 全书要求输入框（故事大纲·小说简介下方） */
-.global-req{ margin-top:10px; }
-#globalReqInp{ width:100%; resize:vertical; background:var(--panel2); border:1px solid var(--line); border-radius:8px; color:var(--txt); padding:8px 10px; font-size:13px; line-height:1.6; box-sizing:border-box; }
-#globalReqInp:focus{ outline:none; border-color:var(--accent); }
-.global-req-hint{ margin:4px 0 0; font-size:11px; color:var(--muted); }
+/* v10.53 概要段缩略显示 */

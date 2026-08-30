@@ -7,7 +7,7 @@
 'use strict';
 
 /* ---------- 全局状态 ---------- */
-const APP_VERSION = '1.0.107';   // 应用版本号（P1-1v4 新增：标题/单章原始AI响应手动提取按钮）：index.html 的 ?v= 资源戳与之同步递增，用于标识产物已更新
+const APP_VERSION = '1.0.109';   // 应用版本号（P1-1v4 新增：标题/单章原始AI响应手动提取按钮）：index.html 的 ?v= 资源戳与之同步递增，用于标识产物已更新
 const KEY_CFG = 'fyp_cfg';
 const KEY_STATE = 'fyp_state';   // 旧版单项目 key（仅用于首次迁移）
 const KEY_LIB = 'fyp_lib';       // 新版多项目历史库
@@ -1947,7 +1947,7 @@ function wsStyleNoteBlock(items, st, headTitle, intro, demoLabel){
 function chapterStyleNote(override){
   const items = wsGroupStyleTags(override, 'element');
   const st = curWriteStyle(override);
-  return wsStyleNoteBlock(items, st, '写作风格', '本指令为本章写作的最高优先要求（第一优先，压过全书要求与本次人工干预）：当它与节奏、篇幅、原创性等任何其他要求冲突时，以本指令为准；唯一不可逾越的红线：不得破坏人名/地名/专名一致性、不得违反基础剧情逻辑与人物设定。');
+  return wsStyleNoteBlock(items, st, '写作风格', '本指令为本章写作的最高优先要求（第一优先，压过本次人工干预）：当它与节奏、篇幅、原创性等任何其他要求冲突时，以本指令为准；唯一不可逾越的红线：不得破坏人名/地名/专名一致性、不得违反基础剧情逻辑与人物设定。');
 }
 // v11 规划师轻量风格注入：只给所选章节风格(element)的名称 + 浓度，不给 note/五维（规划师只需风格基调锚点，避免与正文完整版重复）。
 function writeStyleNamesBlock(){
@@ -2181,8 +2181,8 @@ const REGEN_TITLES_SYS = `你是一位深谙标题艺术的章节标题策划师
 3. 标题有表现力、立意新颖但不剧透：体现本章走向/情绪，不泄露后续反转与结局，不重复前文已用梗；
 4. **防套路第一优先**：避免"xx之怒/惊变/震惊"式流水线命名与网文高频句式，也不刻意追求"钩子感"（钩子感要求已废除，防套路优先）；立意从本作独特设定推导；
 5. 若用户提示中出现【写作风格】块，每条标题的措辞基调都须贴合该风格（如"严肃"则标题庄重不轻佻、"温情细腻"则带温度、"冷峻克制"则惜字如金），不得忽略或降级；
-6. 若用户提供了【重生成要求】，须以要求为最高优先（高于全书要求与写作风格）；
-7. 优先级契约：若【全书要求】与【重生成要求】同时出现，以重生成要求为准、全书要求其次；但二者均不得违反设定词典一致性（人名/地名/专名）；
+6. 若用户提供了【重生成要求】，须以要求为最高优先（高于写作风格）；
+7. 优先级契约：若【重生成要求】与【写作风格】冲突，以重生成要求为准；但均不得违反设定词典一致性（人名/地名/专名）；
 8. 只输出 JSON 数组（不要解释、不要 markdown 代码块）：{"titles":["第1章标题","第2章标题",...]}
 【自由发挥区】标题的立意、措辞、角度由你把握，让每章标题读起来各有记忆点、整批标题风格错落。`;
 
@@ -3484,7 +3484,7 @@ function viewStory(){
         <textarea id="polishText" class="pol-text" placeholder="可直接编辑此优化稿"></textarea>
       </div>
       ${ polishKeepBar() }
-      ${ isLong() ? recipePicker() : specPickerHtml() }
+      ${ isLong() ? '' : specPickerHtml() }
       ${ isLong() ? loglineRangeHtml() : '' }
       <div class="btn-row">
         <button id="btnGenOutline" class="btn primary block">${isLong()?'📚 生成长篇大纲':'✨ 生成故事大纲'}</button>
@@ -3506,10 +3506,6 @@ function viewStory(){
         <span class="so-fold">${state.soCollapsed?'▸':'▾'}</span><b>📌 小说简介</b>
       </div>
       <p class="sub so-logline" ${state.soCollapsed?'hidden':''}>${esc(o.logline||'')}</p>
-      <div class="global-req">
-        <textarea id="globalReqInp" rows="3" placeholder="写全书风格基准/对标本（如对标《寅次郎的故事》等），指挥标题、逐章梗概、章节正文统一基调">${esc(o.globalReq||'')}</textarea>
-        <p class="global-req-hint">全书级要求：注入「标题 / 逐章梗概 / 章节内容」，优先级：写作风格 &gt; 单章干预 &gt; 全书要求 &gt; 字典一致性。</p>
-      </div>
       ${ chapterTitleBlock() }
       ${ isLong() ? aiRecipeCard() : '' }   <!-- v11 卡片顺序：AI配方助手 移到 章节标题 与 全书规划师 之间 -->
       ${ writeStyleCard() }
@@ -5987,12 +5983,6 @@ function bindView(){
   bindChapterPlanFold(); // v10.14 梗概卡折叠绑定
   bindChapterTitles();// v10.14 章节标题编辑 + 复制绑定
   bindWriteStyle();   // v2.0 写作风格卡片绑定（chips/浓度/预设/收藏/管理/清空）
-  bindGlobalReq(); // v10.44 全书要求输入框绑定（失焦即存）
-  // v10.44 全书要求：books 级风格基准，注入标题/梗概/章节内容
-  function bindGlobalReq(){
-    const ta = $('#globalReqInp'); if(!ta) return;
-    ta.onchange = ()=>{ const oo=state.outline; if(!oo) return; oo.globalReq = ta.value.trim(); persist(); };
-  }
   // 故事页内联规范选择器
   $$('.spec-opt').forEach(b=> b.onclick = ()=>{ selectSpec(b.dataset.spec); });
   const btnCO = $('#btnConfirmOutline'); if(btnCO) btnCO.onclick = ()=>{ state.outlineConfirmed=true; persist(); render(); };
@@ -6337,7 +6327,6 @@ async function genChapterPlans(btn){
     if(wsPlan.trim()) parts.push(wsPlan.trim());
     parts.push(`小说标题：${o.title||''}\n小说简介：${o.logline||''}\n全部章节标题：${titles}`);
     parts.push(chapterGlossaryBlock());
-    if(o.globalReq) parts.push(`【全书要求（第三优先）】\n${o.globalReq}`);   // v10.44 books 级风格/对标基准，指挥逐章梗概
     const user = parts.join('\n\n') + '\n\n' + ORIGINALITY_OUTLINE_SYS;   // v10.12 防套路：方向防套路 + 人名规避（复用大纲侧）
     const onStream = delta => {
       _streamBuf += String(delta||'');
@@ -6846,21 +6835,8 @@ function loglineRangeHtml(){
     <span class="llr-sep">—</span>
     <input type="number" id="llMax" class="llr-input" min="1" max="5000" step="1" value="${_hi}" aria-label="简介最多字数">
     <span class="llr-hint">字（生成大纲时 AI 严格遵守此区间；两数颠倒会自动对调）</span>
-  </div>`;
-}
-function recipePicker(){
-  // 体量小结：以章节数为准
-  const cc = chapterCountVal();
-  const szLabel = cc ? `全书 ${cc} 章` : '未填章节数';
-  const core = `
-    <p class="muted" style="margin:8px 0 0">全书章节数请到「第二步 · 章节标题」区填写；填完后点击「生成全部章节标题」。</p>`;
-  return `<div class="card recipe-card poly-card">
-    <div class="poly-combo">
-      <span class="pc-lbl">当前组合</span>
-      <span class="pc-item">体量：${szLabel}</span>
-    </div>
-    ${core}
-  </div>`;
+  </div>
+  <p class="muted" style="margin:8px 0 0">全书章节数请到「第二步 · 章节标题」区填写；填完后点击「生成全部章节标题」。</p>`;
 }
 
 // 遵从度 → 语义化说明（v8：把百分比翻译成给用户看的自然语言）
@@ -6915,20 +6891,20 @@ function cumulativeChapters(i){
   }
   return out.join('\n\n');
 }
-// v2.4 章节 User 组装：按用户指定优先级（人工干预 > 全书要求 > 写作风格 > 词典）——
-// ① 写作风格（第三优先）② 上一章真实正文（必须接着写）③ 本章任务+本章梗概 ④ 本章/下一章边界（禁越界，末章收束）⑤ 大纲/结构/词典+全书要求(第二优先) ⑥ 人工干预（重生成，第一优先）
+// v2.4 章节 User 组装：按用户指定优先级（人工干预 > 写作风格 > 词典）——
+// ① 写作风格（第一优先）② 上一章真实正文（必须接着写）③ 本章任务+本章梗概 ④ 本章/下一章边界（禁越界，末章收束）⑤ 大纲/结构/词典 ⑥ 人工干预（重生成，最高优先）
 // 不注入"全部章节标题"（v2.3 零夹带）；词典全字段经 chapterGlossaryBlock 注入。
-const USER_PRIO_BILL = '\n\n【优先级契约】当同时存在多条用户要求时，按此裁决（高→低）：写作风格（第一优先，压过所有） > 人工干预要求 > 全书要求 > 设定词典。前者与后者冲突时以前者为准；设定词典（人名/地名/专名一致性）为不可逾越红线，任何要求不得破坏。';
+const USER_PRIO_BILL = '\n\n【优先级契约】当同时存在多条用户要求时，按此裁决（高→低）：写作风格（第一优先，压过所有） > 人工干预要求 > 设定词典。前者与后者冲突时以前者为准；设定词典（人名/地名/专名一致性）为不可逾越红线，任何要求不得破坏。';
 function buildChapterUser(i, opt={}){
   const o = state.outline;
   const chap = state.chapters[i];
   const curN = i + 1;
   const parts = [];
-  // v11 ① 写作风格为最高优先级：置于提示词第一位，压过全书要求与本次人工干预
+  // v11 ① 写作风格为最高优先级：置于提示词第一位，压过本次人工干预
   const st = curWriteStyle(opt.styleOverride);
   const chapNames = (Array.isArray(st.tags)?st.tags:[]).map(id=>{ const s=writeStyleById(id); return s&&s.group==='element'?s.name:null; }).filter(Boolean).join('、');
   if(chapNames){
-    parts.push(`【写作风格（第一优先·最高，压过全书要求与人工干预）】写作风格：${chapNames}。完整要求见 System 中的【写作风格】块，作为本章最高优先遵循。`);
+    parts.push(`【写作风格（第一优先·最高，压过人工干预）】写作风格：${chapNames}。完整要求见 System 中的【写作风格】块，作为本章最高优先遵循。`);
   }
   // ② 上一章真实正文（必须接着上一章写下去）
   if(i > 0){
@@ -6963,14 +6939,10 @@ function buildChapterUser(i, opt={}){
   let ref = `【小说简介】书名：${o.title||''}｜一句话概览：${o.logline||''}`;
   ref += chapterGlossaryBlock();
   parts.push(ref);
-  // ⑤b 全书要求（第三优先）：books 级风格/对标基准，指挥本章正文（低于写作风格与人工干预）
-  if(o.globalReq){
-    parts.push(`【全书要求（第三优先）】\n${o.globalReq}\n当它与写作风格冲突时以写作风格为准；但仍须遵守设定词典（人名/地名/专名一致）与基础剧情逻辑。`);
-  }
-  parts.push(USER_PRIO_BILL);   // 统一优先级契约说明（写作风格>人工干预>全书要求>词典）
+  parts.push(USER_PRIO_BILL);   // 统一优先级契约说明（写作风格>人工干预>词典）
   // ⑥ 人工干预要求（重生成时，第二优先，仅低于写作风格）
   if(opt.advice){
-    parts.push(`【人工干预要求（用户指定 · 第二优先）】\n${opt.advice}\n优先级仅低于写作风格、高于全书要求；其余不受影响的内容仍保持既有文风与世界观一致（遵守设定词典红线）。`);
+    parts.push(`【人工干预要求（用户指定 · 第二优先）】\n${opt.advice}\n优先级仅低于写作风格；其余不受影响的内容仍保持既有文风与世界观一致（遵守设定词典红线）。`);
   }
   return parts.join('\n\n');
 }
