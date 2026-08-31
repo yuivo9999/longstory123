@@ -245,9 +245,9 @@ label.field>span{display:block;font-size:12px;color:var(--sub);margin-bottom:6px
 
 /* v1.0.120 批量生成多章：步进 + 预设 + 蓝色按钮（沿用主题「多章生成」样式） */
 /* v1.0.121 批量生成多章：按钮独占一行，步进器移到其下成独立子行；数字改强调色胶囊 + 「章」单位，与页码（浅灰小方块）差异化 */
-.multi-gen{display:flex;flex-direction:column;align-items:flex-start;gap:8px;margin-top:4px}
+.multi-gen{display:flex;flex-direction:row;align-items:center;gap:8px;margin-top:4px}
 .multi-gen-main{display:flex;align-items:center;gap:6px}
-.gen-stepper{display:flex;align-items:center;gap:6px;padding:4px 8px;border:1px solid var(--line);border-radius:12px;background:var(--panel2)}
+.gen-stepper{display:flex;align-items:center;gap:6px;padding:4px 8px;border:1px solid var(--line);border-radius:12px;background:var(--panel2);margin-left:auto}
 .gen-step{width:30px;height:34px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--txt);font-size:16px;line-height:1;cursor:pointer;flex:0 0 auto;user-select:none}
 .gen-step:hover:not(:disabled){border-color:var(--accent2);color:var(--accent2)}
 .gen-step:disabled{opacity:.45;cursor:not-allowed}

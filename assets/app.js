@@ -7,8 +7,31 @@
 'use strict';
 
 /* ---------- 全局状态 ---------- */
-const APP_VERSION = '1.0.123';   // 应用版本号（v1.0.123 新增区间生成：起始章~结束章无条件覆盖，旧版自动入历史）：index.html 的 ?v= 资源戳与之同步递增，用于标识产物已更新
+const APP_VERSION = '1.0.127';   // 应用版本号（v1.0.127 修复 patchChapter 缺失DOM更新 + 后台任务可见性）：index.html 的 ?v= 资源戳与之同步递增，用于标识产物已更新
 const KEY_CFG = 'fyp_cfg';
+
+// 后台任务追踪：autoExtractGlossary / autoUpdateSubplots / finalizeChapterTitle 等 fire-and-forget 异步任务
+// 防止用户刷新页面中断任务不知情；beforeunload 在 _bgTaskCount > 0 时给出警告
+let _bgTaskCount = 0;
+function startBgTask(){ _bgTaskCount++; updateBgTaskIndicator(); }
+function endBgTask(){ _bgTaskCount = Math.max(0, _bgTaskCount - 1); updateBgTaskIndicator(); }
+function updateBgTaskIndicator(){
+  const el = $('#bgTaskIndicator');
+  if(!el) return;
+  if(_bgTaskCount > 0){
+    el.textContent = '⏳ 后台任务 ' + _bgTaskCount + ' 项进行中…';
+    el.style.display = '';
+  } else {
+    el.style.display = 'none';
+  }
+}
+// 页面刷新/关闭时若有后台任务未完成，弹出警告
+window.addEventListener('beforeunload', e => {
+  if(_bgTaskCount > 0 || state.generating){
+    e.preventDefault();
+    e.returnValue = '后台任务尚未完成，确定要离开吗？';
+  }
+});
 const KEY_STATE = 'fyp_state';   // 旧版单项目 key（仅用于首次迁移）
 const KEY_LIB = 'fyp_lib';       // 新版多项目历史库
 const KEY_GLIB = 'fyp_glib';     // v8 词典库（跨作品的多套可复用词典，独立于项目轨道）
@@ -1703,7 +1726,7 @@ async function aiRecipeGen(){
   const gen = $('[data-ai-recipe-gen]'); if(gen){ gen.disabled = true; gen.textContent = '生成中…'; }
   try{
     const {system, user} = aiRecipePrompt(desc);
-    const raw = await callDeepSeek(system, user, {maxTokens:2500, temperature:(getCfg().aiRecipeTemp==null?0.9:getCfg().aiRecipeTemp)});   // v1.0.122 AI配方助手温度可调（默认0.9）
+    const raw = await callDeepSeek(system, user, {maxTokens:50000, temperature:(getCfg().aiRecipeTemp==null?0.9:getCfg().aiRecipeTemp)});   // v1.0.122 AI配方助手温度可调（默认0.9）
     const list = parseAiJsonList(raw);
     if(!list || !list.length) throw new Error('AI 未返回有效配方，请重试');
     aiRp = { list, hi: 0 };
@@ -1724,7 +1747,7 @@ async function aiRecipeFromOutline(text){
   const gen = $('[data-ai-recipe-gen]'); if(gen){ gen.disabled = true; gen.textContent = '通读中…'; }
   try{
     const {system, user} = aiPromptFromOutline(text);
-    const raw = await callDeepSeek(system, user, {maxTokens:2500, temperature:(getCfg().aiRecipeTemp==null?0.9:getCfg().aiRecipeTemp)});   // v1.0.122 AI配方助手温度可调（默认0.9）
+    const raw = await callDeepSeek(system, user, {maxTokens:50000, temperature:(getCfg().aiRecipeTemp==null?0.9:getCfg().aiRecipeTemp)});   // v1.0.122 AI配方助手温度可调（默认0.9）
     const list = parseAiJsonList(raw);
     if(!list || !list.length) throw new Error('AI 未返回有效配方，请重试');
     aiRp = { list, hi: 0 };
@@ -2463,14 +2486,14 @@ function completeCharFields(c){
 // v8c 词典增量补全——从已生成正文提取「未收录」新实体（人物/地名/专名），字段白名单过滤后返回
 async function extractNewGlossary(bodyTexts){
   const g = (state.outline && state.outline.glossary) || {};
-  const body = (bodyTexts||[]).filter(Boolean).map(String).join('\n\n').slice(0, 15000);  // 正文截断上限，控 token
+  const body = (bodyTexts||[]).filter(Boolean).map(String).join('\n\n').slice(0, 50000);  // 正文截断上限，控 token
   if(!body.trim()) return {characters:[], places:[], propernouns:[]};
   const dict = [['characters','人物'],['places','地点'],['propernouns','专名']].map(([k,label])=>{
     const arr = (g[k]||[]).map(x=>x&&x.name).filter(Boolean);
     return arr.length ? `${label}：${arr.join('、')}` : `${label}：（无）`;
   }).join('\n');
   const user = `【现有词典】\n${dict}\n\n【本章正文】\n${body}`;
-  const txt = await callDeepSeek(GLOSSARY_EXTRACT_SYS, user, {maxTokens: 2000, temperature: resolveActiveSpec().qcTemp});   // v10.8 词库提取温度
+  const txt = await callDeepSeek(GLOSSARY_EXTRACT_SYS, user, {maxTokens: 50000, temperature: resolveActiveSpec().qcTemp});   // v10.8 词库提取温度
   const j = parseJson(txt) || {};
   const keepChar = c => {
     if(c.name == null || !String(c.name).trim()) return null;
@@ -2541,14 +2564,16 @@ function bindPlannerTitles(newTitles){
 // 批量生成章节后的自动补全入口：开关开 + 词典已建立才执行；失败静默不阻塞
 async function autoExtractGlossary(){
   if(!isLong() || !state.glossAutoFill) return;
-  if(!state.outline || !sourceHasGlossary(state.outline.glossary)) return;
-  const written = state.chapters.filter(c=> c && c.content && String(c.content).trim()).map(c=>c.content);
-  if(!written.length) return;
+  startBgTask();
   try{
+    if(!state.outline || !sourceHasGlossary(state.outline.glossary)) return;
+    const written = state.chapters.filter(c=> c && c.content && String(c.content).trim()).map(c=>c.content);
+    if(!written.length) return;
     const ext = await extractNewGlossary(written);
     const n = mergeExtractedGlossary(ext);
     if(n.total > 0){ persist(); toast(`词典已补全：+${n.c} 人物（含完整设定）、+${n.p} 地名、+${n.k} 专名`); }
   }catch(e){ /* 静默失败，不阻塞章节生成 */ }
+  finally{ endBgTask(); }
 }
 // v1.0.113 副线追踪 —— 事后轻量提取：读「本章正文 + 现有副线进度 + 主线简述」，判定推进/新建/收束。
 // 只喂单章正文，保证 note 能精确标章号、AI 能看全进度做判断；与词典提取(extractNewGlossary)完全同构。
@@ -2567,8 +2592,8 @@ async function extractSubplotUpdates(chIdx, content){
   }).join('\n') || '（暂无副线）';
   const mainLine = String(o.mainLine||'').trim();
   const curPlan = (Array.isArray(o.chapterPlans)&&o.chapterPlans[chIdx]) ? String(o.chapterPlans[chIdx]).trim() : '';
-  const user = `【本章正文（第 ${chIdx+1} 章）】\n${body.slice(0,15000)}\n\n【现有副线进度】\n${prog}${mainLine?`\n\n【全书主线】\n${mainLine}`:''}${curPlan?`\n\n【本章主线简述】\n${curPlan}`:''}`;
-  const txt = await callDeepSeek(SUBPROGRESS_UPDATE_SYS, user, {maxTokens: 1200, temperature: resolveActiveSpec().qcTemp});
+  const user = `【本章正文（第 ${chIdx+1} 章）】\n${body.slice(0,50000)}\n\n【现有副线进度】\n${prog}${mainLine?`\n\n【全书主线】\n${mainLine}`:''}${curPlan?`\n\n【本章主线简述】\n${curPlan}`:''}`;
+  const txt = await callDeepSeek(SUBPROGRESS_UPDATE_SYS, user, {maxTokens: 50000, temperature: resolveActiveSpec().qcTemp});
   const j = parseJson(txt) || {};
   const norm = (Array.isArray(j.subplots)?j.subplots:[]).map(s=>{
     const name = String(s&&s.name||'').trim(); if(!name) return null;
@@ -2634,55 +2659,63 @@ function mergeSubplotUpdates(ext, chIdx){
 // 成功记录已吸收章号；失败静默不阻塞。
 async function autoUpdateSubplots(){
   if(!isLong() || !state.subAutoFill) return;
-  const o = state.outline; if(!o) return;
-  if(!o.glossary) o.glossary = {characters:[], places:[], propernouns:[]};
-  if(!Array.isArray(o.glossary.subplots)) o.glossary.subplots = [];
-  const absorbed = Array.isArray(o.glossary._subAbsorbed) ? o.glossary._subAbsorbed : [];
-  const todo = state.chapters.map((c,i)=> (c && c.content && String(c.content).trim()) ? i : -1)
-    .filter(i=> i>=0 && !absorbed.includes(i)).sort((a,b)=>a-b);
-  if(!todo.length) return;
-  let noQ = 0, total = 0;
+  startBgTask();
   try{
-    for(const i of todo){
-      const c = state.chapters[i];
-      const ext = await extractSubplotUpdates(i, c.content);
-      const n = mergeSubplotUpdates(ext, i+1);
-      noQ += n.noQuestionCount; total += n.total;
-      absorbed.push(i);
-    }
-    o.glossary._subAbsorbed = absorbed;
-    if(total>0 || noQ>0) persist();
-    if(noQ>0) toast(`副线追踪：${total} 条推进；${noQ} 条因缺核心问题未入库`);
-    else if(total>0) toast(`副线追踪：${total} 条副线进度已更新`);
-  }catch(e){ /* 静默失败，不阻塞章节生成 */ }
+    const o = state.outline; if(!o) return;
+    if(!o.glossary) o.glossary = {characters:[], places:[], propernouns:[]};
+    if(!Array.isArray(o.glossary.subplots)) o.glossary.subplots = [];
+    const absorbed = Array.isArray(o.glossary._subAbsorbed) ? o.glossary._subAbsorbed : [];
+    const todo = state.chapters.map((c,i)=> (c && c.content && String(c.content).trim()) ? i : -1)
+      .filter(i=> i>=0 && !absorbed.includes(i)).sort((a,b)=>a-b);
+    if(!todo.length) return;
+    let noQ = 0, total = 0;
+    try{
+      for(const i of todo){
+        const c = state.chapters[i];
+        const ext = await extractSubplotUpdates(i, c.content);
+        const n = mergeSubplotUpdates(ext, i+1);
+        noQ += n.noQuestionCount; total += n.total;
+        absorbed.push(i);
+      }
+      o.glossary._subAbsorbed = absorbed;
+      if(total>0 || noQ>0) persist();
+      if(noQ>0) toast(`副线追踪：${total} 条推进；${noQ} 条因缺核心问题未入库`);
+      else if(total>0) toast(`副线追踪：${total} 条副线进度已更新`);
+    }catch(e){ /* 静默失败，不阻塞章节生成 */ }
+  }finally{ endBgTask(); }
 }
 // v1.0.114 章节标题回填：正文 AI 写完本章后，为本章定稿标题。
 // 方案B分级：未定稿（!plannerFinalized）回填即定稿（章卡「参考稿」→「正文定稿」）；已定稿回填仍生效（规划师版入曾用标题历史可回退）。
 // 轻量：短 prompt + maxTokens 200；一次只回填刚生成的那一章；只出本章标题，相邻章标题仅作防重名护栏。
 async function finalizeChapterTitle(i){
   if(!isLong() || !state.titleWriteBack) return;
-  const c = state.chapters[i]; if(!c) return;
-  const body = String(c.content||'').trim(); if(!body) return;
-  const o = state.outline; if(!o) return;
-  const prev = (o.chapters[i-1] && String(o.chapters[i-1].title||'').trim());
-  const next = (o.chapters[i+1] && String(o.chapters[i+1].title||'').trim());
-  const ref = String(c.title||'').trim();
-  const stNote = titleStyleNote();
-  let user = `【本章正文（第 ${i+1} 章）】\n${body.slice(0,8000)}`;
-  if(prev) user += `\n【上一章标题】《${cleanChapterTitle(prev)}》（只作防重名参照，不为它出标题）`;
-  if(next) user += `\n【下一章标题】《${cleanChapterTitle(next)}》（只作防重名参照，不为它出标题、不得提前剧透）`;
-  if(ref) user += `\n【本章参考稿标题】《${cleanChapterTitle(ref)}》（可沿用或替换）`;
-  if(stNote) user += `\n\n${stNote}`;
+  startBgTask();
   try{
-    const txt = await callDeepSeek(TITLE_FINALIZE_SYS, user, {maxTokens: 200, temperature: resolveActiveSpec().qcTemp});
-    const nt = cleanChapterTitle(txt);
-    if(!nt || nt.length > 30) return;                     // 空/超长放弃，保持原标题
-    const old = String(c.title||'').trim();
-    if(old === nt) return;                                // 标题未变不写库
-    setChapterTitle(i, nt);                               // 双源同步 + 曾用标题历史 + persist（内部会清 _titleByAI）
-    state.chapters[i]._titleByAI = true;                  // 标记「正文 AI 定稿」
-    persist();                                            // 落盘标记，刷新后章卡仍显示「正文定稿」
-  }catch(e){ /* 静默失败，不阻塞正文 */ }
+    const c = state.chapters[i]; if(!c) return;
+    const body = String(c.content||'').trim(); if(!body) return;
+    const o = state.outline; if(!o) return;
+    const prev = (o.chapters[i-1] && String(o.chapters[i-1].title||'').trim());
+    const next = (o.chapters[i+1] && String(o.chapters[i+1].title||'').trim());
+    const ref = String(c.title||'').trim();
+    const stNote = titleStyleNote();
+    let user = `【本章正文（第 ${i+1} 章）】\n${body.slice(0,50000)}`;
+    if(prev) user += `\n【上一章标题】《${cleanChapterTitle(prev)}》（只作防重名参照，不为它出标题）`;
+    if(next) user += `\n【下一章标题】《${cleanChapterTitle(next)}》（只作防重名参照，不为它出标题、不得提前剧透）`;
+    if(ref) user += `\n【本章参考稿标题】《${cleanChapterTitle(ref)}》（可沿用或替换）`;
+    if(stNote) user += `\n\n${stNote}`;
+    try{
+      const txt = await callDeepSeek(TITLE_FINALIZE_SYS, user, {maxTokens: 50000, temperature: resolveActiveSpec().qcTemp});
+      const nt = cleanChapterTitle(txt);
+      if(!nt || nt.length > 30) return;                     // 空/超长放弃，保持原标题
+      const old = String(c.title||'').trim();
+      if(old === nt) return;                                // 标题未变不写库
+      setChapterTitle(i, nt);                               // 双源同步 + 曾用标题历史 + persist（内部会清 _titleByAI）
+      state.chapters[i]._titleByAI = true;                  // 标记「正文 AI 定稿」
+      persist();                                            // 落盘标记，刷新后章卡仍显示「正文定稿」
+      // 立即更新 DOM 标题和定稿标记（patchChapter 同步）
+      patchChapter(i);
+    }catch(e){ /* 静默失败，不阻塞正文 */ }
+  }finally{ endBgTask(); }
 }
 // 全部已生成正文中「零出现」的词典条目（可能因重生成覆盖而失效；复用 checkGlossaryCoverage 的统计）
 function scanUnusedGlossary(){
@@ -3751,7 +3784,7 @@ function viewStory(){
           </span>` : `<button id="btnGenAllChapters" class="btn primary">⚡ 一键生成全部章节</button><button id="btnReOutline" class="btn ghost">重生成大纲</button>` }
         </div>
         ${ isLong() ? `<div class="range-gen">
-          <span class="muted" style="font-size:12px;white-space:nowrap">区间生成：</span>
+          <button id="btnRangeGen" class="btn blue">⚡ 区间生成</button>
           <label class="rg-label">从第
             <input id="rgStart" type="number" min="1" max="${state.chapters.length}" value="1" class="rg-input">
           章</label>
@@ -3759,10 +3792,10 @@ function viewStory(){
           <label class="rg-label">
             <input id="rgEnd" type="number" min="1" max="${state.chapters.length}" value="2" class="rg-input">
           章</label>
-          <button id="btnRangeGen" class="btn blue">⚡ 生成</button>
           <span id="rgStatus" class="muted" style="font-size:11px"></span>
         </div>` : '' }
         <p id="chStatus" class="status"></p>
+        <p id="bgTaskIndicator" class="status muted" style="display:none;font-size:12px;margin-top:2px"></p>
         ${ isLong() ? `<div class="long-progress"></div>` : '' }
         <div id="wcTotal" class="wc-total hidden"></div>
         <div class="cyber-pad hidden"></div>
@@ -3847,7 +3880,7 @@ async function extractStoryAnchors(opts){
   const btn = opts.btn;
   if(btn){ btn.disabled = true; busy(btn,true,'提取中…'); }
   try{
-    const txt = await callDeepSeek(ANCHOR_EXTRACT_SYS, `【完整简介】\n${body}`, {temperature:0.2, signal:_abortCtl?.signal, maxTokens:180});
+    const txt = await callDeepSeek(ANCHOR_EXTRACT_SYS, `【完整简介】\n${body}`, {temperature:0.2, signal:_abortCtl?.signal, maxTokens:50000});
     const j = parseJson(txt) || {};
     const a = clampAnchor(j.anchor, 60), t = clampAnchor(j.thesis, 120);
     if(!a && !t){ if(!opts.silent) toast('未提取到有效核心定位/深层命题'); return; }
@@ -4228,7 +4261,7 @@ async function ctAiRefineAdvice(){
     const ctx = buildCtAdviceCtx();
     const {system, user} = ctAiRefinePrompt(ctx, raw);
     const spec = resolveActiveSpec();
-    const res = await callDeepSeek(system, user, {temperature: spec.titleTemp, maxTokens:1500});
+    const res = await callDeepSeek(system, user, {temperature: spec.titleTemp, maxTokens:50000});
     const list = parseAiJsonList(res);
     const ls = Array.isArray(list) ? list.filter(x=> x && String(x.text||'').trim()) : [];
     if(!ls.length) throw new Error('AI 未返回有效建议，请重试');
@@ -7145,9 +7178,9 @@ async function chSumGenerate(i, genBtn){
     ...(g.propernouns||[]).map(x=>'专名『'+((x&&x.name)||'')+'』')
   ].slice(0,90).join('、');
   const sys = STRIP_READ_SYS.replace('[TARGET_ZHS]', target).replace('[LO_HI]', `${lo}–${hi}`);
-  const user = `${outlineAnchorBlock()?outlineAnchorBlock()+'\n':''}【全书简介】书名：${o.title||''}\n${o.logline||''}\n\n【本章标题】${title}\n\n${plan?`【主线简述（应覆盖锚点）】${plan}\n\n`:''}${dict?`【本章词典（必保不得遗漏）】${dict}\n\n`:''}【本章真实正文】\n${body.slice(0,18000)}`;
+  const user = `${outlineAnchorBlock()?outlineAnchorBlock()+'\n':''}【全书简介】书名：${o.title||''}\n${o.logline||''}\n\n【本章标题】${title}\n\n${plan?`【主线简述（应覆盖锚点）】${plan}\n\n`:''}${dict?`【本章词典（必保不得遗漏）】${dict}\n\n`:''}【本章真实正文】\n${body.slice(0,50000)}`;
   try{
-    const txt = await callDeepSeek(sys, user, {temperature: resolveActiveSpec().stripTemp, signal: _abortCtl?.signal, maxTokens: 1200});
+    const txt = await callDeepSeek(sys, user, {temperature: resolveActiveSpec().stripTemp, signal: _abortCtl?.signal, maxTokens: 50000});
     let strip = String(txt||'').trim();
     if(!strip){ toast('未生成到本章梗概'); return; }
     strip = strip.replace(/^```[\s\S]*?\n/, '').replace(/\n```\s*$/,'').trim();   // 去 markdown 代码块围栏
@@ -7293,7 +7326,7 @@ async function writeOneChapterContent(i, user, onPhase, onStream, styleOverride,
   onPhase = onPhase || (()=>{});
   // onPhase 阶段上报；onStream 若提供则开启流式边收边显示（成本0，实时进度），否则一次性返回全文
   onPhase('撰写本章正文…');
-  let txt = await callDeepSeek(longChapterSys(styleOverride), user, {maxTokens: mt, onStream, temperature: resolveActiveSpec().chapterTemp, signal: signal || _abortCtl?.signal});   // v10.8 章节温度 / v2.0 风格覆盖
+  let txt = await callDeepSeek(longChapterSys(styleOverride), user, {maxTokens: 50000, onStream, temperature: resolveActiveSpec().chapterTemp, signal: signal || _abortCtl?.signal});   // v10.8 章节温度 / v2.0 风格覆盖
   _chRawBuf = { i, raw: txt, ts: Date.now() };   // 保存原始响应供手动提取
   // v10.60 去除质检：AI 输出全文即正文，直接落库，不再做两段式查错修正
   const sp = splitChapterOutput(txt);
@@ -7406,6 +7439,32 @@ function patchChapter(i){
   const ico = card.querySelector('.ch-fold-ico'); if(ico) ico.textContent = hasC ? '▾' : '▸';
   const re = card.querySelector('[data-regen="'+i+'"]');
   if(re){ re.disabled = !!state.generating; }
+  // 本章梗概按钮 disabled 状态（正文生成后即亮起，无需刷新）
+  const sum = card.querySelector('[data-ch-sum="'+i+'"]');
+  if(sum){ sum.disabled = !hasC; }
+  // 版本历史按钮文字（已有版本时更新计数）
+  const ver = card.querySelector('[data-ver="'+i+'"]');
+  if(ver){ ver.textContent = '📚 版本('+chVersions(i).length+')'; }
+  // 撤销编辑按钮（正文生成后可能产生编辑历史）
+  const undo = card.querySelector('[data-undo="'+i+'"]');
+  if(undo){ undo.style.display = hasEditHistory(i) ? '' : 'none'; }
+  // 标题文字 + 定稿/参考稿标记（正文 AI 回填后即时刷新，无需翻页）
+  if(isLong() && state.chapters[i]){
+    const h3 = card.querySelector('.ch-head h3');
+    if(h3){
+      const c = state.chapters[i];
+      const titleTxt = `第${i+1}章 · ${esc(cleanChapterTitle(c.title))}`;
+      h3.title = titleTxt;
+      // 替换 h3 内部 HTML：标题文字 + 定稿标记
+      let badgeHtml = '';
+      if(c._titleByAI){
+        badgeHtml = '<i class="tbd-title-tag" style="font-style:normal;font-size:11px;font-weight:400;opacity:.55;margin-left:6px" title="本章标题已由章节正文 AI 定稿">正文定稿</i>';
+      } else if(!state.plannerFinalized){
+        badgeHtml = '<i class="tbd-title-tag" style="font-style:normal;font-size:11px;font-weight:400;opacity:.55;margin-left:6px" title="标题尚未由全书规划师定稿，当前沿用第二步参考稿">参考稿</i>';
+      }
+      h3.innerHTML = titleTxt + badgeHtml;
+    }
+  }
 }
 
 // 重生成干预弹窗（建议3·此轮）：可任选「直接重生成」或「带人工建议重生成」
@@ -7683,7 +7742,7 @@ async function aiRefineAdvice(i){
   try{
     const ctx = buildAiRefineCtx(i);
     const {system, user} = aiRefineAdvicePrompt(ctx, raw);
-    const res = await callDeepSeek(system, user, {temperature:0.6, maxTokens:1500});
+    const res = await callDeepSeek(system, user, {temperature:0.6, maxTokens:50000});
     const list = parseAiJsonList(res);
     const ls = Array.isArray(list) ? list.filter(x=> x && String(x.text||'').trim()) : [];
     if(!ls.length) throw new Error('AI 未返回有效建议，请重试');
@@ -7959,7 +8018,7 @@ function bindRangeGen(){
       toast(`第 ${sv}~${ev} 章生成失败：${err.message}`);
       if(st) st.textContent = `❌ 生成失败`;
     }finally{
-      btn.disabled = false; btn.textContent = '⚡ 生成';
+      btn.disabled = false; btn.textContent = '⚡ 区间生成';
       autoExtractGlossary(); autoUpdateSubplots();
     }
   };
@@ -8182,7 +8241,7 @@ async function genStoryboard(){
       const ch = state.chapters[i];
       const oc = (state.outline&&state.outline.chapters&&state.outline.chapters[i])||{};
       const content = ch.content||'';
-      const user = `【本章】第${i+1}章 ${ch.title||oc.title||''}\n主线简述：${(state.outline&&Array.isArray(state.outline.chapterPlans)&&state.outline.chapterPlans[i])||''}\n本章正文：\n${content.slice(0,1500)}${content.length>1500?'…':''}\n\n${base}`;
+      const user = `【本章】第${i+1}章 ${ch.title||oc.title||''}\n主线简述：${(state.outline&&Array.isArray(state.outline.chapterPlans)&&state.outline.chapterPlans[i])||''}\n本章正文：\n${content.slice(0,50000)}${content.length>50000?'…':''}\n\n${base}`;
       try{
         const txt = await callDeepSeek(PROMPTS.storyboardSys, user);
         const j = parseJson(txt);
