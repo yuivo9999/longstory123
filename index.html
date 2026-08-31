@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="theme-color" content="#0f1115">
 <title>影视前期提示词生成器</title>
-<meta name="app-version" content="1.0.121">
-<link rel="stylesheet" href="assets/style.css?v=135">
+<meta name="app-version" content="1.0.123">
+<link rel="stylesheet" href="assets/style.css?v=136">
 <link rel="stylesheet" href="assets/vendor/nouislider/nouislider.min.css">
   <link rel="stylesheet" href="assets/vendor/tom-select/tom-select.css">
 <link rel="stylesheet" href="assets/theme-light.css?v=3">
@@ -90,8 +90,10 @@
         <input id="cfgTempChapter" type="number" step="0.1" min="0" max="1" placeholder="0.5"></label>
       <label class="field"><span>词库提取（严谨，建议 0.2）</span>
         <input id="cfgTempQC" type="number" step="0.1" min="0" max="1" placeholder="0.2"></label>
+      <label class="field"><span>AI 配方助手（发散，默认 0.9）</span>
+        <input id="cfgAiRecipeTemp" type="number" step="0.1" min="0" max="1" placeholder="0.9"></label>
       <div class="tp-save-row"><button id="btnTempSave" class="btn small primary" type="button">💾 保存温度</button></div>
-      <p class="hint">改后点「保存温度」生效；各 AI 请求按任务类型取对应温度（大纲 0.7 / 优化构想 0.5 / 标题 0.5 / 全书规划师 0.4 / 本章梗概 1.0 / 章节 0.5 / 词库提取 0.2）。本章梗概为「速读」任务，压缩追求忠实，偏低保真可手动下调其温度至 0.7–0.9。</p>
+      <p class="hint">改后点「保存温度」生效；各 AI 请求按任务类型取对应温度（大纲 0.7 / 优化构想 0.5 / 标题 0.5 / 全书规划师 0.4 / 本章梗概 1.0 / 章节 0.5 / 词库提取 0.2 / AI 配方助手 0.9）。AI 配方助手温度越高候选配方差异越发散、越低越贴近描述。本章梗概为「速读」任务，压缩追求忠实，偏低保真可手动下调其温度至 0.7–0.9。</p>
     </div>
   </div>
 
@@ -218,6 +220,6 @@
   <script src="assets/vendor/tom-select/tom-select.complete.min.js"></script>
 <script src="assets/vendor/jszip.min.js"></script>
 <script src="assets/idb.js?v=3"></script>
-  <script src="assets/app.js?v=203"></script>
+  <script src="assets/app.js?v=205"></script>
   </body>
 </html>
