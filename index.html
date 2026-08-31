@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="theme-color" content="#0f1115">
 <title>影视前期提示词生成器</title>
-<meta name="app-version" content="1.0.114">
-<link rel="stylesheet" href="assets/style.css?v=129">
+<meta name="app-version" content="1.0.117">
+<link rel="stylesheet" href="assets/style.css?v=132">
 <link rel="stylesheet" href="assets/vendor/nouislider/nouislider.min.css">
   <link rel="stylesheet" href="assets/vendor/tom-select/tom-select.css">
 <link rel="stylesheet" href="assets/theme-light.css?v=3">
@@ -82,14 +82,16 @@
         <input id="cfgTempIdea" type="number" step="0.1" min="0" max="1" placeholder="0.5"></label>
       <label class="field"><span>标题 AI（折中，建议 0.5）</span>
         <input id="cfgTempTitle" type="number" step="0.1" min="0" max="1" placeholder="0.5"></label>
-      <label class="field"><span>生成梗概（忠实偏稳，建议 0.4）</span>
-        <input id="cfgTempPlan" type="number" step="0.1" min="0" max="1" placeholder="0.4"></label>
+      <label class="field"><span>全书规划师（忠实偏稳，建议 0.4）</span>
+  <input id="cfgTempPlan" type="number" step="0.1" min="0" max="1" placeholder="0.4"></label>
+      <label class="field"><span>本章梗概（速读，默认 1.0）</span>
+  <input id="cfgTempStrip" type="number" step="0.1" min="0" max="1" placeholder="1"></label>
       <label class="field"><span>生成章节（折中，建议 0.5）</span>
         <input id="cfgTempChapter" type="number" step="0.1" min="0" max="1" placeholder="0.5"></label>
       <label class="field"><span>词库提取（严谨，建议 0.2）</span>
         <input id="cfgTempQC" type="number" step="0.1" min="0" max="1" placeholder="0.2"></label>
       <div class="tp-save-row"><button id="btnTempSave" class="btn small primary" type="button">💾 保存温度</button></div>
-      <p class="hint">改后点「保存温度」生效；各 AI 请求按任务类型取对应温度（大纲 0.7 / 优化构想 0.5 / 标题 0.5 / 梗概 0.4 / 章节 0.5 / 词库提取 0.2）。</p>
+      <p class="hint">改后点「保存温度」生效；各 AI 请求按任务类型取对应温度（大纲 0.7 / 优化构想 0.5 / 标题 0.5 / 全书规划师 0.4 / 本章梗概 1.0 / 章节 0.5 / 词库提取 0.2）。本章梗概为「速读」任务，压缩追求忠实，偏低保真可手动下调其温度至 0.7–0.9。</p>
     </div>
   </div>
 
@@ -195,8 +197,8 @@
     </div>
     <div class="reader-progress" id="readerProgress"><div class="rp-track"></div><i id="readerProgressFill"></i><span class="rp-tip" id="readerPctTip">第 <b>0%</b> · 全文 <b>0</b> 段</span></div>
     <div class="reader-body" id="readerBody"></div>
-    <!-- 底部中央「概」按钮：点击显示本章梗概（fixed8） -->
-    <button class="reader-syn-btn" id="readerSynBtn" type="button" title="本章梗概" aria-label="本章梗概">概</button>
+    <!-- 底部中央「概」按钮：v1.0.115 点击显示规划师「主线简述」 -->
+    <button class="reader-syn-btn" id="readerSynBtn" type="button" title="主线简述" aria-label="主线简述">概</button>
     <!-- 本章梗概浮层：正方形，宽度=阅读界面一半（fixed8） -->
     <div class="reader-syn-pop hidden" id="readerSynPop">
       <div class="reader-syn-card" id="readerSynCard"></div>
@@ -216,6 +218,6 @@
   <script src="assets/vendor/tom-select/tom-select.complete.min.js"></script>
 <script src="assets/vendor/jszip.min.js"></script>
 <script src="assets/idb.js?v=3"></script>
-  <script src="assets/app.js?v=196"></script>
+  <script src="assets/app.js?v=199"></script>
   </body>
 </html>
