@@ -243,12 +243,17 @@ label.field>span{display:block;font-size:12px;color:var(--sub);margin-bottom:6px
 .long-jump{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--sub)}
 .long-jump select{flex:1;min-width:0}
 
-/* 多章生成：数量输入 + 蓝色按钮（复刻单章按钮的蓝色样式） */
-.multi-gen{display:flex;align-items:center;gap:8px}
-.gen-count-in{width:72px;padding:8px 10px;border-radius:10px;border:1px solid var(--line);background:var(--panel2);color:var(--txt);font-size:13px;text-align:center;min-height:38px}
-.gen-count-in:focus{outline:none;border-color:var(--accent2)}
-.gen-count-in::-webkit-outer-spin-button,.gen-count-in::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
-.gen-count-in[type=number]{-moz-appearance:textfield;appearance:textfield}
+/* v1.0.120 批量生成多章：步进 + 预设 + 蓝色按钮（沿用主题「多章生成」样式） */
+.multi-gen{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.gen-step{width:30px;height:38px;border-radius:10px;border:1px solid var(--line);background:var(--panel2);color:var(--txt);font-size:16px;line-height:1;cursor:pointer;flex:0 0 auto;user-select:none}
+.gen-step:hover:not(:disabled){border-color:var(--accent2);color:var(--accent2)}
+.gen-step:disabled{opacity:.45;cursor:not-allowed}
+.gen-count-out{min-width:44px;text-align:center;font-size:15px;font-weight:700;color:var(--accent2);font-variant-numeric:tabular-nums;margin:0}
+.gen-presets{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+.gen-pre{padding:4px 10px;border-radius:8px;border:1px solid var(--line);background:var(--panel2);color:var(--sub);font-size:12px;cursor:pointer;line-height:1.4;user-select:none}
+.gen-pre:hover:not(:disabled){border-color:var(--accent2);color:var(--accent2)}
+.gen-pre:disabled{opacity:.45;cursor:not-allowed}
+.btn.blue:disabled{opacity:.5;cursor:not-allowed;box-shadow:none;transform:none}
 
 /* 封面提示词卡（双模式切换） */
 .cover-modes{display:flex;gap:8px;margin:8px 0}
@@ -662,7 +667,7 @@ body.reader-lock{overflow:hidden}
    ============================================= */
 .cp-card{margin-top:10px;border:none;border-radius:18px;overflow:hidden;background:#000;box-shadow:0 4px 24px rgba(0,0,0,0.4);padding:0}
 /* 头部：深红渐变，两行纵向布局 */
-.cp-head{display:flex;flex-direction:column;gap:6px;cursor:pointer;background:linear-gradient(135deg,#8b1a1a 0%,#5c1010 100%);padding:10px 14px;border-radius:18px 18px 0 0;user-select:none}
+.cp-head{display:flex;flex-direction:column;gap:6px;cursor:pointer;background:linear-gradient(135deg,#8b1a1a 0%,#5c1010 100%);padding:10px 14px;border-radius:18px;user-select:none}
 .cp-head:hover{background:linear-gradient(135deg,#9e2020 0%,#6a1414 100%)}
 /* 第一行：标题 + 风格约束 */
 .cp-head-top{display:flex;align-items:center;justify-content:space-between;width:100%;position:relative}   /* v10.29 相对定位供停止按钮居中 */
@@ -757,7 +762,7 @@ body.reader-lock{overflow:hidden}
 .ct-tools{display:flex;gap:6px;flex-wrap:wrap}
 .rt-style-row{display:flex;align-items:center;gap:4px;font-size:12px;font-weight:600;color:var(--txt);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:5px 8px;margin-bottom:6px;width:fit-content;user-select:none;cursor:pointer}
 .rt-style-row input{accent-color:var(--accent);margin:0}
-.rt-input{width:100%;height:120px;min-height:120px;resize:none;padding:8px 10px;font-size:13px;line-height:1.5;box-sizing:border-box;margin-bottom:6px;border-radius:8px;border:1px solid var(--line);background:var(--panel2);color:var(--txt);font-family:inherit}
+.rt-input{width:100%;height:60px;min-height:60px;resize:none;padding:8px 10px;font-size:13px;line-height:1.5;box-sizing:border-box;margin-bottom:6px;border-radius:8px;border:1px solid var(--line);background:var(--panel2);color:var(--txt);font-family:inherit}
 .rt-input:focus{outline:none;border-color:var(--accent)}
 .rt-input::placeholder{color:var(--sub)}
 /* 重生成全部标题行：按钮左 + 标题版本右 */
@@ -790,7 +795,7 @@ body.reader-lock{overflow:hidden}
 .ch-card{overflow:hidden}
 .ch-card .ch-head{display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;padding:2px 0;border-radius:8px}
 .ch-card .ch-head:hover{background:color-mix(in srgb, var(--accent) 6%, transparent)}
-.ch-pos{flex:0 0 auto;font-variant-numeric:tabular-nums;opacity:.8;background:color-mix(in srgb, var(--accent) 10%, transparent);border-color:transparent;color:var(--sub);font-size:11px}
+.ch-meta{display:flex;align-items:center;gap:8px;padding:0 2px 4px}
 .ch-fold-ico{flex:0 0 auto;width:18px;text-align:center;color:var(--muted);font-size:13px;transition:transform .15s}
 .ch-card .ch-body.folded{display:none}
 .ch-pager{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:10px 0}
@@ -1103,6 +1108,27 @@ textarea[readonly]::selection{ background:color-mix(in srgb, var(--accent2) 45%,
 .ai-recipe-gapitem .ar-gap-demo{font-size:11.5px;color:#4db8ff;margin:3px 0;font-style:italic}
 .ai-recipe-gapitem .ar-gapwarn{font-size:11px;color:#f0a24a;margin:3px 0}
 .ai-recipe-gapitem .btn{margin-top:6px}
+/* E·v1.0.120 默认深色 & 白天主题：AI配方助手卡片套「古风国潮」宣纸背景（正文/占位符/textarea 沿用可读深墨色，内联变量局部化避免污染其它卡片） */
+[data-theme="dark"] .ai-recipe-card,
+[data-theme="light"] .ai-recipe-card{
+  --txt:#2b2118; --sub:#5b4f3f; --muted:#8a7a63; --line:#d9cbb0; --accent2:#a06a1e;
+  position:relative;
+  background:linear-gradient(180deg,#f7f1e3 0%,#f4ecd8 100%);
+  border:1px solid #d9cbb0;
+  border-radius:4px;
+  box-shadow:inset 0 0 30px rgba(139,119,89,0.08),0 4px 12px rgba(0,0,0,0.25);
+}
+[data-theme="dark"] .ai-recipe-card::before,
+[data-theme="light"] .ai-recipe-card::before{
+  content:"";position:absolute;inset:6px;
+  border:1px dashed rgba(139,119,89,0.25);border-radius:2px;pointer-events:none;
+}
+[data-theme="dark"] .ai-recipe-card textarea,
+[data-theme="light"] .ai-recipe-card textarea{
+  background:#faf6ed;border:1px solid #c9b896;color:var(--txt);
+}
+[data-theme="dark"] .ai-recipe-card textarea::placeholder,
+[data-theme="light"] .ai-recipe-card textarea::placeholder{color:#9e8f79}
 /* v1.0.60 AI 提炼优化建议（重生成弹窗内） */
 .advice-ai-row{display:flex;align-items:center;gap:8px;margin:8px 0 4px;flex-wrap:wrap}
 /* v10.53 AI 优化建议按钮：常态橙纯色 / 生成中金黄渐变（全主题一致） */
