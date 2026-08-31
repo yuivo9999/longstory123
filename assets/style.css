@@ -244,15 +244,15 @@ label.field>span{display:block;font-size:12px;color:var(--sub);margin-bottom:6px
 .long-jump select{flex:1;min-width:0}
 
 /* v1.0.120 批量生成多章：步进 + 预设 + 蓝色按钮（沿用主题「多章生成」样式） */
-.multi-gen{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
-.gen-step{width:30px;height:38px;border-radius:10px;border:1px solid var(--line);background:var(--panel2);color:var(--txt);font-size:16px;line-height:1;cursor:pointer;flex:0 0 auto;user-select:none}
+/* v1.0.121 批量生成多章：按钮独占一行，步进器移到其下成独立子行；数字改强调色胶囊 + 「章」单位，与页码（浅灰小方块）差异化 */
+.multi-gen{display:flex;flex-direction:column;align-items:flex-start;gap:8px;margin-top:4px}
+.multi-gen-main{display:flex;align-items:center;gap:6px}
+.gen-stepper{display:flex;align-items:center;gap:6px;padding:4px 8px;border:1px solid var(--line);border-radius:12px;background:var(--panel2)}
+.gen-step{width:30px;height:34px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--txt);font-size:16px;line-height:1;cursor:pointer;flex:0 0 auto;user-select:none}
 .gen-step:hover:not(:disabled){border-color:var(--accent2);color:var(--accent2)}
 .gen-step:disabled{opacity:.45;cursor:not-allowed}
-.gen-count-out{min-width:44px;text-align:center;font-size:15px;font-weight:700;color:var(--accent2);font-variant-numeric:tabular-nums;margin:0}
-.gen-presets{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
-.gen-pre{padding:4px 10px;border-radius:8px;border:1px solid var(--line);background:var(--panel2);color:var(--sub);font-size:12px;cursor:pointer;line-height:1.4;user-select:none}
-.gen-pre:hover:not(:disabled){border-color:var(--accent2);color:var(--accent2)}
-.gen-pre:disabled{opacity:.45;cursor:not-allowed}
+.gen-count-out{min-width:44px;text-align:center;font-size:20px;font-weight:800;color:#fff;background:var(--accent2);border-radius:10px;padding:1px 8px;font-variant-numeric:tabular-nums;margin:0;line-height:1.4}
+.gen-unit{font-size:11px;color:var(--muted);font-weight:700;margin-left:-2px}
 .btn.blue:disabled{opacity:.5;cursor:not-allowed;box-shadow:none;transform:none}
 
 /* 封面提示词卡（双模式切换） */
@@ -646,7 +646,19 @@ body.reader-lock{overflow:hidden}
 .pol-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px}
 .pol-head b{font-size:13px}
 .pol-tools{display:flex;gap:6px;flex-wrap:wrap}
-.pol-text{min-height:120px;width:100%;padding:8px 10px;font-size:13px;line-height:1.7;box-sizing:border-box}
+.pol-cards{display:block}
+/* v1.0.121 优化构想方案卡：竖向多色卡片，左侧 4px 强调色条 + 序号徽章 + 方案名同色，一眼可辨 */
+.pol-cand{position:relative;border:1px solid var(--line);border-left:4px solid var(--pc,#E8A33D);border-radius:12px;padding:10px 12px;margin-bottom:10px;background:var(--panel);box-shadow:0 1px 3px rgba(0,0,0,.08);transition:opacity .15s,border-color .15s,box-shadow .15s}
+.pol-cand:not(.on){opacity:.92}
+.pol-cand.on{border-color:var(--pc,#E8A33D);box-shadow:0 0 0 1.5px var(--pc,#E8A33D),0 2px 6px rgba(0,0,0,.12)}
+.pol-cand-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.pol-no{flex:none;width:20px;height:20px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:800}
+.pol-name{font-size:13.5px;font-weight:700;flex:0 0 auto}
+.pol-adopted-tag{margin-left:2px;font-size:11px;font-weight:700;color:var(--ok,#189a5c)}
+.pol-cand-actions{margin-left:auto;display:flex;flex-shrink:0}
+.pol-cand-body{margin:8px 0;padding:8px 10px;background:var(--panel2);border:1px dashed var(--line);border-radius:10px;font-size:12.5px;line-height:1.7;color:var(--txt);white-space:pre-wrap;word-break:break-word;max-height:260px;overflow:auto;user-select:text}
+.pol-cand-foot{display:flex;justify-content:flex-end}
+.pol-cand-foot .btn.pt-accent{color:#fff;border-color:transparent;font-weight:600;height:24px;line-height:22px;padding:0 12px;font-size:12px;box-sizing:border-box;box-shadow:0 1px 4px rgba(0,0,0,.15)}
 .pol-multi{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--muted);cursor:pointer}
 .pol-multi input{width:14px;height:14px;cursor:pointer}
 /* v10.17 章节列表工具栏 */
@@ -657,10 +669,6 @@ body.reader-lock{overflow:hidden}
 .pol-keep{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:2px 0 10px;padding:7px 10px;border:1px dashed var(--line);border-radius:8px;background:color-mix(in srgb,var(--accent) 6%, var(--panel2));font-size:12px}
 .pol-keep-t{color:var(--sub)}
 .pol-keep-btns{display:flex;gap:6px;flex-wrap:wrap}
-.pol-advice{margin:0 0 8px;padding:7px 10px;border-left:3px solid var(--accent);background:color-mix(in srgb,var(--accent) 8%, var(--panel2));border-radius:6px;font-size:12px;line-height:1.6;color:var(--text)}
-.pol-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
-.pol-tab{padding:4px 8px;border-radius:20px;border:1px solid var(--line);background:var(--panel2);color:var(--muted);font-size:12px;cursor:pointer;white-space:nowrap}
-.pol-tab.active{background:var(--accent);color:var(--panel2);border-color:var(--accent);font-weight:600}
 
 /* =============================================
    v10.19 主线简述卡片 - 独立暗红设计（通用于所有主题）
@@ -1113,6 +1121,7 @@ textarea[readonly]::selection{ background:color-mix(in srgb, var(--accent2) 45%,
 [data-theme="light"] .ai-recipe-card{
   --txt:#2b2118; --sub:#5b4f3f; --muted:#8a7a63; --line:#d9cbb0; --accent2:#a06a1e;
   position:relative;
+  color:#2b2118;   /* v1.0.121 直接设继承色，令标题 h3 与未显式设色文案在宣纸上呈深墨（原仅改局部变量未覆盖继承色） */
   background:linear-gradient(180deg,#f7f1e3 0%,#f4ecd8 100%);
   border:1px solid #d9cbb0;
   border-radius:4px;

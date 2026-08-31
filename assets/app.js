@@ -7,7 +7,7 @@
 'use strict';
 
 /* ---------- 全局状态 ---------- */
-const APP_VERSION = '1.0.120';   // 应用版本号（v1.0.120 批量生成多章步进/预设整合 + AI配方助手国潮背景分主题）：index.html 的 ?v= 资源戳与之同步递增，用于标识产物已更新
+const APP_VERSION = '1.0.121';   // 应用版本号（v1.0.121 优化构想多色竖向方案卡2-6 / ai配方助手标题深墨 / 批量生成只留步进器）：index.html 的 ?v= 资源戳与之同步递增，用于标识产物已更新
 const KEY_CFG = 'fyp_cfg';
 const KEY_STATE = 'fyp_state';   // 旧版单项目 key（仅用于首次迁移）
 const KEY_LIB = 'fyp_lib';       // 新版多项目历史库
@@ -786,7 +786,7 @@ const SIZE_DEFAULT = { min:3000, max:5000 };
 // v10.13 优化构想：调用 IDEA_POLISH_SYS 把粗糙构想优化为结构化高质量版本。
 // 极短输入（<15 字）由 AI 走「骨架展开模式」且强制多方案；空输入禁用。
 // 多方案模式（polishMulti 开）：AI 返回 JSON（advice + options[]），Tab 切换查看/编辑。
-let polishMulti = false;   // 多方案开关（内存态，不持久化；极短构想强制 true）
+let polishMulti = true;   // v1.0.121 多方案开关（默认开；极短构想强制 true）
 
 // v10.16 多方案留存：采用后不销毁方案（state.polishOptions/polishAdopted 随快照持久化），
 // 提示条提供「查看全部（零请求）/ 重新优化（force）/ 清除」；再次优化需 confirm 防误发请求。
@@ -810,79 +810,91 @@ async function polishIdea(btn, force){
   finally{ if(btn) busy(btn,false); }
 }
 
-// 展示优化结果：多方案（JSON）→ advice + Tab 切换；单稿（文本）→ 按 💡 行拆分 advice
+// 展示优化结果：多方案（JSON 2-6 个）→ 竖向多色卡片；单稿（文本）→ 单张卡片。均只读。
 function showPolishResult(out, multi){
-  const box = $('#polishBox'), ta = $('#polishText'), adv = $('#polishAdvice'), tabs = $('#polishTabs');
-  if(!box || !ta) return;
+  const box = $('#polishBox'), cards = $('#polishCards');
+  if(!box || !cards) return;
   box.style.display = 'block';
-  let advice = '';
   if(multi){
     const j = parseJson(out) || {};
     const opts = Array.isArray(j.options) ? j.options.filter(o=>o && String(o.text||'').trim()) : [];
-    advice = String(j.advice || '');
     if(opts.length){
       snapshotPolishBatch('重新优化前');   // 覆盖前把旧整批方案归档为可回退版本（≤5）
       state.polishOptions = opts;
       state.polishAdopted = null;   // 新方案列表，尚未采用
       persist();
-      renderPolishTabs(tabs, ta, adv, advice);
-      ta.value = opts[0].text;
+      renderPolishCards(cards);
       return;
     }
-    // JSON 解析失败降级：整体当文本
-    ta.value = out;
-    if(adv) adv.style.display = 'none';
-    if(tabs) tabs.style.display = 'none';
+    // JSON 解析失败降级：整体当单稿文本
+    state.polishOptions = [{ name:'方案1', text: String(out).trim() }];
+    state.polishAdopted = null;
+    persist();
+    renderPolishCards(cards);
     return;
   }
-  // 单稿：按「💡 AI 编辑意见」行拆分
-  const m = out.match(/(^|\n)\s*💡\s*AI 编辑意见\s*[:：]?\s*/);
-  if(m){
-    ta.value = out.slice(0, m.index).trim();
-    advice = out.slice(m.index + m[0].length).trim();
-  }else{
-    ta.value = out;
-  }
-  if(adv){
-    if(advice){ adv.style.display = 'block'; adv.textContent = '💡 AI 编辑意见：'+advice; }
-    else adv.style.display = 'none';
-  }
-  if(tabs) tabs.style.display = 'none';
+  // 单稿：直接作为单个方案展示（不再拆 💡 编辑意见）
+  state.polishOptions = [{ name:'方案1', text: String(out).trim() }];
+  state.polishAdopted = null;
+  persist();
+  renderPolishCards(cards);
 }
 
-// v10.16 用缓存方案重新展开优化区（零请求）：Tab + advice + 当前采用的方案
+// v10.16 用缓存方案重新展开优化区（零请求）：竖向卡片
 function openPolishBox(){
-  const box = $('#polishBox'), ta = $('#polishText'), adv = $('#polishAdvice'), tabs = $('#polishTabs');
-  const opts = Array.isArray(state.polishOptions) ? state.polishOptions : [];
-  if(!box || !ta || !opts.length) return;
+  const box = $('#polishBox'), cards = $('#polishCards');
+  if(!box || !cards) return;
   box.style.display = 'block';
-  const adoptedIdx = Math.max(0, opts.findIndex(o=> o.name===state.polishAdopted));
-  renderPolishTabs(tabs, ta, adv, '');
-  const cur = opts[adoptedIdx] || opts[0];
-  ta.value = cur ? cur.text : '';
-  const tabsArr = tabs ? [...tabs.querySelectorAll('.pol-tab')] : [];
-  if(tabsArr[adoptedIdx]){ tabsArr.forEach(x=>x.classList.remove('active')); tabsArr[adoptedIdx].classList.add('active'); }
+  renderPolishCards(cards);
 }
 
-// 多方案 Tab 渲染：固定短标签「方案A/B/C…」（杜绝省略号），完整方向名放 title 悬浮；点击切换 textarea 内容
-function renderPolishTabs(tabs, ta, adv, advice){
-  if(!tabs) return;
-  const LETTERS = ['A','B','C','D','E'];
-  tabs.style.display = 'flex';
-  tabs.innerHTML = (state.polishOptions||[]).map((o,i)=>
-    `<button class="pol-tab${i===0?' active':''}" data-pol-tab="${i}" title="${esc(o.name||('方案'+(LETTERS[i]||(i+1))))}">${'方案'+(LETTERS[i]||(i+1))}</button>`
-  ).join('');
-  [...tabs.querySelectorAll('[data-pol-tab]')].forEach(b=>{
-    b.onclick = ()=>{
-      const o = (state.polishOptions||[])[+b.dataset.polTab]; if(!o) return;
-      if(ta) ta.value = o.text;
-      tabs.querySelectorAll('.pol-tab').forEach(x=> x.classList.toggle('active', x===b));
+// v1.0.121 优化构想方案卡：竖向多色卡片（序号徽章/方案名/左侧色条三重视觉编码，复刻 ai配方助手候选列表）。
+// 固定六色序列，按生成顺序取色；正文只读可选中；每卡「采用」即导入构想输入框 +「复制」。
+const POLISH_PALETTE = ['#E8A33D','#D64545','#4C6FD5','#3FA36B','#8E5AC8','#2CA6A4'];
+function renderPolishCards(container){
+  if(!container) return;
+  const opts = Array.isArray(state.polishOptions) ? state.polishOptions : [];
+  if(!opts.length){
+    container.style.display = 'block';
+    container.innerHTML = `<p class="muted" style="margin:8px 0 0">👆 点「✨ 优化构想」生成 2–6 个候选方案；点某张卡的「采用此方案」即导入上方构想输入框。</p>`;
+    return;
+  }
+  container.style.display = 'block';
+  const adopted = state.polishAdopted;
+  container.innerHTML = opts.map((o,i)=>{
+    const c = POLISH_PALETTE[i % POLISH_PALETTE.length];
+    const name = o.name || ('方案'+(i+1));
+    const isAdopted = !!adopted && adopted === name;
+    return `<div class="pol-cand${isAdopted?' on':''}" style="--pc:${c}" data-idx="${i}">
+      <div class="pol-cand-head">
+        <span class="pol-no" style="background:${c}">${i+1}</span>
+        <b class="pol-name" style="color:${c}">${esc(name)}</b>
+        ${isAdopted?'<span class="pol-adopted-tag">✔ 已采用</span>':''}
+        <span class="pol-cand-actions">
+          <button type="button" class="btn small ghost" data-pol-copy="${i}" title="复制此方案">📋 复制</button>
+        </span>
+      </div>
+      <div class="pol-cand-body">${esc(String(o.text||''))}</div>
+      <div class="pol-cand-foot">
+        <button type="button" class="btn small pt-accent" data-pol-use="${i}" style="background:${c}">✔ 采用此方案</button>
+      </div>
+    </div>`;
+  }).join('');
+  container.querySelectorAll('[data-pol-use]').forEach(b=>{
+    b.onclick = (e)=>{ e.preventDefault();
+      const o = (state.polishOptions||[])[+b.dataset.polUse]; if(!o) return;
+      state.idea = String(o.text||'');
+      state.polishAdopted = o.name || null;
+      persist(); render();
+      toast('已采用：'+(o.name||('方案'+(+b.dataset.polUse+1)))+'（已导入构想输入框）');
     };
   });
-  if(adv){
-    if(advice){ adv.style.display = 'block'; adv.textContent = '💡 AI 编辑意见：'+advice; }
-    else adv.style.display = 'none';
-  }
+  container.querySelectorAll('[data-pol-copy]').forEach(b=>{
+    b.onclick = (e)=>{ e.preventDefault();
+      const o = (state.polishOptions||[])[+b.dataset.polCopy]; if(!o) return;
+      copyText(o.text||'');
+    };
+  });
 }
 
 // v10.13/v10.16 优化区绑定：复制 / 采用此方案（可反复切换）/ 收起 / 多方案开关 / 提示条
@@ -901,43 +913,7 @@ function bindPolishIdea(){
     const idea = $('#ideaInput');
     if(idea) idea.oninput = ()=>{ state.idea = idea.value; sync(); };
   }
-  const cp = $('#btnPolishCopy');
-  if(cp) cp.onclick = ()=>{
-    const ta = $('#polishText');
-    if(ta && ta.value.trim()) copyText(ta.value);
-    else toast('优化区为空');
-  };
-  // P3-2 保存此版为方案：把当前 textarea 内容存为新方案（原方案保留），刷新 Tab 并激活
-  const save = $('#btnPolishSave');
-  if(save) save.onclick = ()=>{
-    const ta = $('#polishText');
-    if(!ta || !ta.value.trim()){ toast('优化区为空'); return; }
-    if(!Array.isArray(state.polishOptions)) state.polishOptions = [];
-    const LETTERS = ['A','B','C','D','E'];
-    const name = '方案'+(LETTERS[state.polishOptions.length]||(state.polishOptions.length+1))+' · 手动保存';
-    state.polishOptions.push({ name, text: ta.value });
-    state.polishAdopted = null;
-    persist();
-    const tabs = $('#polishTabs'), adv = $('#polishAdvice');
-    renderPolishTabs(tabs, ta, adv, '');
-    // 激活最后新增的方案 Tab
-    const tabsArr = tabs ? [...tabs.querySelectorAll('.pol-tab')] : [];
-    if(tabsArr.length){ tabsArr.forEach(x=>x.classList.remove('active')); tabsArr[tabsArr.length-1].classList.add('active'); }
-    toast('已保存为新方案：'+name);
-  };
-  // v10.16 采用此方案：更新构想 + 记录采用名 + persist + render（方案保留，提示条更新）
-  const use = $('#btnPolishUse');
-  if(use) use.onclick = ()=>{
-    const ta = $('#polishText');
-    if(!ta){ toast('优化区为空'); return; }
-    const v = ta.value.trim();
-    if(!v){ toast('优化区为空'); return; }
-    state.idea = v;
-    const act = tabsActiveName();
-    if(act) state.polishAdopted = act;
-    persist(); render();
-    toast(act ? '已采用：'+act : '已采用优化后的构想');
-  };
+  // v1.0.121 移除「复制/保存此版/采用此方案」顶部按钮：方案只读，复制与采用移入每张卡片（renderPolishCards 内绑定）。
   // v10.16 收起：仅隐藏优化区（方案保留，提示条仍在）
   const disc = $('#btnPolishDiscard');
   if(disc) disc.onclick = ()=>{
@@ -962,15 +938,6 @@ function bindPolishIdea(){
     toast('已清除保留方案');
   };
 }
-// 当前激活 Tab 对应的方案名（采用时记录）
-function tabsActiveName(){
-  const tabs = $('#polishTabs'); if(!tabs) return '';
-  const act = tabs.querySelector('.pol-tab.active');
-  const idx = act ? +act.dataset.polTab : -1;
-  const o = (state.polishOptions||[])[idx];
-  return o ? (o.name||'') : '';
-}
-
 // v10.16 方案提示条：采用后保留方案的可视入口（查看全部零请求 / 重新优化 / 清除）
 function polishKeepBar(){
   const opts = Array.isArray(state.polishOptions) ? state.polishOptions : [];
@@ -2221,13 +2188,13 @@ const IDEA_POLISH_SYS = `你是一位深谙网文与影视叙事的构想编辑�
 5. 篇幅 150-300 字，用简洁条目式，不要解释、不要 markdown 代码块、不要输出 JSON。
 【自由发挥区】核心要素的措辞、自适应分类的选择与颗粒度、补充方向由你把握，让优化稿读起来具体、可执行、贴合用户原意。`;
 
-// v10.13 优化构想·输出模式后缀：单稿（条目式文本 + 末尾💡编辑意见）
-const POLISH_SINGLE_MODE = `\n\n【本次输出模式：单稿】以条目式文本输出一份完整优化构想；末尾另起一行输出"💡 AI 编辑意见："+2-3 句（本稿补全了什么、还建议用户补充什么、可选的发散方向）。`;
+// v10.13 优化构想·输出模式后缀：单稿（条目式文本，无编辑意见）
+const POLISH_SINGLE_MODE = `\n\n【本次输出模式：单稿】以条目式文本输出一份完整优化构想。`;
 
-// v10.13 优化构想·输出模式后缀：多方案（JSON 载体，2-3 个方向方案 + 编辑意见）
+// v1.0.121 优化构想·输出模式后缀：多方案（JSON 载体，2-6 个方向方案，无编辑意见）
 const POLISH_MULTI_MODE = `\n\n【本次输出模式：多方案】严格只输出如下 JSON（不要解释、不要 markdown 代码块）：
-{"advice":"2-3 句编辑意见（补全了什么 / 建议补充什么）","options":[{"name":"方案A 稳健向","text":"完整构想条目式文本"},{"name":"方案B 反差向","text":"完整构想条目式文本"},{"name":"方案C 猎奇向","text":"完整构想条目式文本"}]}
-要求：输出 2-3 个方案；每个方案的 text 都是完整独立的结构化构想（含通用核心要素 + 自适应分类），用户可直接编辑；方案差异仅在补全与走向（稳健/反差/猎奇），都必须保留用户明确表达的原意；options 的 name 带方向标签，text 不带 JSON 标记、为纯文本。`;
+{"options":[{"name":"方案A 稳健向","text":"完整构想条目式文本"},{"name":"方案B 反差向","text":"完整构想条目式文本"}]}
+要求：输出 2-6 个方案（数量由 AI 自行把握在 2 到 6 个之间）；每个方案的 text 都是完整独立的结构化构想（含通用核心要素 + 自适应分类），用户可直接阅读；方案差异仅在补全与走向，都必须保留用户明确表达的原意；options 的 name 带方向标签，text 不带 JSON 标记、为纯文本。`;
 
 // v8c 词典增量补全：从已生成章节正文中提取「现有词典未收录」的新人物/新地名/新专名，去重后并入词典。
 // 供批量生成章节后的自动补全与词典卡片的「📥 提取新增」共用；人物字段对齐词典契约（age/gender 必填）。
@@ -3721,20 +3688,15 @@ function viewStory(){
       </div>
       <div class="btn-row">
         <button id="btnPolishIdea" class="btn ghost" title="把构想优化成结构化高质量版本">✨ 优化构想</button>
-        <label class="pol-multi" title="构想不完整时，生成多份不同方向的构想供选择"><input type="checkbox" id="chkPolishMulti"> 多方案</label>
+        <label class="pol-multi" title="构想不完整时，生成 2-6 份不同方向的构想供选择"><input type="checkbox" id="chkPolishMulti" checked> 多方案</label>
       </div>
       <div id="polishBox" class="pol-box" style="display:none">
-        <div class="pol-head"><b>✨ 优化稿</b>
+        <div class="pol-head"><b>✨ 优化稿（点「采用此方案」即导入上方构想输入框）</b>
           <span class="pol-tools">
-            <button id="btnPolishCopy" class="btn small ghost">📋 复制</button>
-            <button id="btnPolishSave" class="btn small ghost" title="把当前编辑内容保存为新方案（不覆盖原方案）">💾 保存此版为方案</button>
-            <button id="btnPolishUse" class="btn small primary">✔ 采用此方案</button>
             <button id="btnPolishDiscard" class="btn small ghost">✕ 收起</button>
           </span>
         </div>
-        <div id="polishAdvice" class="pol-advice" style="display:none"></div>
-        <div id="polishTabs" class="pol-tabs" style="display:none"></div>
-        <textarea id="polishText" class="pol-text" placeholder="可直接编辑此优化稿"></textarea>
+        <div id="polishCards" class="pol-cards"></div>
       </div>
       ${ polishKeepBar() }
       ${ isLong() ? '' : specPickerHtml() }
@@ -3776,17 +3738,14 @@ function viewStory(){
         <div id="chaptersWrap"></div>
         <div class="btn-row" style="margin-top:12px">
           ${ isLong() ? `<span class="multi-gen">
-            <button type="button" class="gen-step" data-gen-dec title="减少章数">−</button>
-            <output id="genCountOut" class="gen-count-out" aria-live="polite">${genBatchN}</output>
-            <button type="button" class="gen-step" data-gen-inc title="增加章数">＋</button>
-            <span class="gen-presets">
-              <button type="button" class="gen-pre" data-gen-pre="1">1</button>
-              <button type="button" class="gen-pre" data-gen-pre="2">2</button>
-              <button type="button" class="gen-pre" data-gen-pre="5">5</button>
-              <button type="button" class="gen-pre" data-gen-pre="10">10</button>
-              <button type="button" class="gen-pre" data-gen-pre="all">剩余全部</button>
+            <span class="multi-gen-main">
+              <button id="btnGenMany" class="btn blue">⚡ 批量生成多章</button>
             </span>
-            <button id="btnGenMany" class="btn blue">⚡ 批量生成多章</button>
+            <span class="gen-stepper">
+              <button type="button" class="gen-step" data-gen-dec title="减少章数">−</button>
+              <output id="genCountOut" class="gen-count-out" aria-live="polite">${genBatchN}</output><span class="gen-unit">章</span>
+              <button type="button" class="gen-step" data-gen-inc title="增加章数">＋</button>
+            </span>
           </span>` : `<button id="btnGenAllChapters" class="btn primary">⚡ 一键生成全部章节</button><button id="btnReOutline" class="btn ghost">重生成大纲</button>` }
         </div>
         <p id="chStatus" class="status"></p>
@@ -7924,7 +7883,7 @@ async function genNChapters(start, n){
   for(let k=0;k<n;k++) finalizeChapterTitle(start+k);   // v1.0.114 本批各章生成后各自回填定稿标题（静默）
 }
 
-// v1.0.120 批量生成多章控件：步进 + 预设 + 「批量生成多章」；可用态随剩余章数联动，全写完后禁用并切换文案。
+// v1.0.121 批量生成多章控件：步进器 + 「批量生成多章」；可用态随剩余章数联动，全写完后禁用并切换文案。
 function syncGenBatchControls(){
   const mg = $('.multi-gen'); const out = $('#genCountOut'); const many = $('#btnGenMany');
   if(!mg || !out) return;
@@ -7933,11 +7892,6 @@ function syncGenBatchControls(){
   if(genBatchN < 1) genBatchN = 1;
   if(rem > 0 && genBatchN > rem) genBatchN = rem;
   out.textContent = String(genBatchN);
-  mg.querySelectorAll('[data-gen-pre]').forEach(b=>{
-    const isAll = b.dataset.genPre === 'all';
-    b.textContent = isAll ? (done ? '剩余 0' : `剩余 ${rem}`) : b.dataset.genPre;
-    b.disabled = done;
-  });
   mg.querySelectorAll('[data-gen-dec],[data-gen-inc]').forEach(b=>{ b.disabled = done; });
   if(many){ many.disabled = done; many.textContent = done ? '✅ 已全部写完' : '⚡ 批量生成多章'; }
 }
@@ -7947,13 +7901,6 @@ function bindGenBatchControls(){
   const inc = mg.querySelector('[data-gen-inc]');
   if(dec) dec.onclick = (e)=>{ e.preventDefault(); genBatchN = Math.max(1, genBatchN - 1); syncGenBatchControls(); };
   if(inc) inc.onclick = (e)=>{ e.preventDefault(); genBatchN = Math.min(Math.max(1, remainingEmptyChapters()), genBatchN + 1); syncGenBatchControls(); };
-  mg.querySelectorAll('[data-gen-pre]').forEach(b=>{
-    b.onclick = (e)=>{
-      e.preventDefault();
-      genBatchN = (b.dataset.genPre === 'all') ? Math.max(1, remainingEmptyChapters()) : Math.max(1, +b.dataset.genPre);
-      syncGenBatchControls();
-    };
-  });
   const many = $('#btnGenMany');
   if(many) many.onclick = (e)=>{
     e.preventDefault();
