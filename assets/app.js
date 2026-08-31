@@ -225,7 +225,7 @@ function currentIsDeepSeek(){
 }
 
 /* ---------- 主题切换（单页内深色 / 3D 黑板 / 热血 FC） ---------- */
-const THEMES = ['dark','light','blackboard','mecha','cyber','guofeng'];
+const THEMES = ['dark','light','blackboard','mecha','cyber','guofeng','aurora','paper'];
 function applyTheme(theme){
   if(THEMES.indexOf(theme) < 0) theme = 'dark';
   document.documentElement.setAttribute('data-theme', theme);
