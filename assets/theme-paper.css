@@ -55,3 +55,71 @@
   border-color: var(--accent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
 }
+
+/* =========================================================
+ * 可读性修正（暖阳·浅底）
+ * ---------------------------------------------------------
+ * 1) 写作风格「配方 / 词条」选中态：原为「彩色底 + 白字」，
+ *    --c-element 十套配色中多套为浅色（#b1e4e7/#dcb582/#e2d8ef/
+ *    #fcbed4/#f8b79a/#f9e9da），白字对比度仅 1.2~2.5:1，几乎不可读。
+ *    改为「同色相浅底 + 黑字」：保留配色辨识度，对比度升至 8:1 以上。
+ * 2) 全书规划师卡：该卡为全局暗色设计（黑底），但本主题的
+ *    textarea{background:#fff} 与 .card{background:panel} 会把它
+ *    染成白底，而 .cp-input 的 color:#fff 不变 → 白底白字完全隐形。
+ *    此处恢复暗底，并按需求将主线简述文字改为蓝色。
+ * ========================================================= */
+
+/* —— 1. 写作风格 · 词条选中态：浅底黑字 —— */
+[data-theme="paper"] .ws-chip.on,
+[data-theme="paper"] [data-cs] .ws-group .ws-chip.on,
+[data-theme="paper"] [data-cs] .ws-group[data-g="element"] .ws-chip.on{
+  background: color-mix(in srgb, var(--c-element, var(--accent2)) 38%, #fff);
+  border-color: color-mix(in srgb, var(--c-element, var(--accent2)) 65%, var(--line));
+  color:#1a1408;
+  font-weight:700;
+}
+[data-theme="paper"] .ws-chip.on:hover,
+[data-theme="paper"] [data-cs] .ws-group .ws-chip.on:hover{
+  background: color-mix(in srgb, var(--c-element, var(--accent2)) 52%, #fff);
+  color:#000;
+}
+/* 配方候选 · 标签与选中卡 */
+[data-theme="paper"] .ai-recipe-tg{
+  background: color-mix(in srgb, var(--accent) 16%, #fff);
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--line));
+  color:#6d3a17;
+}
+[data-theme="paper"] .ai-recipe-cand.hi{
+  background: color-mix(in srgb, var(--accent) 9%, #fff);
+  border-color: var(--accent);
+}
+/* 多线/多主角配方 · 选中态小标签 */
+[data-theme="paper"] .recipe.active .r-tag{
+  background: color-mix(in srgb, var(--accent) 30%, #fff);
+  color:#1a1408;
+  font-weight:700;
+}
+[data-theme="paper"] .recipe.active .r-check{
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+/* —— 2. 全书规划师卡：恢复暗底 + 主线简述改蓝字 —— */
+[data-theme="paper"] .cp-card{ background:#0f0e0c; color:#e8e0d2; border:1px solid rgba(255,255,255,.1); }
+[data-theme="paper"] .cp-body{ background:#0f0e0c; color:#e8e0d2; }
+[data-theme="paper"] .cp-item{ background:#15140f; color:#e8e0d2; border-color:rgba(255,255,255,.12); }
+[data-theme="paper"] .cp-no{ background:#241f14; border-color:rgba(255,255,255,.2); color:#e8dfcc; }
+[data-theme="paper"] .cp-input{
+  background:#15140f;
+  color:#5aa9e6;                       /* 主线简述正文：蓝色（黑底对比度约 7.7:1） */
+  border-color:rgba(255,255,255,.16);
+}
+[data-theme="paper"] .cp-input:focus{
+  border-color:rgba(120,180,240,.6);
+  box-shadow:0 0 0 2px rgba(90,169,230,.2);
+}
+[data-theme="paper"] .cp-input::placeholder{ color:rgba(140,190,240,.45); }
+[data-theme="paper"] .cp-wc{ color:rgba(150,195,245,.7); }
+[data-theme="paper"] .cp-body .sub{ color:rgba(255,255,255,.55); }
+[data-theme="paper"] .cp-body .muted{ color:rgba(255,255,255,.42); }
+[data-theme="paper"] .cp-stream-preview{ background:#15140f; color:#cfe3f5; border-color:rgba(255,255,255,.12); }

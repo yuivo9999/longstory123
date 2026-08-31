@@ -448,12 +448,19 @@ input[type="checkbox"], input[type="radio"]{ accent-color: var(--accent); width:
   content:''; position:absolute; left:0; top:8px; bottom:8px; width:3px; border-radius:2px;
   background: var(--grad-primary);
 }
+/* 阅读界面底部「概」按钮：全 8 主题统一白字（原继承 --accent，在渐变底上易糊） */
 .reader-syn-btn{
   background: var(--grad-primary) !important;
+  color:#fff !important;
+  text-shadow: 0 1px 3px rgba(0,0,0,.45);
+  border-color: transparent !important;
+  font-weight:800;
   box-shadow: 0 4px 14px var(--glow-a), inset 0 1px 0 color-mix(in srgb, #fff 22%, transparent) !important;
   transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
 }
-.reader-syn-btn:hover{ transform: translateY(-2px) scale(1.04); }
+/* 注意：原样式用 translateX(-50%) 水平居中，hover/active 必须保留，否则按钮右移 */
+.reader-syn-btn:hover{ transform: translateX(-50%) translateY(-2px) scale(1.04); color:#fff !important; }
+.reader-syn-btn:active{ transform: translateX(-50%) translateY(0) scale(.96); }
 
 /* ---------- 12. 状态文本语义（全主题通用） ---------- */
 .status.err{ color: var(--danger); }
