@@ -583,9 +583,10 @@ body.reader-lock{overflow:hidden}
 /* 建议9：万物词典「设定表」卡片 */
 .gs-group{margin:8px 0 4px}
 /* v10.53 词典小类别折叠：默认折叠仅显示标题，点击标题展开 */
-.gs-group > .gs-title{font-size:12px;font-weight:700;color:var(--sub);margin-bottom:6px;cursor:pointer;user-select:none;display:flex;align-items:center;gap:5px}
+/* v1.0.117 词典小类别标题放大为两倍(20px)，仅作用于人物/地名/专名/副线四个分组标题 */
+.gs-group > .gs-title{font-size:20px;font-weight:700;color:var(--sub);margin-bottom:6px;cursor:pointer;user-select:none;display:flex;align-items:center;gap:5px}
 .gs-group > .gs-title:hover{color:var(--accent)}
-.gs-cat-ico{font-size:11px;color:var(--muted);margin-left:2px}
+.gs-cat-ico{font-size:14px;color:var(--muted);margin-left:2px}
 .gs-group.gs-folded > :not(.gs-title){display:none}
 /* 可折叠条目（建议1·此轮）：折叠仅显示名字+简述行，展开显示全部可编辑字段 */
 .gs-entry{border:1px solid var(--line);border-radius:10px;margin-bottom:8px;overflow:hidden;background:var(--panel2)}
@@ -620,6 +621,14 @@ body.reader-lock{overflow:hidden}
 .so-fold-head{display:inline-flex;align-items:center;gap:4px;cursor:pointer;user-select:none;color:var(--text);font-size:14px;font-weight:700;padding:2px 0;margin-bottom:4px}
 .so-fold-head:hover{color:var(--accent)}
 .so-fold{font-size:12px;color:var(--sub)}
+/* v1.0.116 小说核心定位 / 深层命题 可复核面板（紧随简介下方；全主题通用） */
+.so-anchor{margin:6px 0 4px;border:1px dashed var(--line);border-radius:8px;padding:8px 10px;background:var(--panel2);display:flex;flex-direction:column;gap:6px}
+.so-anchor-row{display:flex;align-items:center;gap:8px}
+.so-anchor-t{flex:0 0 auto;font-size:12px;color:var(--accent);font-weight:700;white-space:nowrap}
+.so-anchor-in{flex:1;min-width:0;padding:5px 8px;font-size:13px;line-height:1.4;color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:6px}
+.so-anchor-in:focus{outline:none;border-color:var(--accent)}
+.so-anchor-foot{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.so-anchor-note{font-size:11px}
 .orig-body{margin-top:8px}
 .orig-text{width:100%;min-height:96px;padding:8px 10px;font-size:13px;line-height:1.6;resize:vertical;
   background:var(--panel2);border:1px solid var(--line);border-radius:8px;color:var(--text);cursor:text}
@@ -1036,6 +1045,8 @@ textarea[readonly]::selection{ background:color-mix(in srgb, var(--accent2) 45%,
 .ws-combo-btn{border-style:dashed;border-color:rgba(255,255,255,.22);background:rgba(64,140,255,.06);border-radius:10px}
 .ws-combo-btn:hover{border-color:var(--accent2);background:rgba(64,140,255,.12)}
 .ws-combo-btn:active{transform:scale(.985)}
+/* v1.0.117 配方(组合)选中态：与词条同用 .ws-opt.on 主题样式（深/亮实底、古风红填充），并将虚线框改实心以对齐词条 */
+.ws-combo-btn.on{border-style:solid}
 .ws-combo-btn .ws-opt-name{color:var(--accent2);font-size:13px}
 /* v2.5 组合配方删除/恢复：卡片右上角 ✕，被删后显示恢复链接 */
 .ws-combo-btn{position:relative;padding-right:24px}
@@ -1270,4 +1281,30 @@ textarea[readonly]::selection{ background:color-mix(in srgb, var(--accent2) 45%,
 .reader-syn-card .syn-body{ font-size:14px; line-height:1.8; white-space:pre-wrap; word-break:break-word; }
 .reader-syn-card .syn-body.muted{ color:var(--muted); }
 #chSumBody .syn-body{ white-space:pre-wrap; word-break:break-word; line-height:1.8; font-size:14px; }
+/* v1.0.115 速读梗概 · 阅读风容器（古风 palette，仅对本容器生效，不动全局主题变量，避免误伤其它界面） */
+.strip-read{
+  background:#f7f1e3;               /* 宣纸米底 */
+  color:#3a3129;                    /* 墨色正文 */
+  border:1px solid #d8c9a3;         /* 浅金分隔线 */
+  border-radius:8px;
+  padding:26px 30px;
+  font-size:16px; line-height:1.9;  /* 字号/行距略大于正文，契合国潮长篇气质 */
+}
+.strip-read h3{
+  color:#c0392b;                    /* 朱砂强调 */
+  border-bottom:1px solid #d8c9a3;
+  padding-bottom:10px; margin:0 0 16px;
+  font-size:18px; font-weight:800;
+}
+.strip-read p{ text-indent:2em; margin:0 0 15px; }  /* 首行缩进两字，符合古风排版 */
+.strip-read p:last-child{ margin-bottom:0; }
+.strip-read .muted{ color:#8a7f6d; }
+/* 密度自检告警 */
+.strip-warn{
+  margin:10px 0 0; padding:8px 12px;
+  background:#fdf0ec; color:#b03a2e;
+  border:1px solid #f0c9bd; border-radius:6px;
+  font-size:13px; line-height:1.6;
+}
+.strip-warn b{ font-weight:800; }
 /* v10.53 概要段缩略显示 */
