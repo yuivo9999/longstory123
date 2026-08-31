@@ -790,6 +790,7 @@ body.reader-lock{overflow:hidden}
 .ch-card{overflow:hidden}
 .ch-card .ch-head{display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;padding:2px 0;border-radius:8px}
 .ch-card .ch-head:hover{background:color-mix(in srgb, var(--accent) 6%, transparent)}
+.ch-pos{flex:0 0 auto;font-variant-numeric:tabular-nums;opacity:.8;background:color-mix(in srgb, var(--accent) 10%, transparent);border-color:transparent;color:var(--sub);font-size:11px}
 .ch-fold-ico{flex:0 0 auto;width:18px;text-align:center;color:var(--muted);font-size:13px;transition:transform .15s}
 .ch-card .ch-body.folded{display:none}
 .ch-pager{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:10px 0}

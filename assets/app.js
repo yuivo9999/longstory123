@@ -7,7 +7,7 @@
 'use strict';
 
 /* ---------- 全局状态 ---------- */
-const APP_VERSION = '1.0.111';   // 应用版本号（P1-1v4 新增：标题/单章原始AI响应手动提取按钮）：index.html 的 ?v= 资源戳与之同步递增，用于标识产物已更新
+const APP_VERSION = '1.0.119';   // 应用版本号（P1-1v4 新增：标题/单章原始AI响应手动提取按钮）：index.html 的 ?v= 资源戳与之同步递增，用于标识产物已更新
 const KEY_CFG = 'fyp_cfg';
 const KEY_STATE = 'fyp_state';   // 旧版单项目 key（仅用于首次迁移）
 const KEY_LIB = 'fyp_lib';       // 新版多项目历史库
@@ -2003,6 +2003,12 @@ function chapterCountHint(){
   const v = chapterCountVal();
   return v ? `全书 ${v} 章` : '请填写全书章节数（1-200，必填）';
 }
+// v1.0.119 真实章节数：已生成标题时以 chapters.length 为准（历史存档解耦、自动跟随真实标题数）；无章节时回退用户声明值
+function realChapterCount(){
+  const n = (state.outline && Array.isArray(state.outline.chapters)) ? state.outline.chapters.length : 0;
+  if(n>0) return n;
+  return chapterCountVal();
+}
 // 全书总字数基准：优先用用户在「最前」设定的 totalWords，未设时回退 30 万
 function totalWordsBase(){ return (state.totalWords && +state.totalWords>0) ? +state.totalWords : 300000; }
 const totalWan = () => (totalWordsBase()/10000).toLocaleString('en-US');
@@ -2858,7 +2864,7 @@ function openSubplotBoard(){
 }
 // 体量提示（拼入章节正文提示词）：只交代全书章节数与当前章位，不给任何字数限制
 function sizeChapterInjection(){
-  const n = chapterCountVal();
+  const n = realChapterCount();   // v1.0.119 用真实章节数（对齐 users 看到的章数），无章节时不注入
   const total = n ? `全书共 ${n} 章；` : '';
   return `${total}本章正文不设字数上限，按剧情需要自然成稿，章与章之间衔接顺畅、节奏自然。`;
 }
@@ -4089,8 +4095,10 @@ function chapterTitleBlock(){
   const arr = (o && Array.isArray(o.chapters)) ? o.chapters : [];
   const cc = chapterCountVal();
   const ccOn = !!cc;
-  // 全书章节数输入（第二步：生成全部标题前必填）
-  const nIn = `
+  // v1.0.119 阶段C（已生成标题）整块移除章节数面板（不占版面），总数并入标题栏；A/B 保留可编辑输入
+  const locked = arr.length > 0;
+  const nIn = locked ? ''
+    : `
     <div class="tw-panel ct-n-panel">
       <div class="poly-head"><span class="poly-ic">📐</span><b>全书章节数</b><span class="poly-rule">第二步 · 生成全部章节标题前必填 · 填 1-200 整数</span></div>
       <div class="tw-row">
@@ -4120,7 +4128,7 @@ function chapterTitleBlock(){
     </div>`).join('');
   return `<div class="ct-block${state.ctCollapsed?' ct-collapsed':''}">
     <div class="ct-head" data-ct-fold role="button" tabindex="0" title="展开/收起">
-      <b>📚 章节标题 <span class="ct-fold-ico">${state.ctCollapsed?'▸':'▾'}</span></b>
+      <b>📚 章节标题（共 ${arr.length} 章） <span class="ct-fold-ico">${state.ctCollapsed?'▸':'▾'}</span></b>
       <span class="ct-tools">
         <button type="button" class="btn small ghost" data-ct-hist>单历(${chTitleHistory().length})</button>
         <button type="button" class="btn small ghost" data-ct-copy>📋 复制全部章节标题</button>
@@ -5459,6 +5467,7 @@ function renderChapters(){
     if(chPage > maxPage) chPage = maxPage;
     const from = chPage * CH_PAGE_SIZE;
     const slice = state.chapters.slice(from, from + CH_PAGE_SIZE);
+    const rcN = realChapterCount() || total;   // v1.0.119 正文生成入口小徽标：全书真实章数（已生成标题时跟随 chapters.length）
     const html = slice.map((c,offset)=>{
       const i = from + offset;
       const hasC = !!(c.content && c.content.trim());
@@ -5466,10 +5475,12 @@ function renderChapters(){
       const foldedCls = hasC ? '' : ' folded';
       const stTxt = chState[i]==='generating'?'⏳ 生成中':chState[i]==='error'?'⚠️ 生成失败':(hasC?'已生成':'未生成');
        const stTag = chState[i]==='error'||!hasC?'tag-warn':'tag-ok';
+       const posBadge = rcN ? `<span class="pill ch-pos" data-ch-pos title="全书共 ${rcN} 章">第 ${i+1}/${rcN} 章</span>` : '';
        return `<div class="card ch-card" data-ch-card="${i}">
         <div class="ch-head" data-fold="${i}" role="button" tabindex="0" aria-expanded="${foldedCls?'false':'true'}">
           <span class="ch-fold-ico">${hasC?'▾':'▸'}</span>
           <h3 style="margin:0;flex:1;word-break:break-word;line-height:1.35" title="第${i+1}章 · ${esc(cleanChapterTitle(c.title))}">第${i+1}章 · ${esc(cleanChapterTitle(c.title))}${c._titleByAI?'<i class="tbd-title-tag" style="font-style:normal;font-size:11px;font-weight:400;opacity:.55;margin-left:6px" title="本章标题已由章节正文 AI 定稿">正文定稿</i>':(!state.plannerFinalized?'<i class="tbd-title-tag" style="font-style:normal;font-size:11px;font-weight:400;opacity:.55;margin-left:6px" title="标题尚未由全书规划师定稿，当前沿用第二步参考稿">参考稿</i>':'')}</h3>
+          ${posBadge}
           <span class="pill ${stTag}" data-ch-state>${stTxt}</span>
           ${wcBadge(c.content, `data-wc-ch="${i}"`)}
         </div>
@@ -5703,8 +5714,7 @@ function renderLongProgress(){
   const done = state.chapters.filter(c=> c.content && c.content.trim()).length;
   const total = state.chapters.length;
   let chars = 0; state.chapters.forEach(c=> chars += countWords(c.content).total);
-  const ccNum = chapterCountVal();
-  const cap = ccNum ? `全书 ${ccNum} 章` : '';
+  const cap = total ? `全书 ${total} 章` : (chapterCountVal() ? `全书 ${chapterCountVal()} 章` : '');
   el.innerHTML = `<span class="pill">写作进度：${done}/${total} 章</span> <span class="pill">已写约 ${chars.toLocaleString('en-US')} 字${cap ? ' · '+cap : ''}</span>`;
 }
 
@@ -6358,7 +6368,14 @@ function bindView(){
     ccIn.addEventListener('keydown', e=>{ if(e.key==='Enter') ccIn.blur(); });
     ccIn.addEventListener('change', ()=>{
       const v = Math.floor(Number(ccIn.value));
-      if(Number.isInteger(v) && v>=1 && v<=200) state.chapterCount = v;
+      if(Number.isInteger(v) && v>=1 && v<=200){
+        // v1.0.118 已生成章节标题后锁定：拒绝静默修改章节数
+        if(state.outline && Array.isArray(state.outline.chapters) && state.outline.chapters.length>0){
+          toast('已生成章节标题，全书章节数已锁定；如需修改请通过「历史版本」恢复不同章节数的大纲');
+          render(); return;
+        }
+        state.chapterCount = v;
+      }
       else { state.chapterCount = null; toast('章节数需为 1-200 的整数'); }
       persist(); render();
     });
