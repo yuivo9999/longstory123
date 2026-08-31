@@ -7,7 +7,7 @@
 'use strict';
 
 /* ---------- 全局状态 ---------- */
-const APP_VERSION = '1.0.121';   // 应用版本号（v1.0.121 优化构想多色竖向方案卡2-6 / ai配方助手标题深墨 / 批量生成只留步进器）：index.html 的 ?v= 资源戳与之同步递增，用于标识产物已更新
+const APP_VERSION = '1.0.123';   // 应用版本号（v1.0.123 新增区间生成：起始章~结束章无条件覆盖，旧版自动入历史）：index.html 的 ?v= 资源戳与之同步递增，用于标识产物已更新
 const KEY_CFG = 'fyp_cfg';
 const KEY_STATE = 'fyp_state';   // 旧版单项目 key（仅用于首次迁移）
 const KEY_LIB = 'fyp_lib';       // 新版多项目历史库
@@ -559,6 +559,8 @@ async function callDeepSeek(system, user, {temperature=null, signal=null, maxTok
       messages: [{role:'system', content: system}, {role:'user', content: user}],
       temperature: (temperature==null ? s.temperature : temperature),
       stream: streaming
+      // v1.0.122 锁防截断：user 一律整段原样入体（内层供构想/配方等全文发送），绝不在此或上游做长度切片；
+      // 实际发送的完整长度可在【请求日志 User·前500字/共N字】观测，N 即全量字符数（前500字仅为展示预览，非发送截断）。
     };
     // 缓存友好：请求的前缀（system + user 恒定首部）在全书各章保持不变，
     // DeepSeek 自动命中上下文缓存，命中价远低于未命中价；可变信息一律放 user 最末。
@@ -1627,7 +1629,7 @@ function aiRecipeCard(){
     <div class="ai-recipe-body">
       <div class="ai-desc-wrap">
         <span class="ai-upload-name" data-ai-upload-name></span>
-        <textarea id="aiReDesc" rows="3" maxlength="300" placeholder="用一段话描述你想要的风格/题材/氛围。例如：轻松治愈的都市言情，带点温馨笑料，配角俏皮，节奏明快。" style="width:100%;box-sizing:border-box"></textarea>
+        <textarea id="aiReDesc" rows="3" placeholder="用一段话描述你想要的风格/题材/氛围。例如：轻松治愈的都市言情，带点温馨笑料，配角俏皮，节奏明快。" style="width:100%;box-sizing:border-box"></textarea>
       </div>
       <div class="ai-recipe-tool">
         <button type="button" class="btn primary" data-ai-recipe-gen>✨ 生成配方</button>
@@ -1701,7 +1703,7 @@ async function aiRecipeGen(){
   const gen = $('[data-ai-recipe-gen]'); if(gen){ gen.disabled = true; gen.textContent = '生成中…'; }
   try{
     const {system, user} = aiRecipePrompt(desc);
-    const raw = await callDeepSeek(system, user, {temperature:0.9, maxTokens:2500});
+    const raw = await callDeepSeek(system, user, {maxTokens:2500, temperature:(getCfg().aiRecipeTemp==null?0.9:getCfg().aiRecipeTemp)});   // v1.0.122 AI配方助手温度可调（默认0.9）
     const list = parseAiJsonList(raw);
     if(!list || !list.length) throw new Error('AI 未返回有效配方，请重试');
     aiRp = { list, hi: 0 };
@@ -1722,7 +1724,7 @@ async function aiRecipeFromOutline(text){
   const gen = $('[data-ai-recipe-gen]'); if(gen){ gen.disabled = true; gen.textContent = '通读中…'; }
   try{
     const {system, user} = aiPromptFromOutline(text);
-    const raw = await callDeepSeek(system, user, {temperature:0.9, maxTokens:2500});
+    const raw = await callDeepSeek(system, user, {maxTokens:2500, temperature:(getCfg().aiRecipeTemp==null?0.9:getCfg().aiRecipeTemp)});   // v1.0.122 AI配方助手温度可调（默认0.9）
     const list = parseAiJsonList(raw);
     if(!list || !list.length) throw new Error('AI 未返回有效配方，请重试');
     aiRp = { list, hi: 0 };
@@ -3748,6 +3750,18 @@ function viewStory(){
             </span>
           </span>` : `<button id="btnGenAllChapters" class="btn primary">⚡ 一键生成全部章节</button><button id="btnReOutline" class="btn ghost">重生成大纲</button>` }
         </div>
+        ${ isLong() ? `<div class="range-gen">
+          <span class="muted" style="font-size:12px;white-space:nowrap">区间生成：</span>
+          <label class="rg-label">从第
+            <input id="rgStart" type="number" min="1" max="${state.chapters.length}" value="1" class="rg-input">
+          章</label>
+          <span class="muted" style="font-size:12px">到第</span>
+          <label class="rg-label">
+            <input id="rgEnd" type="number" min="1" max="${state.chapters.length}" value="2" class="rg-input">
+          章</label>
+          <button id="btnRangeGen" class="btn blue">⚡ 生成</button>
+          <span id="rgStatus" class="muted" style="font-size:11px"></span>
+        </div>` : '' }
         <p id="chStatus" class="status"></p>
         ${ isLong() ? `<div class="long-progress"></div>` : '' }
         <div id="wcTotal" class="wc-total hidden"></div>
@@ -6328,6 +6342,7 @@ function bindView(){
   const btnGAShort = $('#btnGenAllChapters'); if(btnGAShort) btnGAShort.onclick = ()=> genManyChapters(state.chapters.length, true);
   // v1.0.120 长篇：批量生成多章（步进 + 预设 + 剩余章数联动，统一走 genManyChapters）
   bindGenBatchControls();
+  bindRangeGen();   // v1.0.123 区间生成：指定起始章~结束章，无条件覆盖（旧版自动入历史）
 
   // 标题管理器：点击当前名改名；点小三角展开/收起曾用名
   const tmCur = $('#tmCur'); if(tmCur) tmCur.onclick = ()=>{
@@ -7911,6 +7926,46 @@ function bindGenBatchControls(){
   syncGenBatchControls();
 }
 
+// v1.0.123 区间生成：从起始章到结束章无条件生成（覆盖已写章，旧版自动入历史）；与现有批量生成并行独立。
+function bindRangeGen(){
+  const s = $('#rgStart'), e = $('#rgEnd'), btn = $('#btnRangeGen'), st = $('#rgStatus');
+  if(!s || !e || !btn) return;
+  const total = state.chapters.length;
+  const clamp = (v, lo, hi)=> Math.max(lo, Math.min(hi, v));
+  const validate = ()=>{
+    const sv = clamp(parseInt(s.value) || 1, 1, total);
+    const ev = clamp(parseInt(e.value) || 1, 1, total);
+    s.value = sv; e.value = ev;
+    if(sv > ev){
+      if(st) st.textContent = '⚠️ 起始章不能大于结束章';
+      btn.disabled = true;
+      return false;
+    }
+    if(st) st.textContent = '';
+    btn.disabled = false;
+    return true;
+  };
+  s.oninput = validate; e.oninput = validate;
+  btn.onclick = async ()=>{
+    if(!validate()) return;
+    const sv = parseInt(s.value), ev = parseInt(e.value);
+    const n = ev - sv + 1;
+    btn.disabled = true; btn.textContent = '生成中…';
+    try{
+      await genNChapters(sv - 1, n);   // 0-based start，genNChapters 内每章 snapshotChapterVersion + 覆盖
+      toast(`第 ${sv}~${ev} 章（共 ${n} 章）已生成`);
+      if(st) st.textContent = `✅ 第 ${sv}~${ev} 章已生成`;
+    }catch(err){
+      toast(`第 ${sv}~${ev} 章生成失败：${err.message}`);
+      if(st) st.textContent = `❌ 生成失败`;
+    }finally{
+      btn.disabled = false; btn.textContent = '⚡ 生成';
+      autoExtractGlossary(); autoUpdateSubplots();
+    }
+  };
+  validate();
+}
+
 // 统一批量生成入口（v1.0.120）：长篇按当前步进/预设章数连续生成；短片「一键生成全部」从头生成全部。
 // 定位从第一个尚无正文的章节起，本次生成 count 章；若剩余空章不足则生成剩余全部。
 // fromStart=true 时从第 1 章开始（短片生成全部语义，可覆盖已写章节）。
@@ -8551,6 +8606,7 @@ function echoTemps(){
   $('#cfgTempStrip').value = (c.stripTemp==null ? '' : c.stripTemp);
   $('#cfgTempChapter').value = (c.chapterTemp==null ? '' : c.chapterTemp);
   $('#cfgTempQC').value = (c.qcTemp==null ? '' : c.qcTemp);
+  $('#cfgAiRecipeTemp').value = (c.aiRecipeTemp==null ? '' : c.aiRecipeTemp);   // v1.0.122 AI配方助手温度（默认0.9）
 }
 
 // v10.16 温度保存（从 saveSettings 拆出，主题面板「保存温度」与设置弹窗「保存」共用）
@@ -8564,6 +8620,7 @@ function saveTemps(){
   editCfg.stripTemp   = rd('#cfgTempStrip', 1.0);
   editCfg.chapterTemp = rd('#cfgTempChapter', 0.5);
   editCfg.qcTemp      = rd('#cfgTempQC', 0.2);
+  editCfg.aiRecipeTemp = rd('#cfgAiRecipeTemp', 0.9);   // v1.0.122 AI配方助手温度（默认0.9）
 }
 
 function _curSpec(){
