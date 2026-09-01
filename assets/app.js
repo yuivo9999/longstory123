@@ -8028,7 +8028,7 @@ function bindRangeGen(){
       autoExtractGlossary(); autoUpdateSubplots();
     }
   };
-  validate();
+  validateClamp();
 }
 
 // 统一批量生成入口（v1.0.120）：长篇按当前步进/预设章数连续生成；短片「一键生成全部」从头生成全部。
