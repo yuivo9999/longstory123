@@ -7991,10 +7991,9 @@ function bindRangeGen(){
   if(!s || !e || !btn) return;
   const total = state.chapters.length;
   const clamp = (v, lo, hi)=> Math.max(lo, Math.min(hi, v));
-  const validate = ()=>{
-    const sv = clamp(parseInt(s.value) || 1, 1, total);
-    const ev = clamp(parseInt(e.value) || 1, 1, total);
-    s.value = sv; e.value = ev;
+  const validateWarn = ()=>{
+    const sv = parseInt(s.value) || 1;
+    const ev = parseInt(e.value) || 1;
     if(sv > ev){
       if(st) st.textContent = '⚠️ 起始章不能大于结束章';
       btn.disabled = true;
@@ -8004,7 +8003,14 @@ function bindRangeGen(){
     btn.disabled = false;
     return true;
   };
-  s.oninput = validate; e.oninput = validate;
+  const validateClamp = ()=>{
+    const sv = clamp(parseInt(s.value) || 1, 1, total);
+    const ev = clamp(parseInt(e.value) || 1, 1, total);
+    s.value = sv; e.value = ev;
+    validateWarn();
+  };
+  s.oninput = validateWarn; e.oninput = validateWarn;   
+  s.onblur = validateClamp; e.onblur = validateClamp;
   btn.onclick = async ()=>{
     if(!validate()) return;
     const sv = parseInt(s.value), ev = parseInt(e.value);
