@@ -1047,11 +1047,11 @@ textarea[readonly]::selection{ background:color-mix(in srgb, var(--accent2) 45%,
 .ws-opt:hover{border-color:rgba(255,255,255,.22)}
 .ws-opt.on{border-color:var(--accent2);background:rgba(64,140,255,.12);box-shadow:inset 2px 0 0 var(--accent2)}
 .ws-opt-name{font-size:13px;font-weight:700;color:rgba(255,255,255,.9);line-height:1.4}
-.ws-opt.on .ws-opt-name{color:#fff}
+.ws-opt.on .ws-opt-name{color:#1a1a2e}
 .ws-opt-note{font-size:12px;font-weight:400;color:var(--sub);line-height:1.55;margin-top:2px}
 .ws-subcat-fold .ws-opt-note{display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
 .ws-subcat-fold .ws-opt:hover .ws-opt-note,.ws-subcat-fold .ws-opt.on .ws-opt-note{-webkit-line-clamp:unset}
-.ws-opt.on .ws-opt-note{color:rgba(255,255,255,.72)}
+.ws-opt.on .ws-opt-note{color:rgba(0,0,0,.65)}
 /* v2.4 组合配方栏：一键配齐入口，置于五大类之上，视觉上与普通词条区分 */
 .ws-combo .ws-subcat-t{color:var(--accent);font-size:12px}
 .ws-combo-title{display:inline-flex;align-items:center;gap:4px;min-width:0}
